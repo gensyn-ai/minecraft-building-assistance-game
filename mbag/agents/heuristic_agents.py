@@ -9,6 +9,16 @@ from ..environment.types import MbagObs, MbagAction
 from .mbag_agent import MbagAgent
 
 
+class NoopAgent(MbagAgent):
+    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
+        action_dist = np.zeros(
+            MbagAction.get_action_shape(self.env_config["world_size"])
+        )
+        action_dist[MbagAction.NOOP] = 1
+        action_dist /= action_dist.sum()
+        return action_dist
+
+
 class LayerBuilderAgent(MbagAgent):
     """
     Builds the goal structure one layer at a time, from bottom to top.

@@ -1,8 +1,8 @@
-from typing import Dict, List, Literal, Optional, Sequence, Tuple, cast
+from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 import numpy as np
 import random
 
-from .types import BlockLocation, MbagAction, WorldLocation
+from .types import BlockLocation, MbagAction, WorldLocation, WorldSize
 
 
 def cartesian_product(*arrays):
@@ -34,9 +34,20 @@ class MinecraftBlocks(object):
         "bedrock",
     ]
     NAME2ID: Dict[str, int] = {
-        block_name: block_id for block_id, block_name in enumerate(ID2NAME)
+        **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
+        # Alias names:
+        "grass": 2,
     }
     AIR = NAME2ID["air"]
+
+    SOLID_NAMES: Set[str] = {
+        "cobblestone",
+        "dirt",
+        "bedrock",
+    }
+    SOLID_IDS = (lambda NAME2ID, SOLID_NAMES: {NAME2ID[name] for name in SOLID_NAMES})(
+        NAME2ID, SOLID_NAMES
+    )
 
     def __init__(self, size: Tuple[int, int, int]):
         self.size = size
@@ -59,6 +70,16 @@ class MinecraftBlocks(object):
 
     def __getitem__(self, location: BlockLocation) -> Tuple[np.uint8, np.uint8]:
         return (self.blocks[location], self.block_states[location])
+
+    def is_valid_block_location(self, location: BlockLocation) -> bool:
+        return (
+            location[0] >= 0
+            and location[0] < self.size[0]
+            and location[1] >= 0
+            and location[1] < self.size[1]
+            and location[2] >= 0
+            and location[2] < self.size[2]
+        )
 
     def try_break_place(
         self,
@@ -87,12 +108,27 @@ class MinecraftBlocks(object):
                 # Can't break these blocks.
                 return None
 
-        # Now, look for a location and viewpoint from which place/break block.
+        # Now, look for a location and viewpoint from which to place/break block.
         click_locations = np.empty((3 * 2 * 3 * 3, 3))
         shift = 1e-4 if action_type == MbagAction.BREAK_BLOCK else -1e-4
         click_location_index = 0
         for face_dim in range(3):
             for face in [0 - shift, 1 + shift]:
+                # If we are placing, need to make sure that there is a solid block
+                # surface to place against.
+                if action_type == MbagAction.PLACE_BLOCK:
+                    against_block_location_arr = np.array(block_location)
+                    against_block_location_arr[face_dim] += np.sign(face - 0.5)
+                    against_block_location: BlockLocation = cast(
+                        BlockLocation, tuple(against_block_location_arr.astype(int))
+                    )
+                    if (
+                        not self.is_valid_block_location(against_block_location)
+                        or self.blocks[against_block_location]
+                        not in MinecraftBlocks.SOLID_IDS
+                    ):
+                        continue
+
                 for u in [0.1, 0.5, 0.9]:
                     for v in [0.1, 0.5, 0.9]:
                         click_location = click_locations[click_location_index]
@@ -101,6 +137,7 @@ class MinecraftBlocks(object):
                         click_location[face_dim - 1] += v
                         click_location[face_dim - 2] += u
                         click_location_index += 1
+        click_locations = click_locations[:click_location_index]
 
         player_locations: np.ndarray
         if player_location is not None:
@@ -111,6 +148,20 @@ class MinecraftBlocks(object):
                 np.linspace(-5, 3, 9),
                 np.linspace(-4, 4, 9),
             )
+            # Remove deltas which would put the player inside the block being placed/
+            # broken.
+            player_deltas = player_deltas[
+                ~(
+                    (player_deltas[:, 0] == 0)
+                    & (player_deltas[:, 1] >= -1)
+                    & (
+                        player_deltas[:, 1]
+                        <= (1 if action_type == MbagAction.PLACE_BLOCK else 0)
+                    )
+                    & (player_deltas[:, 2] == 0)
+                )
+            ]
+
             block_player_location = np.array(block_location, float)
             block_player_location[0] += 0.5
             block_player_location[2] += 0.5
@@ -213,3 +264,12 @@ class MinecraftBlocks(object):
             cast(WorldLocation, tuple(player_location_list)),
             cast(WorldLocation, tuple(click_location)),
         )
+
+    @classmethod
+    def from_malmo_grid(
+        cls, size: WorldSize, block_names: List[str]
+    ) -> "MinecraftBlocks":
+        block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
+        blocks = MinecraftBlocks(size)
+        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
+        return blocks
