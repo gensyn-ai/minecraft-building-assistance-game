@@ -29,16 +29,21 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
-          pip install flake8 black mypy
+          pip install flake8 black mypy pytest
       - name: Run flake8
-        run: flake8 mbag
+        run: flake8 mbag tests
         if: ${{ always() }}
 
       - name: Run black
-        run: black --check mbag
+        run: black --check mbag tests
         if: ${{ always() }}
 
       - name: Check types
         if: ${{ always() }}
         run: |
-          mypy mbag
+          mypy mbag tests
+
+      - name: Run tests
+        if: ${{ always() }}
+        run: |
+          pytest
