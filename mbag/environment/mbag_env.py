@@ -1,5 +1,4 @@
-from mbag.environment.malmo import MalmoObservationDict
-from typing import List, Literal, Optional, Tuple, Type, TypedDict, cast
+from typing import List, Literal, Optional, TYPE_CHECKING, Tuple, Type, TypedDict, cast
 import numpy as np
 from gym import spaces
 import time
@@ -15,6 +14,8 @@ from .types import (
     num_world_obs_channels,
 )
 from .goals.goal_generator import GoalGenerator
+if TYPE_CHECKING:
+    from .malmo import MalmoObservationDict
 
 logger = logging.getLogger(__name__)
 
