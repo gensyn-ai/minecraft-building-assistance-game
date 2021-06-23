@@ -14,6 +14,7 @@ from .types import (
     num_world_obs_channels,
 )
 from .goals.goal_generator import GoalGenerator
+
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
 
