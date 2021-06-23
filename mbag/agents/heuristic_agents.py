@@ -2,20 +2,25 @@
 A collection of agents following simple heuristics.
 """
 
-from mbag.environment.blocks import MinecraftBlocks
+from typing import Tuple
 import numpy as np
+import random
 
-from ..environment.types import MbagObs, MbagAction
+from ..environment.types import (
+    BlockLocation,
+    MbagActionTuple,
+    MbagActionType,
+    MbagObs,
+    MbagAction,
+)
+from ..environment.blocks import MinecraftBlocks
 from .mbag_agent import MbagAgent
 
 
 class NoopAgent(MbagAgent):
-    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
-        action_dist = np.zeros(
-            MbagAction.get_action_shape(self.env_config["world_size"])
-        )
+    def get_action_type_distribution(self, obs: MbagObs) -> np.ndarray:
+        action_dist = np.zeros(MbagAction.NUM_ACTION_TYPES)
         action_dist[MbagAction.NOOP] = 1
-        action_dist /= action_dist.sum()
         return action_dist
 
 
@@ -29,11 +34,8 @@ class LayerBuilderAgent(MbagAgent):
     def reset(self):
         self.current_layer = 0
 
-    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
+    def get_action(self, obs: MbagObs) -> MbagActionTuple:
         (world_obs,) = obs
-        action_dist = np.zeros(
-            MbagAction.get_action_shape(self.env_config["world_size"])
-        )
 
         # Check if current layer is done.
         while self.current_layer < self.env_config["world_size"][1] and np.all(
@@ -42,17 +44,31 @@ class LayerBuilderAgent(MbagAgent):
         ):
             self.current_layer += 1
 
+        action_type: MbagActionType
         if self.current_layer == self.env_config["world_size"][1]:
-            action_dist[MbagAction.NOOP] = 1
+            action_type = MbagAction.NOOP
+            return action_type, 0, 0
         else:
             layer_blocks = world_obs[0, :, self.current_layer, :]
             goal_blocks = world_obs[2, :, self.current_layer, :]
-            action_dist[MbagAction.PLACE_BLOCK, :, self.current_layer, :] = (
-                layer_blocks == MinecraftBlocks.AIR
-            ) & (goal_blocks != MinecraftBlocks.AIR)
-            action_dist[MbagAction.BREAK_BLOCK, :, self.current_layer, :] = (
-                layer_blocks != MinecraftBlocks.AIR
-            ) & (goal_blocks == MinecraftBlocks.AIR)
 
-        action_dist /= action_dist.sum()
-        return action_dist
+            layer_block_location: Tuple[int, int] = tuple(
+                random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
+            )
+            block_location: BlockLocation = (
+                layer_block_location[0],
+                self.current_layer,
+                layer_block_location[1],
+            )
+            block_location_id = np.ravel_multi_index(
+                block_location, self.env_config["world_size"]
+            )
+
+            if layer_blocks[layer_block_location] == MinecraftBlocks.AIR:
+                action_type = MbagAction.PLACE_BLOCK
+                block_id = goal_blocks[layer_block_location]
+            else:
+                action_type = MbagAction.BREAK_BLOCK
+                block_id = 0
+
+            return action_type, block_location_id, block_id

@@ -2,6 +2,7 @@ import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent, NoopAgent
+from mbag.environment.goals.simple import BasicGoalGenerator
 
 
 def test_single_agent():
@@ -10,6 +11,7 @@ def test_single_agent():
             "world_size": (5, 5, 5),
             "num_players": 1,
             "horizon": 50,
+            "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
             "use_malmo": False,
         },
@@ -21,7 +23,7 @@ def test_single_agent():
         ],
     )
     reward = evaluator.rollout()
-    assert reward == 25
+    assert reward == 9
 
 
 def test_two_agents():
@@ -30,6 +32,7 @@ def test_two_agents():
             "world_size": (5, 5, 5),
             "num_players": 2,
             "horizon": 50,
+            "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True, True],
             "use_malmo": False,
         },
@@ -39,7 +42,7 @@ def test_two_agents():
         ],
     )
     reward = evaluator.rollout()
-    assert reward == 25
+    assert reward == 9
 
 
 @pytest.mark.xfail(strict=False)
@@ -49,6 +52,7 @@ def test_malmo():
             "world_size": (5, 5, 5),
             "num_players": 1,
             "horizon": 100,
+            "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
             "use_malmo": True,
         },
@@ -57,4 +61,4 @@ def test_malmo():
         ],
     )
     reward = evaluator.rollout()
-    assert reward == 25
+    assert reward == 9

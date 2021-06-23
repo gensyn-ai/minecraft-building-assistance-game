@@ -1,4 +1,4 @@
-from typing import Literal, Tuple, TypedDict
+from typing import Literal, Tuple, TypedDict, cast
 import numpy as np
 
 
@@ -25,7 +25,11 @@ num_world_obs_channels = 4
 MbagObs = Tuple[MbagWorldObsArray]
 
 
-MbagActionId = int
+MbagActionType = Literal[0, 1, 2]
+MbagActionTuple = Tuple[MbagActionType, int, int]
+"""
+An action tuple (action_type, block_location, block_id).
+"""
 
 
 class MbagAction(object):
@@ -33,29 +37,25 @@ class MbagAction(object):
     An action in MBAG which may or may not operate on a particular block.
     """
 
-    NOOP = 0
-    PLACE_BLOCK = 1
-    BREAK_BLOCK = 2
+    NOOP: MbagActionType = 0
+    PLACE_BLOCK: MbagActionType = 1
+    BREAK_BLOCK: MbagActionType = 2
 
-    NUM_ACTIONS = 3
+    NUM_ACTION_TYPES = 3
 
-    action_type: Literal[0, 1, 2]
+    action_type: MbagActionType
     block_location: BlockLocation
+    block_id: int
 
-    def __init__(self, action_id: MbagActionId, world_size: WorldSize):
-        action_parts = np.unravel_index(
-            action_id, (MbagAction.NUM_ACTIONS,) + world_size
+    # Which actions require which attributes:
+    BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK]
+    BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK]
+
+    def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
+        self.action_type, block_location_index, self.block_id = action_tuple
+        self.block_location = cast(
+            BlockLocation, tuple(np.unravel_index(block_location_index, world_size))
         )
-        self.action_type = action_parts[0]
-        self.block_location = action_parts[1:]
-
-    @classmethod
-    def get_action_shape(cls, world_size: WorldSize) -> Tuple[int, int, int, int]:
-        return (cls.NUM_ACTIONS,) + world_size
-
-    @classmethod
-    def get_num_actions(cls, world_size: WorldSize) -> int:
-        return cls.NUM_ACTIONS * int(np.prod(world_size))
 
 
 class MbagInfoDict(TypedDict):

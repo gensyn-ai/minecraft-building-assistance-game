@@ -17,13 +17,13 @@ from .mbag_env import MbagConfigDict
 logger = logging.getLogger(__name__)
 
 
-class MalmoObservationDict(TypedDict):
+class MalmoObservationDict(TypedDict, total=False):
     world: List[str]
     goal: List[str]
 
 
 class MalmoClient(object):
-    ACTION_DELAY = 0.5
+    ACTION_DELAY = 0.3
 
     agent_hosts: List[MalmoPython.AgentHost]
     experiment_id: str
@@ -34,13 +34,24 @@ class MalmoClient(object):
 
     def _get_agent_section_xml(self, player_index: int, env_config: MbagConfigDict):
         width, height, depth = env_config["world_size"]
+
+        inventory_item_tags: List[str] = []
+        for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+            block_name = MinecraftBlocks.ID2NAME[block_id]
+            inventory_item_tags.append(
+                f"""
+                <InventoryItem slot="{block_id}" type="{block_name}" />
+                """
+            )
+        inventory_items_xml = "\n".join(inventory_item_tags)
+
         return f"""
         <AgentSection mode="Creative">
             <Name>player_{player_index}</Name>
             <AgentStart>
                 <Placement x="{0.5 + player_index}" y="2" z="0.5" yaw="90"/>
                 <Inventory>
-                    <InventoryItem slot="0" type="cobblestone" />
+                    {inventory_items_xml}
                 </Inventory>
             </AgentStart>
             <AgentHandlers>
@@ -54,8 +65,10 @@ class MalmoClient(object):
                         <max x="{width * 2}" y="{height - 1}" z="{depth - 1}" />
                     </Grid>
                 </ObservationFromGrid>
+                <ObservationFromFullInventory />
                 <AbsoluteMovementCommands />
                 <DiscreteMovementCommands />
+                <InventoryCommands />
                 <MissionQuitCommands />
             </AgentHandlers>
         </AgentSection>

@@ -1,4 +1,5 @@
-from typing import List, Literal, Tuple, TypedDict, cast
+from mbag.environment.malmo import MalmoObservationDict
+from typing import List, Literal, Optional, Tuple, Type, TypedDict, cast
 import numpy as np
 from gym import spaces
 import time
@@ -7,12 +8,13 @@ import logging
 from .blocks import MinecraftBlocks
 from .types import (
     MbagAction,
-    MbagActionId,
+    MbagActionTuple,
     MbagInfoDict,
     MbagObs,
     WorldSize,
     num_world_obs_channels,
 )
+from .goals.goal_generator import GoalGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,8 @@ class MbagConfigDict(TypedDict):
     num_players: int
     horizon: int
     world_size: WorldSize
+
+    goal_generator: Tuple[Type[GoalGenerator], dict]
 
     goal_visibility: List[bool]
     """
@@ -47,9 +51,18 @@ class MbagEnv(object):
         self.observation_space = spaces.Tuple(
             (spaces.Box(0, 255, self.world_obs_shape),)
         )
-        self.action_space = spaces.Discrete(
-            MbagAction.get_num_actions(self.config["world_size"])
+        # Actions consist of an (action_type, block_location, block_id) tuple.
+        # Not all action types use block_location and block_id.
+        self.action_space = spaces.Tuple(
+            (
+                spaces.Discrete(MbagAction.NUM_ACTION_TYPES),
+                spaces.Discrete(np.prod(self.config["world_size"])),
+                spaces.Discrete(MinecraftBlocks.NUM_PLACEABLE_BLOCKS),
+            )
         )
+
+        GoalGeneratorClass, goal_generator_config = self.config["goal_generator"]
+        self.goal_generator = GoalGeneratorClass(goal_generator_config)
 
         if self.config["use_malmo"]:
             from .malmo import MalmoClient
@@ -75,16 +88,18 @@ class MbagEnv(object):
         ]
 
     def step(
-        self, action_ids: List[MbagActionId]
+        self, action_tuples: List[MbagActionTuple]
     ) -> Tuple[List[MbagObs], List[float], List[bool], List[MbagInfoDict]]:
-        assert len(action_ids) == self.config["num_players"], "Wrong number of actions."
+        assert (
+            len(action_tuples) == self.config["num_players"]
+        ), "Wrong number of actions."
 
         reward: float = 0
         infos: List[MbagInfoDict] = []
 
-        for player_index, player_action_id in enumerate(action_ids):
+        for player_index, player_action_tuple in enumerate(action_tuples):
             player_reward, player_info = self._step_player(
-                player_index, player_action_id
+                player_index, player_action_tuple
             )
             reward += player_reward
             infos.append(player_info)
@@ -109,15 +124,21 @@ class MbagEnv(object):
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
-        # TODO: generate more interesting goals
+        # Generate a goal with buffer of at least 1 on the sides and 2 on the bottom.
+        world_size = self.config["world_size"]
+        small_goal = self.goal_generator.generate_goal(
+            (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
+        )
+
         goal = self.current_blocks.copy()
-        goal.blocks[:, 2, :] = MinecraftBlocks.NAME2ID["cobblestone"]
+        goal.blocks[1:-1, 1:, 1:-1] = small_goal.blocks
+        goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
         return goal
 
     def _step_player(
-        self, player_index: int, action_id: MbagActionId
+        self, player_index: int, action_tuple: MbagActionTuple
     ) -> Tuple[float, MbagInfoDict]:
-        action = MbagAction(action_id, self.config["world_size"])
+        action = MbagAction(action_tuple, self.config["world_size"])
 
         reward: float = 0
         info: MbagInfoDict = {}
@@ -130,7 +151,9 @@ class MbagEnv(object):
 
             # Try to place or break block.
             place_break_result = self.current_blocks.try_break_place(
-                cast(Literal[1, 2], action.action_type), action.block_location
+                cast(Literal[1, 2], action.action_type),
+                action.block_location,
+                action.block_id,
             )
 
             if place_break_result is not None and self.config["use_malmo"]:
@@ -148,11 +171,18 @@ class MbagEnv(object):
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
                 self.malmo_client.send_command(player_index, f"setPitch {pitch}")
 
-                # Give time to teleport.
-                time.sleep(0.1)
                 if action.action_type == MbagAction.PLACE_BLOCK:
+                    self.malmo_client.send_command(
+                        player_index, f"swapInventoryItems 0 {action.block_id}"
+                    )
+                    time.sleep(0.1)  # Give time to swap item to hand and teleport.
                     self.malmo_client.send_command(player_index, "use 1")
+                    time.sleep(0.1)  # Give time to place block.
+                    self.malmo_client.send_command(
+                        player_index, f"swapInventoryItems 0 {action.block_id}"
+                    )
                 else:
+                    time.sleep(0.1)  # Give time to teleport.
                     self.malmo_client.send_command(player_index, "attack 1")
 
             # Calculate reward based on progress towards goal.
@@ -190,7 +220,7 @@ class MbagEnv(object):
         for location in map(
             tuple, np.argwhere(malmo_blocks.blocks != self.current_blocks.blocks)
         ):
-            logger.error(
+            logger.warning(
                 f"block discrepancy at {location}: "
                 "expected "
                 f"{MinecraftBlocks.ID2NAME[self.current_blocks.blocks[location]]} "
@@ -208,6 +238,39 @@ class MbagEnv(object):
                 f"but received {MinecraftBlocks.ID2NAME[malmo_goal.blocks[location]]} "
                 "from Malmo"
             )
+
+        # Make sure inventory is organized as expected.
+        for player_index in range(self.config["num_players"]):
+            malmo_player_state: Optional[MalmoObservationDict]
+            if player_index == 0:
+                malmo_player_state = malmo_state
+            else:
+                malmo_player_state = self.malmo_client.get_observation(player_index)
+            if malmo_player_state is None:
+                continue
+
+            inventory_block_ids = [
+                MinecraftBlocks.NAME2ID[
+                    malmo_player_state[f"InventorySlot_{slot}_item"]  # type: ignore
+                ]
+                for slot in range(36)
+            ]
+            for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                if inventory_block_ids[block_id] != block_id:
+                    logger.warning(
+                        f"inventory discrepancy at slot {block_id}: "
+                        f"expected {MinecraftBlocks.ID2NAME[block_id]} "
+                        "but received "
+                        f"{MinecraftBlocks.ID2NAME[inventory_block_ids[block_id]]} "
+                        "from Malmo"
+                    )
+                    swap_slot = inventory_block_ids.index(block_id)
+                    self.malmo_client.send_command(
+                        player_index, f"swapInventoryItems {block_id} {swap_slot}"
+                    )
+                    time.sleep(0.1)
+
+        self.current_blocks.blocks = malmo_blocks.blocks
 
     def _done(self) -> bool:
         return (

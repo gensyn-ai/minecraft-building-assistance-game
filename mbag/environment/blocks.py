@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
+from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, TypeVar, cast
 import numpy as np
 import random
 
@@ -20,6 +20,13 @@ def cartesian_product(*arrays):
 
 MAX_PLAYER_REACH = 3
 
+KT = TypeVar("KT")
+VT = TypeVar("VT")
+
+
+def map_set_through_dict(set_to_map: Set[KT], map_dict: Dict[KT, VT]) -> Set[VT]:
+    return {map_dict[key] for key in set_to_map}
+
 
 class MinecraftBlocks(object):
     """
@@ -29,9 +36,28 @@ class MinecraftBlocks(object):
 
     ID2NAME: List[str] = [
         "air",
-        "cobblestone",
-        "dirt",
         "bedrock",
+        "dirt",
+        "brick_block",
+        "clay",
+        "cobblestone",
+        "glass",
+        "gravel",
+        "hardened_clay",
+        "hay_block",
+        "iron_block",
+        "log",
+        "nether_brick",
+        "netherrack",
+        "planks",
+        "quartz_block",
+        "redstone_block",
+        "redstone_lamp",
+        "sandstone",
+        "stained_hardened_clay",
+        "stone",
+        "stonebrick",
+        "wool",
     ]
     NAME2ID: Dict[str, int] = {
         **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
@@ -40,14 +66,35 @@ class MinecraftBlocks(object):
     }
     AIR = NAME2ID["air"]
 
-    SOLID_NAMES: Set[str] = {
-        "cobblestone",
-        "dirt",
+    PLACEABLE_BLOCK_NAMES = set(ID2NAME[2:])  # Can't place air or bedrock.
+    PLACEABLE_BLOCK_IDS = map_set_through_dict(PLACEABLE_BLOCK_NAMES, NAME2ID)
+    NUM_PLACEABLE_BLOCKS = len(PLACEABLE_BLOCK_IDS)
+
+    SOLID_BLOCK_NAMES: Set[str] = {
         "bedrock",
+        "dirt",
+        "brick_block",
+        "clay",
+        "cobblestone",
+        "glass",
+        "gravel",
+        "hardened_clay",
+        "hay_block",
+        "iron_block",
+        "log",
+        "nether_brick",
+        "netherrack",
+        "planks",
+        "quartz_block",
+        "redstone_block",
+        "redstone_lamp",
+        "sandstone",
+        "stained_hardened_clay",
+        "stone",
+        "stonebrick",
+        "wool",
     }
-    SOLID_IDS = (lambda NAME2ID, SOLID_NAMES: {NAME2ID[name] for name in SOLID_NAMES})(
-        NAME2ID, SOLID_NAMES
-    )
+    SOLID_BLOCK_IDS = map_set_through_dict(SOLID_BLOCK_NAMES, NAME2ID)
 
     def __init__(self, size: Tuple[int, int, int]):
         self.size = size
@@ -85,6 +132,7 @@ class MinecraftBlocks(object):
         self,
         action_type: Literal[1, 2],
         block_location: BlockLocation,
+        block_id: int = 0,
         player_location: Optional[WorldLocation] = None,
     ) -> Optional[Tuple[WorldLocation, WorldLocation]]:
         """
@@ -125,7 +173,7 @@ class MinecraftBlocks(object):
                     if (
                         not self.is_valid_block_location(against_block_location)
                         or self.blocks[against_block_location]
-                        not in MinecraftBlocks.SOLID_IDS
+                        not in MinecraftBlocks.SOLID_BLOCK_IDS
                     ):
                         continue
 
@@ -250,9 +298,8 @@ class MinecraftBlocks(object):
             self.blocks[block_location] = MinecraftBlocks.AIR
             self.block_states[block_location] = 0
         else:
-            self.blocks[block_location] = MinecraftBlocks.NAME2ID["cobblestone"]
+            self.blocks[block_location] = block_id
             self.block_states[block_location] = 0
-            # TODO: place other kinds of blocks
         # TODO: add block to inventory?
 
         viewpoint, click_location = random.choice(
@@ -269,6 +316,8 @@ class MinecraftBlocks(object):
     def from_malmo_grid(
         cls, size: WorldSize, block_names: List[str]
     ) -> "MinecraftBlocks":
+        # import logging; logger = logging.getLogger(__name__)
+        # logger.info(block_names[:800])
         block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
         blocks = MinecraftBlocks(size)
         np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
