@@ -105,6 +105,14 @@ class MbagEnv(object):
                 logger.warn("video_dir is not yet implemented")
             time.sleep(1)  # Wait a second for the environment to load.
 
+            # Make all players fly.
+            for player_index in range(self.config["num_players"]):
+                for _ in range(2):
+                    self.malmo_client.send_command(player_index, "jump 1")
+                    time.sleep(0.1)
+                    self.malmo_client.send_command(player_index, "jump 0")
+                    time.sleep(0.1)
+
         return [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])

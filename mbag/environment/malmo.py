@@ -67,8 +67,17 @@ class MalmoClient(object):
                 </ObservationFromGrid>
                 <ObservationFromFullInventory />
                 <AbsoluteMovementCommands />
-                <DiscreteMovementCommands />
+                <DiscreteMovementCommands>
+                    <ModifierList type="deny-list">
+                        <command>jump</command>
+                    </ModifierList>
+                </DiscreteMovementCommands>
                 <InventoryCommands />
+                <HumanLevelCommands>
+                    <ModifierList type="allow-list">
+                        <command>jump</command>
+                    </ModifierList>
+                </HumanLevelCommands>
                 <MissionQuitCommands />
             </AgentHandlers>
         </AgentSection>
