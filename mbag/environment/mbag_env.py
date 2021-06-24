@@ -21,6 +21,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class MalmoConfigDict(TypedDict):
+    use_malmo: bool
+    """
+    Whether to connect to a real Minecraft instance with Project Malmo.
+    """
+
+    use_spectator: bool
+    """
+    Adds in a spectator player to observe the game from a 3rd person point of view.
+    """
+
+    video_dir: Optional[str]
+    """
+    Optional directory to record video from the game into.
+    """
+
+
 class MbagConfigDict(TypedDict):
     num_players: int
     horizon: int
@@ -34,9 +51,9 @@ class MbagConfigDict(TypedDict):
     goal.
     """
 
-    use_malmo: bool
+    malmo: MalmoConfigDict
     """
-    Whether to connect to a real Minecraft instance with Project Malmo.
+    Configuration options for connecting to Minecraft with Project Malmo.
     """
 
 
@@ -66,7 +83,7 @@ class MbagEnv(object):
         GoalGeneratorClass, goal_generator_config = self.config["goal_generator"]
         self.goal_generator = GoalGeneratorClass(goal_generator_config)
 
-        if self.config["use_malmo"]:
+        if self.config["malmo"]["use_malmo"]:
             from .malmo import MalmoClient
 
             self.malmo_client = MalmoClient()
@@ -80,8 +97,12 @@ class MbagEnv(object):
 
         self.goal_blocks = self._generate_goal()
 
-        if self.config["use_malmo"]:
+        if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(self.config, self.goal_blocks)
+            if self.config["malmo"]["use_spectator"]:
+                logger.warn("use_spectator is not yet implemented")
+            if self.config["malmo"]["video_dir"] is not None:
+                logger.warn("video_dir is not yet implemented")
             time.sleep(1)  # Wait a second for the environment to load.
 
         return [
@@ -108,7 +129,7 @@ class MbagEnv(object):
 
         self.timestep += 1
 
-        if self.config["use_malmo"]:
+        if self.config["malmo"]["use_malmo"]:
             time.sleep(self.malmo_client.ACTION_DELAY)
             self._update_state_from_malmo()
 
@@ -119,7 +140,7 @@ class MbagEnv(object):
         rewards = [reward] * self.config["num_players"]
         dones = [self._done()] * self.config["num_players"]
 
-        if dones[0] and self.config["use_malmo"]:
+        if dones[0] and self.config["malmo"]["use_malmo"]:
             for player_index in range(self.config["num_players"]):
                 self.malmo_client.send_command(player_index, "quit")
 
@@ -158,7 +179,7 @@ class MbagEnv(object):
                 action.block_id,
             )
 
-            if place_break_result is not None and self.config["use_malmo"]:
+            if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                 player_location, click_location = place_break_result
                 self.malmo_client.send_command(
                     player_index,

@@ -13,7 +13,11 @@ def test_single_agent():
             "horizon": 50,
             "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
-            "use_malmo": False,
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
         },
         [
             (
@@ -34,7 +38,11 @@ def test_two_agents():
             "horizon": 50,
             "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True, True],
-            "use_malmo": False,
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
         },
         [
             (LayerBuilderAgent, {}),
@@ -54,7 +62,11 @@ def test_malmo():
             "horizon": 100,
             "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
-            "use_malmo": True,
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
         },
         [
             (LayerBuilderAgent, {}),

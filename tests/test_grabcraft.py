@@ -13,7 +13,11 @@ def test_goal_generator():
             "horizon": 500,
             "goal_generator": (GrabcraftGoalGenerator, {"data_dir": "data/grabcraft"}),
             "goal_visibility": [True],
-            "use_malmo": False,
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
         },
         [
             (
@@ -35,7 +39,11 @@ def test_goal_generator_in_malmo():
             "horizon": 1000,
             "goal_generator": (GrabcraftGoalGenerator, {"data_dir": "data/grabcraft"}),
             "goal_visibility": [True],
-            "use_malmo": True,
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
         },
         [
             (
