@@ -1,4 +1,5 @@
-from typing import Dict, List, Literal, Optional, Sequence, Set, Tuple, TypeVar, cast
+from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
+from typing_extensions import Literal
 import numpy as np
 import random
 
@@ -128,6 +129,17 @@ class MinecraftBlocks(object):
             and location[2] < self.size[2]
         )
 
+    def valid_block_locations(self, locations: np.ndarray) -> np.ndarray:
+        return cast(
+            np.ndarray,
+            (locations[:, 0] >= 0)
+            & (locations[:, 0] < self.size[0])
+            & (locations[:, 1] >= 1)
+            & (locations[:, 1] < self.size[1])
+            & (locations[:, 2] >= 2)
+            & (locations[:, 2] < self.size[2]),
+        )
+
     def try_break_place(
         self,
         action_type: Literal[1, 2],
@@ -186,6 +198,7 @@ class MinecraftBlocks(object):
                         click_location[face_dim - 2] += u
                         click_location_index += 1
         click_locations = click_locations[:click_location_index]
+        click_locations = click_locations[self.valid_block_locations(click_locations)]
 
         player_locations: np.ndarray
         if player_location is not None:
@@ -217,12 +230,7 @@ class MinecraftBlocks(object):
 
         # Restrict player locations to those inside the world.
         player_locations = player_locations[
-            (player_locations[:, 0] >= 0)
-            & (player_locations[:, 0] <= self.size[0])
-            & (player_locations[:, 1] >= 1)
-            & (player_locations[:, 1] <= self.size[1])
-            & (player_locations[:, 2] >= 2)
-            & (player_locations[:, 2] <= self.size[2])
+            self.valid_block_locations(player_locations)
         ]
 
         # Make blocks array with two layers of air above to make calculations easier.

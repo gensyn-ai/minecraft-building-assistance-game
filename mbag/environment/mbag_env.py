@@ -1,4 +1,5 @@
-from typing import List, Literal, Optional, TYPE_CHECKING, Tuple, Type, TypedDict, cast
+from typing import List, Optional, TYPE_CHECKING, Tuple, Type, cast
+from typing_extensions import Literal, TypedDict
 import numpy as np
 from gym import spaces
 import time
@@ -14,6 +15,7 @@ from .types import (
     num_world_obs_channels,
 )
 from .goals.goal_generator import GoalGenerator
+from .goals.simple import BasicGoalGenerator
 
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
@@ -38,7 +40,7 @@ class MalmoConfigDict(TypedDict):
     """
 
 
-class MbagConfigDict(TypedDict):
+class MbagConfigDict(TypedDict, total=False):
     num_players: int
     horizon: int
     world_size: WorldSize
@@ -57,6 +59,20 @@ class MbagConfigDict(TypedDict):
     """
 
 
+DEFAULT_CONFIG: MbagConfigDict = {
+    "num_players": 1,
+    "horizon": 50,
+    "world_size": (5, 5, 5),
+    "goal_generator": (BasicGoalGenerator, {}),
+    "goal_visibility": [True, False],
+    "malmo": {
+        "use_malmo": False,
+        "use_spectator": False,
+        "video_dir": None,
+    },
+}
+
+
 class MbagEnv(object):
 
     current_blocks: MinecraftBlocks
@@ -64,14 +80,18 @@ class MbagEnv(object):
     timestep: int
 
     def __init__(self, config: MbagConfigDict):
-        self.config = config
+        self.config = DEFAULT_CONFIG
+        self.config.update(config)
+        if isinstance(self.config["world_size"], list):
+            self.config["world_size"] = tuple(self.config["world_size"])
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
-            (spaces.Box(0, 255, self.world_obs_shape),)
+            (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
         )
         # Actions consist of an (action_type, block_location, block_id) tuple.
-        # Not all action types use block_location and block_id.
+        # Not all action types use block_location and block_id. See MbagAction for
+        # more details.
         self.action_space = spaces.Tuple(
             (
                 spaces.Discrete(MbagAction.NUM_ACTION_TYPES),

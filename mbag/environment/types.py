@@ -1,4 +1,5 @@
-from typing import Literal, Tuple, TypedDict, cast
+from typing import Tuple, cast
+from typing_extensions import Literal, TypedDict
 import numpy as np
 
 
