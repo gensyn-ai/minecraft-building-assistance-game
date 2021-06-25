@@ -134,9 +134,9 @@ class MinecraftBlocks(object):
             np.ndarray,
             (locations[:, 0] >= 0)
             & (locations[:, 0] < self.size[0])
-            & (locations[:, 1] >= 1)
+            & (locations[:, 1] >= 0)
             & (locations[:, 1] < self.size[1])
-            & (locations[:, 2] >= 2)
+            & (locations[:, 2] >= 0)
             & (locations[:, 2] < self.size[2]),
         )
 

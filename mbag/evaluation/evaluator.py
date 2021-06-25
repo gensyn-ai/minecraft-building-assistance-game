@@ -36,7 +36,6 @@ class MbagEvaluator(object):
             all_actions = [
                 agent.get_action(obs) for agent, obs in zip(self.agents, all_obs)
             ]
-            print(all_actions)
             all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)
             done = all_done[0]
             cumulative_reward += all_rewards[0]
