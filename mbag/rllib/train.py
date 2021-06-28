@@ -98,7 +98,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             policy_mapping_fn = lambda agent_id: "ppo"  # noqa: E731
         elif multiagent_mode == "cross_play":
             policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
-            policy_mapping_fn = lambda agent_id: agent_id.replace("player_", "ppo_")  # noqa: E731
+            policy_mapping_fn = lambda agent_id: agent_id.replace(
+                "player_", "ppo_"
+            )  # noqa: E731
         policies_to_train = policy_ids
 
         # Logging
