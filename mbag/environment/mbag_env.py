@@ -15,7 +15,7 @@ from .types import (
     num_world_obs_channels,
 )
 from .goals.goal_generator import GoalGenerator
-from .goals.simple import BasicGoalGenerator
+from .goals.simple import RandomGoalGenerator
 
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
@@ -40,6 +40,14 @@ class MalmoConfigDict(TypedDict):
     """
 
 
+class RewardsConfigDict(TypedDict):
+    noop: int
+    """
+    The reward for doing any action which does nothing. This is usually either zero,
+    or negative to discourage noops.
+    """
+
+
 class MbagConfigDict(TypedDict, total=False):
     num_players: int
     horizon: int
@@ -54,21 +62,25 @@ class MbagConfigDict(TypedDict, total=False):
     """
 
     malmo: MalmoConfigDict
-    """
-    Configuration options for connecting to Minecraft with Project Malmo.
-    """
+    """Configuration options for connecting to Minecraft with Project Malmo."""
+
+    rewards: RewardsConfigDict
+    """Configuration options for environment reward."""
 
 
 DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
     "horizon": 50,
     "world_size": (5, 5, 5),
-    "goal_generator": (BasicGoalGenerator, {}),
+    "goal_generator": (RandomGoalGenerator, {}),
     "goal_visibility": [True, False],
     "malmo": {
         "use_malmo": False,
         "use_spectator": False,
         "video_dir": None,
+    },
+    "rewards": {
+        "noop": 0,
     },
 }
 
@@ -112,7 +124,7 @@ class MbagEnv(object):
         self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
-        self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["bedrock"]
+        self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
@@ -190,9 +202,9 @@ class MbagEnv(object):
         self, player_index: int, action_tuple: MbagActionTuple
     ) -> Tuple[float, MbagInfoDict]:
         action = MbagAction(action_tuple, self.config["world_size"])
-
         reward: float = 0
-        info: MbagInfoDict = {}
+
+        noop: bool = True
 
         if action.action_type == MbagAction.NOOP:
             pass
@@ -206,6 +218,9 @@ class MbagEnv(object):
                 action.block_location,
                 action.block_id,
             )
+
+            if place_break_result is not None:
+                noop = False
 
             if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                 player_location, click_location = place_break_result
@@ -238,12 +253,43 @@ class MbagEnv(object):
 
             # Calculate reward based on progress towards goal.
             new_block = self.current_blocks[action.block_location]
-            if new_block == goal_block and prev_block != goal_block:
-                reward = 1
-            elif new_block != goal_block and prev_block == goal_block:
-                reward = -1
+            prev_goal_similarity = self._get_goal_similarity(prev_block, goal_block)
+            new_goal_similarity = self._get_goal_similarity(new_block, goal_block)
+            reward = new_goal_similarity - prev_goal_similarity
+
+        if noop:
+            reward += self.config["rewards"]["noop"]
+
+        info: MbagInfoDict = {
+            "goal_similarity": self._get_goal_similarity(
+                self.current_blocks[:],
+                self.goal_blocks[:],
+            ).sum(),
+        }
 
         return reward, info
+
+    def _get_goal_similarity(
+        self,
+        current_block: Tuple[np.ndarray, np.ndarray],
+        goal_block: Tuple[np.ndarray, np.ndarray],
+    ):
+        """
+        Get the similarity between this block and the goal block, used to calculate
+        the reward. The reward is the different between this value before and after the
+        player's action.
+        """
+
+        current_block_id, current_block_state = current_block
+        goal_block_id, goal_block_state = goal_block
+
+        similarity = np.zeros_like(current_block_id, dtype=float)
+        similarity[
+            (goal_block_id != MinecraftBlocks.AIR)
+            & (current_block_id != MinecraftBlocks.AIR)
+        ] = 0.5  # Give partial credit for placing the wrong block type.
+        similarity[goal_block_id == current_block_id] = 1
+        return similarity
 
     def _get_player_obs(self, player_index: int) -> MbagObs:
         world_obs = np.zeros(self.world_obs_shape, np.uint8)

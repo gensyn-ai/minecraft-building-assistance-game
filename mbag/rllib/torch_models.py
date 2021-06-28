@@ -150,12 +150,12 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         return nn.Sequential(*backbone_layers)
 
     def forward(self, input_dict, state, seq_lens):
-        (world_obs,) = input_dict["obs"]
+        (self._world_obs,) = input_dict["obs"]
 
         # TODO: embed other block info?
-        world_obs = world_obs.long()
-        embedded_blocks = self.block_id_embedding(world_obs[:, 0])
-        embedded_goal_blocks = self.block_id_embedding(world_obs[:, 2])
+        self._world_obs = self._world_obs.long()
+        embedded_blocks = self.block_id_embedding(self._world_obs[:, 0])
+        embedded_goal_blocks = self.block_id_embedding(self._world_obs[:, 2])
         embedded_obs = torch.cat([embedded_blocks, embedded_goal_blocks], dim=-1)
 
         self._embedded_obs = embedded_obs.permute(0, 4, 1, 2, 3)
@@ -202,13 +202,13 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             ],
             dim=1,
         )
-        return cast(torch.Tensor, self.block_location_head(head_input))
+        return cast(torch.Tensor, self.block_location_head(head_input)[:, 0])
 
     def value_function(self):
         if self.vf_share_layers:
-            return self.value_head(self._backbone_out)[:, 0]
+            return self.value_head(self._backbone_out).squeeze(1)
         else:
-            return self.value_head(self.value_backbone(self._embedded_obs))[:, 0]
+            return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
 
 
 ModelCatalog.register_custom_model("mbag_convolutional_model", MbagConvolutionalModel)

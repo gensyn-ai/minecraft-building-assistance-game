@@ -1,0 +1,203 @@
+from ray.tune.registry import get_trainable_cls
+from typing import Callable, List, Optional
+from typing_extensions import Literal
+from logging import Logger
+import os
+import torch
+
+import ray
+from ray.rllib.utils.typing import (
+    MultiAgentPolicyConfigDict,
+    TrainerConfigDict,
+)
+
+from mbag.environment.goals import ALL_GOAL_GENERATORS
+from mbag.environment.mbag_env import MbagConfigDict
+from .torch_models import MbagConvolutionalModelConfig
+from .rllib_env import MbagMultiAgentEnv
+from .callbacks import MbagCallbacks
+from .training_utils import build_logger_creator
+
+from sacred import Experiment
+from sacred import SETTINGS as sacred_settings
+
+ex = Experiment("train_mbag")
+sacred_settings.CONFIG.READ_ONLY_CONFIG = False
+
+
+def make_mbag_sacred_config(ex: Experiment):  # noqa
+    @ex.config
+    def sacred_config(_log):  # noqa
+        # Environment
+        goal_generator = "random"
+        horizon = 50
+        num_players = 1
+        height = 5
+        width = 5
+        depth = 5
+        noop_reward = -1
+        environment_params: MbagConfigDict = {
+            "num_players": num_players,
+            "horizon": horizon,
+            "world_size": (width, height, depth),
+            "goal_generator": (ALL_GOAL_GENERATORS[goal_generator], {}),
+            "goal_visibility": [True] * num_players,
+            "rewards": {
+                "noop": noop_reward,
+            },
+        }
+        env = MbagMultiAgentEnv(**environment_params)
+
+        # Training
+        run = "PPO"
+        num_workers = 2
+        seed = 0
+        num_gpus = 1 if torch.cuda.is_available() else 0
+        train_batch_size = 5000
+        sgd_minibatch_size = 500
+        rollout_fragment_length = horizon
+        num_training_iters = 500  # noqa: F841
+        lr = 1e-3
+        grad_clip = 0.1
+        gamma = 0.99
+        gae_lambda = 0.98
+        vf_share_layers = False
+        vf_loss_coeff = 1e-4
+        entropy_coeff_start = 0
+        entropy_coeff_end = 0
+        entropy_coeff_horizon = 3e6
+        kl_coeff = 0.2
+        kl_target = 0.01
+        clip_param = 0.05
+        num_sgd_iter = 8
+
+        # Model
+        embedding_size = 8
+        num_layers = 3
+        filter_size = 3
+        hidden_channels = 32
+        custom_model_config: MbagConvolutionalModelConfig = {
+            "embedding_size": embedding_size,
+            "num_layers": num_layers,
+            "filter_size": filter_size,
+            "hidden_channels": hidden_channels,
+        }
+        model_config = {
+            "custom_model": "mbag_convolutional_model",
+            "custom_model_config": custom_model_config,
+            "custom_action_dist": "mbag_autoregressive",
+            "vf_share_layers": vf_share_layers,
+        }
+
+        # Multiagent
+        multiagent_mode: Literal["self_play", "cross_play"] = "self_play"
+        policy_ids: List[str]
+        policy_mapping_fn: Callable[[str], str]
+        if multiagent_mode == "self_play":
+            policy_ids = ["ppo"]
+            policy_mapping_fn = lambda agent_id: "ppo"  # noqa: E731
+        elif multiagent_mode == "cross_play":
+            policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
+            policy_mapping_fn = lambda agent_id: agent_id.replace("player_", "ppo_")  # noqa: E731
+        policies_to_train = policy_ids
+
+        # Logging
+        save_freq = 25  # noqa: F841
+        log_dir = "data/logs"  # noqa: F841
+        experiment_tag = None
+        size_str = f"{width}x{height}x{depth}"
+        experiment_name_parts = [run, multiagent_mode, size_str, goal_generator]
+        if experiment_tag is not None:
+            experiment_name_parts.append(experiment_tag)
+        experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
+        checkpoint_path = None  # noqa: F841
+
+        policies: MultiAgentPolicyConfigDict = {}
+
+        for policy_id in policy_ids:
+            policies[policy_id] = (
+                None,
+                env.observation_space,
+                env.action_space,
+                {"model": model_config},
+            )
+
+        config: TrainerConfigDict = {  # noqa: F841
+            "env": "MBAG-v1",
+            "env_config": environment_params,
+            "multiagent": {
+                "policies": policies,
+                "policy_mapping_fn": policy_mapping_fn,
+                "policies_to_train": policies_to_train,
+            },
+            "callbacks": MbagCallbacks,
+            "num_workers": num_workers,
+            "train_batch_size": train_batch_size,
+            "sgd_minibatch_size": sgd_minibatch_size,
+            "rollout_fragment_length": rollout_fragment_length,
+            "num_sgd_iter": num_sgd_iter,
+            "lr": lr,
+            "grad_clip": grad_clip,
+            "gamma": gamma,
+            "lambda": gae_lambda,
+            "vf_loss_coeff": vf_loss_coeff,
+            "kl_coeff": kl_coeff,
+            "kl_target": kl_target,
+            "clip_param": clip_param,
+            "num_gpus": num_gpus,
+            "seed": seed,
+            "entropy_coeff_schedule": [
+                (0, entropy_coeff_start),
+                (entropy_coeff_horizon, entropy_coeff_end),
+            ],
+            "framework": "torch",
+        }
+
+        del env
+
+
+make_mbag_sacred_config(ex)
+
+
+@ex.automain
+def main(
+    config,
+    log_dir,
+    experiment_name,
+    run,
+    num_training_iters,
+    save_freq,
+    checkpoint_path: Optional[str],
+    _log: Logger,
+):
+    ray.init(
+        ignore_reinit_error=True,
+        include_dashboard=False,
+    )
+
+    TrainerClass = get_trainable_cls(run)
+    trainer = TrainerClass(
+        config,
+        logger_creator=build_logger_creator(
+            log_dir,
+            experiment_name,
+        ),
+    )
+
+    if checkpoint_path is not None:
+        _log.info(f"Restoring checkpoint at {checkpoint_path}")
+        trainer.restore(checkpoint_path)
+
+    result = None
+    for train_iter in range(num_training_iters):
+        _log.info(f"Starting training iteration {train_iter}")
+        result = trainer.train()
+
+        if trainer.iteration == 0:
+            checkpoint = trainer.save()
+            _log.info(f"Saved checkpoint to {checkpoint}")
+
+    checkpoint = trainer.save()
+    _log.info(f"Saved final checkpoint to {checkpoint}")
+
+    return result

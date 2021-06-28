@@ -66,6 +66,7 @@ class MinecraftBlocks(object):
         "grass": 2,
     }
     AIR = NAME2ID["air"]
+    BEDROCK = NAME2ID["bedrock"]
 
     PLACEABLE_BLOCK_NAMES = set(ID2NAME[2:])  # Can't place air or bedrock.
     PLACEABLE_BLOCK_IDS = map_set_through_dict(PLACEABLE_BLOCK_NAMES, NAME2ID)
@@ -116,8 +117,8 @@ class MinecraftBlocks(object):
         else:
             return super().__eq__(other)
 
-    def __getitem__(self, location: BlockLocation) -> Tuple[np.uint8, np.uint8]:
-        return (self.blocks[location], self.block_states[location])
+    def __getitem__(self, location_slice) -> Tuple[np.ndarray, np.ndarray]:
+        return (self.blocks[location_slice], self.block_states[location_slice])
 
     def is_valid_block_location(self, location: BlockLocation) -> bool:
         return (
@@ -163,7 +164,7 @@ class MinecraftBlocks(object):
         else:
             if self.blocks[block_location] in [
                 MinecraftBlocks.AIR,
-                MinecraftBlocks.NAME2ID["bedrock"],
+                MinecraftBlocks.BEDROCK,
             ]:
                 # Can't break these blocks.
                 return None
@@ -275,10 +276,13 @@ class MinecraftBlocks(object):
         # and the click location.
         # Based on http://www.cse.yorku.ca/~amana/research/grid.pdf
         step = np.sign(deltas).astype(int)
-        t_max = np.abs(((-step * viewpoints) - np.floor(-step * viewpoints)) / deltas)
-        t_max[np.isnan(t_max)] = 1
-        t_delta = np.abs(1 / deltas)
-        t_delta[deltas == 0] = 1
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t_max = np.abs(
+                ((-step * viewpoints) - np.floor(-step * viewpoints)) / deltas
+            )
+            t_max[np.isnan(t_max)] = 1
+            t_delta = np.abs(1 / deltas)
+            t_delta[deltas == 0] = 1
 
         intersection = np.zeros(viewpoints.shape[0], bool)
         current_block_locations = viewpoints.astype(int)

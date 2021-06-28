@@ -3,7 +3,8 @@ import os
 import json
 import random
 import logging
-from typing import Dict, List, Optional, Tuple, TypedDict
+from typing import Dict, List, Optional, Tuple
+from typing_extensions import TypedDict
 
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize

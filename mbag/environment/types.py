@@ -60,4 +60,9 @@ class MbagAction(object):
 
 
 class MbagInfoDict(TypedDict):
-    pass
+    goal_similarity: float
+    """
+    Number representing how similar the current blocks in the world are to the goal
+    structure. Higher is more similar. This can be used as a truer "reward" than the
+    potentially shaped reward given to the agent by the environment.
+    """
