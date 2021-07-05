@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import cast
+from typing import List, cast
 from mbag.environment.blocks import MinecraftBlocks
 import numpy as np
 
@@ -92,3 +92,19 @@ class MbagAgent(ABC):
             block_location = 0
 
         return action_type, block_location, block_id
+
+    def get_state(self) -> List[np.ndarray]:
+        """
+        Get the current state of this agent as a list of zero or more numpy arrays.
+        The agent should be able to be set back to its previous state by calling
+        set_state with the return value of this method.
+        """
+
+        return []
+
+    def set_state(self, state: List[np.ndarray]) -> None:
+        """
+        Restore the agent's state to what it was when get_state was called.
+        """
+
+        pass

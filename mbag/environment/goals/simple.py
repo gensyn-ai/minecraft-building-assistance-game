@@ -21,7 +21,7 @@ class RandomGoalGenerator(GoalGenerator):
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         goal = MinecraftBlocks(size)
-        structure_mask_noise = np.random.rand(*goal.blocks.shape) < 0.4
+        structure_mask_noise = np.random.rand(*goal.blocks.shape) < 0.6
         structure_mask_ccs = cc3d.connected_components(
             structure_mask_noise, connectivity=6
         )

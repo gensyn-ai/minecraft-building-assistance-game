@@ -2,7 +2,7 @@
 A collection of agents following simple heuristics.
 """
 
-from typing import Tuple
+from typing import Dict, List, Tuple, Type
 import numpy as np
 import random
 
@@ -72,3 +72,14 @@ class LayerBuilderAgent(MbagAgent):
                 block_id = 0
 
             return action_type, block_location_id, block_id
+
+    def get_state(self) -> List[np.ndarray]:
+        return [np.array([self.current_layer])]
+
+    def set_state(self, state: List[np.ndarray]) -> None:
+        self.current_layer = int(state[0][0])
+
+
+ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
+    "layer_builder": LayerBuilderAgent,
+}

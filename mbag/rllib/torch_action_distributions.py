@@ -139,7 +139,7 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         return TorchCategorical(block_id_logits)  # type: ignore
 
     def _block_location_distribution(
-        self, action_type, block_id, mask_logit=-1e-8
+        self, action_type, block_id, mask_logit=-1e8
     ) -> TorchCategorical:
         # Should be a BxWxHxD tensor:
         block_location_logits = self.model.block_location_model(
@@ -203,17 +203,25 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         block_id_action_types = torch.tensor(
             MbagAction.BLOCK_ID_ACTION_TYPES, device=block_id.device
         )
-        block_id_mask = (block_id[:, None] == block_id_action_types).any(1)
+        block_id_mask = (action_type[:, None] == block_id_action_types).any(1)
         block_id_logp[~block_id_mask] = 0
 
         block_location_logp = block_location_dist.logp(block_location)
         block_location_action_types = torch.tensor(
             MbagAction.BLOCK_LOCATION_ACTION_TYPES, device=block_location.device
         )
-        block_location_mask = (
-            block_location[:, None] == block_location_action_types
-        ).any(1)
+        block_location_mask = (action_type[:, None] == block_location_action_types).any(
+            1
+        )
         block_location_logp[~block_location_mask] = 0
+
+        # If for some reason some of the locations given to this method are invalid
+        # (i.e., a block can't be placed/broken there), then just set the log probs
+        # to 0.
+        block_location_logp[
+            block_location_dist.dist.probs.gather(-1, block_location[:, None])[:, 0]
+            == 0
+        ] = 0
 
         return action_type_logp + block_id_logp + block_location_logp
 

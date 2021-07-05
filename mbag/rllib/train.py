@@ -13,10 +13,13 @@ from ray.rllib.utils.typing import (
 
 from mbag.environment.goals import ALL_GOAL_GENERATORS
 from mbag.environment.mbag_env import MbagConfigDict
+from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from .torch_models import MbagConvolutionalModelConfig
 from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
 from .training_utils import build_logger_creator
+from .policies import MbagAgentPolicy
+from .distillation_prediction import DEFAULT_CONFIG as distillation_default_config
 
 from sacred import Experiment
 from sacred import SETTINGS as sacred_settings
@@ -59,7 +62,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         num_training_iters = 500  # noqa: F841
         lr = 1e-3
         grad_clip = 0.1
-        gamma = 0.99
+        gamma = 0.93
         gae_lambda = 0.98
         vf_share_layers = False
         vf_loss_coeff = 1e-4
@@ -67,13 +70,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         entropy_coeff_end = 0
         entropy_coeff_horizon = 3e6
         kl_coeff = 0.2
-        kl_target = 0.01
+        kl_target = 0.05
         clip_param = 0.05
         num_sgd_iter = 8
 
         # Model
         embedding_size = 8
-        num_layers = 3
+        num_layers = 2
         filter_size = 3
         hidden_channels = 32
         custom_model_config: MbagConvolutionalModelConfig = {
@@ -98,9 +101,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             policy_mapping_fn = lambda agent_id: "ppo"  # noqa: E731
         elif multiagent_mode == "cross_play":
             policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
-            policy_mapping_fn = lambda agent_id: agent_id.replace(
+            policy_mapping_fn = lambda agent_id: agent_id.replace(  # noqa: E731
                 "player_", "ppo_"
-            )  # noqa: E731
+            )
         policies_to_train = policy_ids
 
         # Logging
@@ -155,6 +158,27 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "framework": "torch",
         }
 
+        # Distillation
+        if run == "distillation_prediction":
+            heuristic = "layer_builder"
+            mbag_agent = ALL_HEURISTIC_AGENTS[heuristic]({}, environment_params)
+            config["multiagent"]["policies"][heuristic] = (
+                MbagAgentPolicy,
+                env.observation_space,
+                env.action_space,
+                {"mbag_agent": mbag_agent},
+            )
+            config["multiagent"][
+                "distillation_mapping_fn"
+            ] = lambda policy_id, to_policy_id=policy_ids[0]: to_policy_id
+            config["multiagent"][
+                "policy_mapping_fn"
+            ] = lambda agent_id, to_policy_id=heuristic: to_policy_id
+            # Remove extra config parameters.
+            for key in list(config.keys()):
+                if key not in distillation_default_config:
+                    del config[key]
+
         del env
 
 
@@ -195,7 +219,7 @@ def main(
         _log.info(f"Starting training iteration {train_iter}")
         result = trainer.train()
 
-        if trainer.iteration == 0:
+        if trainer.iteration % save_freq == 0:
             checkpoint = trainer.save()
             _log.info(f"Saved checkpoint to {checkpoint}")
 
