@@ -1,3 +1,4 @@
+from typing import Tuple
 import gym
 import torch
 import torch.nn.functional as F
@@ -81,9 +82,9 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         block_location = actions[:, 1].long()
         block_id = actions[:, 2].long()
 
-        action_type_dist = self._action_type_distribution()
-        block_id_dist = self._block_id_distribution(action_type)
-        block_location_dist = self._block_location_distribution(action_type, block_id)
+        action_type_dist, block_id_dist, block_location_dist = self._all_distributions(
+            action_type, block_id
+        )
 
         return self._calculate_logp(
             action_type_dist,
@@ -138,15 +139,9 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         block_id_logits = self.model.block_id_model(self.inputs, action_type)
         return TorchCategorical(block_id_logits)  # type: ignore
 
-    def _block_location_distribution(
-        self, action_type, block_id, mask_logit=-1e8
+    def _block_location_logits_to_distribution(
+        self, action_type, block_location_logits, mask_logit=-1e8
     ) -> TorchCategorical:
-        # Should be a BxWxHxD tensor:
-        block_location_logits = self.model.block_location_model(
-            self.inputs, action_type, block_id
-        )
-        assert len(block_location_logits.size()) == 4
-
         if hasattr(self.model, "_world_obs"):
             world_obs = self.model._world_obs  # type: ignore
             # Mask the distribution to blocks that can actually be affected.
@@ -181,6 +176,34 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
             ] = mask_logit
 
         return TorchCategorical(block_location_logits.flatten(start_dim=1))  # type: ignore
+
+    def _block_location_distribution(
+        self, action_type, block_id, mask_logit=-1e8
+    ) -> TorchCategorical:
+        # Should be a BxWxHxD tensor:
+        block_location_logits = self.model.block_location_model(
+            self.inputs, action_type, block_id
+        )
+        assert len(block_location_logits.size()) == 4
+        return self._block_location_logits_to_distribution(
+            action_type, block_location_logits, mask_logit
+        )
+
+    def _all_distributions(
+        self, action_type, block_id
+    ) -> Tuple[TorchCategorical, TorchCategorical, TorchCategorical]:
+        (
+            action_type_logits,
+            block_id_logits,
+            block_location_logits,
+        ) = self.model.action_model(self.inputs, action_type, block_id)
+        return (
+            TorchCategorical(action_type_logits),
+            TorchCategorical(block_id_logits),
+            self._block_location_logits_to_distribution(
+                action_type, block_location_logits
+            ),
+        )
 
     def _calculate_logp(
         self,

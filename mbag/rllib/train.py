@@ -14,7 +14,7 @@ from ray.rllib.utils.typing import (
 from mbag.environment.goals import ALL_GOAL_GENERATORS
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
-from .torch_models import MbagConvolutionalModelConfig
+from .torch_models import MbagConvolutionalModelConfig, MbagTransformerModelConfig
 from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
 from .training_utils import build_logger_creator
@@ -60,7 +60,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         sgd_minibatch_size = 500
         rollout_fragment_length = horizon
         num_training_iters = 500  # noqa: F841
-        lr = 1e-3
+        lr = 3e-4
         grad_clip = 0.1
         gamma = 0.93
         gae_lambda = 0.98
@@ -70,27 +70,47 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         entropy_coeff_end = 0
         entropy_coeff_horizon = 3e6
         kl_coeff = 0.2
-        kl_target = 0.05
+        kl_target = 0.01
         clip_param = 0.05
-        num_sgd_iter = 8
+        num_sgd_iter = 6
 
         # Model
+        model: Literal["convolutional", "transformer"] = "convolutional"
         embedding_size = 8
+        position_embedding_size = 8
         num_layers = 2
         filter_size = 3
         hidden_channels = 32
-        custom_model_config: MbagConvolutionalModelConfig = {
-            "embedding_size": embedding_size,
-            "num_layers": num_layers,
-            "filter_size": filter_size,
-            "hidden_channels": hidden_channels,
-        }
+        hidden_size = hidden_channels
+        num_block_id_layers = 3
+        num_location_layers = 3
+        num_heads = 4
+        num_decoder_layers = 3
         model_config = {
-            "custom_model": "mbag_convolutional_model",
-            "custom_model_config": custom_model_config,
+            "custom_model": f"mbag_{model}_model",
             "custom_action_dist": "mbag_autoregressive",
             "vf_share_layers": vf_share_layers,
         }
+        if model == "convolutional":
+            conv_config: MbagConvolutionalModelConfig = {
+                "embedding_size": embedding_size,
+                "num_layers": num_layers,
+                "filter_size": filter_size,
+                "hidden_channels": hidden_channels,
+                "num_block_id_layers": num_block_id_layers,
+                "num_location_layers": num_location_layers,
+            }
+            model_config["custom_model_config"] = conv_config
+        elif model == "transformer":
+            transformer_config: MbagTransformerModelConfig = {
+                "embedding_size": embedding_size,
+                "position_embedding_size": position_embedding_size,
+                "num_layers": num_layers,
+                "num_heads": num_heads,
+                "hidden_size": hidden_size,
+                "num_decoder_layers": num_decoder_layers,
+            }
+            model_config["custom_model_config"] = transformer_config
 
         # Multiagent
         multiagent_mode: Literal["self_play", "cross_play"] = "self_play"

@@ -58,9 +58,15 @@ def add_tune_config(
         policy_config["model"]["custom_model_config"].update(
             {
                 "embedding_size": tune.qrandint(4, 16, 4),
+                "position_embedding_size": tune.qrandint(4, 16, 4),
                 "num_layers": tune.randint(1, 5),
                 "filter_size": tune.choice([3, 5]),
                 "hidden_channels": tune.qrandint(8, 64, 8),
+                "hidden_size": tune.qrandint(8, 64, 8),
+                "num_block_id_layers": tune.randint(1, 5),
+                "num_location_layers": tune.randint(1, 5),
+                "num_decoder_layers": tune.randint(1, 5),
+                "num_heads": tune.randint(1, 9),
             }
         )
 
