@@ -201,7 +201,7 @@
   "Dispenser (Facing West, Unactive)": ["cobblestone", null],
   "Double Acacia Wood Slab": ["planks", "acacia"],
   "Double Birch Wood Slab": ["planks", "birch"],
-  "Double Brick Slab": ["brick", null],
+  "Double Brick Slab": ["brick_block", null],
   "Double Cobblestone Slab": ["cobblestone", null],
   "Double Dark Oak Wood Slab": ["planks", "dark_oak"],
   "Double Jungle Wood Slab": ["planks", "jungle"],
