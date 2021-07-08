@@ -108,7 +108,7 @@ class MbagEnv(object):
             (
                 spaces.Discrete(MbagAction.NUM_ACTION_TYPES),
                 spaces.Discrete(np.prod(self.config["world_size"])),
-                spaces.Discrete(MinecraftBlocks.NUM_PLACEABLE_BLOCKS),
+                spaces.Discrete(MinecraftBlocks.NUM_BLOCKS),
             )
         )
 

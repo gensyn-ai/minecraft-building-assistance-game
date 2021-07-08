@@ -67,6 +67,7 @@ class MinecraftBlocks(object):
     }
     AIR = NAME2ID["air"]
     BEDROCK = NAME2ID["bedrock"]
+    NUM_BLOCKS = len(ID2NAME)
 
     PLACEABLE_BLOCK_NAMES = set(ID2NAME[2:])  # Can't place air or bedrock.
     PLACEABLE_BLOCK_IDS = map_set_through_dict(PLACEABLE_BLOCK_NAMES, NAME2ID)
