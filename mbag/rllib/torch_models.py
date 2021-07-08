@@ -22,17 +22,19 @@ class MbagModel(ABC, TorchModelV2):
         ...
 
     @abstractmethod
-    def block_id_model(
-        self, dist_inputs: torch.Tensor, action_type: torch.Tensor
-    ) -> torch.Tensor:
-        ...
-
-    @abstractmethod
     def block_location_model(
         self,
         dist_inputs: torch.Tensor,
         action_type: torch.Tensor,
-        block_id: torch.Tensor,
+    ) -> torch.Tensor:
+        ...
+
+    @abstractmethod
+    def block_id_model(
+        self,
+        dist_inputs: torch.Tensor,
+        action_type: torch.Tensor,
+        block_location: torch.Tensor,
     ) -> torch.Tensor:
         ...
 
@@ -40,7 +42,7 @@ class MbagModel(ABC, TorchModelV2):
         self,
         dist_inputs: torch.Tensor,
         action_type: torch.Tensor,
-        block_id: torch.Tensor,
+        block_location: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         This should return the distribution outputs for all three parts of the action.
@@ -49,10 +51,8 @@ class MbagModel(ABC, TorchModelV2):
         """
 
         action_type_logits = self.action_type_model(dist_inputs)
-        block_id_logits = self.block_id_model(dist_inputs, action_type)
-        block_location_logits = self.block_location_model(
-            dist_inputs, action_type, block_id
-        )
+        block_location_logits = self.block_location_model(dist_inputs, action_type)
+        block_id_logits = self.block_id_model(dist_inputs, action_type, block_location)
         return action_type_logits, block_id_logits, block_location_logits
 
 
@@ -136,24 +136,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             nn.Linear(self.hidden_channels, self.action_type_space.n, bias=True),
         )
 
-        block_id_in_channels = self.hidden_channels + self.action_type_space.n
-        block_id_layers: List[nn.Module] = []
-        for layer_index in range(self.num_block_id_layers):
-            block_id_layers.append(
-                nn.Linear(
-                    block_id_in_channels if layer_index == 0 else self.hidden_channels,
-                    self.embedding_size
-                    if layer_index == self.num_block_id_layers - 1
-                    else self.hidden_channels,
-                )
-            )
-            if layer_index < self.num_block_id_layers - 1:
-                block_id_layers.append(nn.ReLU())
-        self.block_id_head = nn.Sequential(*block_id_layers)
-
-        block_location_in_channels = (
-            self.hidden_channels + self.action_type_space.n + self.embedding_size
-        )
+        block_location_in_channels = self.hidden_channels + self.action_type_space.n
         block_location_layers: List[nn.Module] = []
         for layer_index in range(self.num_location_layers):
             block_location_layers.append(
@@ -171,6 +154,21 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             if layer_index < self.num_location_layers - 1:
                 block_location_layers.append(nn.ReLU())
         self.block_location_head = nn.Sequential(*block_location_layers)
+
+        block_id_in_channels = self.hidden_channels + self.action_type_space.n
+        block_id_layers: List[nn.Module] = []
+        for layer_index in range(self.num_block_id_layers):
+            block_id_layers.append(
+                nn.Linear(
+                    block_id_in_channels if layer_index == 0 else self.hidden_channels,
+                    self.block_id_space.n
+                    if layer_index == self.num_block_id_layers - 1
+                    else self.hidden_channels,
+                )
+            )
+            if layer_index < self.num_block_id_layers - 1:
+                block_id_layers.append(nn.ReLU())
+        self.block_id_head = nn.Sequential(*block_id_layers)
 
         self.value_head = nn.Sequential(
             nn.AdaptiveAvgPool3d((1, 1, 1)),
@@ -215,25 +213,10 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
     def action_type_model(self, dist_inputs: torch.Tensor) -> torch.Tensor:
         return cast(torch.Tensor, self.action_type_head(dist_inputs))
 
-    def block_id_model(
-        self, dist_inputs: torch.Tensor, action_type: torch.Tensor
-    ) -> torch.Tensor:
-        avg_dist_inputs = F.adaptive_avg_pool3d(dist_inputs, (1, 1, 1)).flatten(
-            start_dim=1
-        )
-        head_input = torch.cat(
-            [avg_dist_inputs, F.one_hot(action_type, self.action_type_space.n)], dim=1
-        )
-        out_embedding = self.block_id_head(head_input)
-        return cast(
-            torch.Tensor, out_embedding @ self.block_id_embedding.weight.transpose(0, 1)
-        )
-
     def block_location_model(
         self,
         dist_inputs: torch.Tensor,
         action_type: torch.Tensor,
-        block_id: torch.Tensor,
     ) -> torch.Tensor:
         world_size = dist_inputs.size()[-3:]
         head_input = torch.cat(
@@ -242,13 +225,28 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 F.one_hot(action_type, self.action_type_space.n)[
                     :, :, None, None, None
                 ].expand(-1, -1, *world_size),
-                self.block_id_embedding(block_id)[:, :, None, None, None].expand(
-                    -1, -1, *world_size
-                ),
             ],
             dim=1,
         )
         return cast(torch.Tensor, self.block_location_head(head_input)[:, 0])
+
+    def block_id_model(
+        self,
+        dist_inputs: torch.Tensor,
+        action_type: torch.Tensor,
+        block_location: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size = dist_inputs.size()[0]
+        head_input = torch.cat(
+            [
+                dist_inputs.flatten(start_dim=2)[
+                    torch.arange(batch_size), :, block_location
+                ],
+                F.one_hot(action_type, self.action_type_space.n),
+            ],
+            dim=1,
+        )
+        return cast(torch.Tensor, self.block_id_head(head_input))
 
     def value_function(self):
         if self.vf_share_layers:
@@ -358,7 +356,7 @@ class MbagTransformerModel(MbagModel, nn.Module):
             None, :, None
         ]
         self.position_embedding.data[
-            ..., dim_embedding_size * 2 :
+            ..., dim_embedding_size * 2 : dim_embedding_size * 3
         ] = self._get_position_embedding(
             self.position_embedding.size()[0],
             dim_embedding_size,
@@ -399,6 +397,9 @@ class MbagTransformerModel(MbagModel, nn.Module):
             self.hidden_size, self.action_type_space.n, bias=True
         )
         self.block_location_head = nn.Linear(self.hidden_size, 1, bias=False)
+        self.block_id_head = nn.Linear(
+            self.hidden_size, self.block_id_space.n, bias=True
+        )
         self.value_head = nn.Linear(self.hidden_size, 1, bias=True)
 
     def _get_position_embedding(self, seq_len: int, size: int) -> torch.Tensor:
@@ -460,7 +461,7 @@ class MbagTransformerModel(MbagModel, nn.Module):
         self,
         dist_inputs: torch.Tensor,
         action_type: Optional[torch.Tensor] = None,
-        block_id: Optional[torch.Tensor] = None,
+        block_location: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size = dist_inputs.size()[0]
         decoder_inputs: List[torch.Tensor] = []
@@ -473,7 +474,7 @@ class MbagTransformerModel(MbagModel, nn.Module):
         )
 
         if action_type is not None:
-            # Second input is the block_id embedding with the chosen action_type.
+            # Second input is the chosen action_type.
             decoder_inputs.append(
                 self._pad_to_hidden_size(
                     torch.cat(
@@ -488,23 +489,6 @@ class MbagTransformerModel(MbagModel, nn.Module):
                 )
             )
 
-        if block_id is not None:
-            # Third input is the block_location embedding with the chosen block_id
-            # embedding.
-            decoder_inputs.append(
-                self._pad_to_hidden_size(
-                    torch.cat(
-                        [
-                            self.action_part_embeddings[None, None, 2].expand(
-                                batch_size, -1, -1
-                            ),
-                            self.block_id_embedding(block_id).repeat(1, 2)[:, None],
-                        ],
-                        dim=2,
-                    )
-                )
-            )
-
         decoder_inputs.append(dist_inputs)
         decoder_seq_len = sum(inp.size()[1] for inp in decoder_inputs)
         target_mask = torch.zeros(
@@ -513,7 +497,6 @@ class MbagTransformerModel(MbagModel, nn.Module):
             device=dist_inputs.device,
         )
         target_mask[0, 1:] = True  # action_type only depends on itself
-        target_mask[1, 2:] = True  # block_id only depends on itself and action_type
         action_decoder_out = self.action_decoder(
             torch.cat(decoder_inputs, dim=1),
             dist_inputs,
@@ -524,17 +507,7 @@ class MbagTransformerModel(MbagModel, nn.Module):
         action_type_logits = self.action_type_head(action_decoder_out[:, 0])
 
         if action_type is not None:
-            block_id_out = action_decoder_out[:, 1, : self.embedding_size]
-            block_id_logits = block_id_out @ self.block_id_embedding.weight.transpose(
-                0, 1
-            )
-        else:
-            block_id_logits = torch.zeros(
-                (batch_size, self.block_id_space.n), device=dist_inputs.device
-            )
-
-        if block_id is not None:
-            block_location_out = action_decoder_out[:, 3:]
+            block_location_out = action_decoder_out[:, 2:]
             block_location_logits = self.block_location_head(block_location_out)[
                 :, :, 0
             ]
@@ -542,6 +515,18 @@ class MbagTransformerModel(MbagModel, nn.Module):
             block_location_logits = torch.zeros(
                 (batch_size, self.block_location_space.n), device=dist_inputs.device
             )
+
+        if block_location is not None:
+            block_id_head_input = action_decoder_out[
+                torch.arange(batch_size),
+                block_location + 2,
+            ]
+            block_id_logits = self.block_id_head(block_id_head_input)
+        else:
+            block_id_logits = torch.zeros(
+                (batch_size, self.block_id_space.n), device=dist_inputs.device
+            )
+
         block_location_logits = block_location_logits.reshape(-1, *self.world_size)
 
         return action_type_logits, block_id_logits, block_location_logits
@@ -549,18 +534,20 @@ class MbagTransformerModel(MbagModel, nn.Module):
     def action_type_model(self, dist_inputs: torch.Tensor) -> torch.Tensor:
         return self.action_model(dist_inputs)[0]
 
-    def block_id_model(
-        self, dist_inputs: torch.Tensor, action_type: torch.Tensor
-    ) -> torch.Tensor:
-        return self.action_model(dist_inputs, action_type)[1]
-
     def block_location_model(
         self,
         dist_inputs: torch.Tensor,
         action_type: torch.Tensor,
-        block_id: torch.Tensor,
     ) -> torch.Tensor:
-        return self.action_model(dist_inputs, action_type, block_id)[2]
+        return self.action_model(dist_inputs, action_type)[2]
+
+    def block_id_model(
+        self,
+        dist_inputs: torch.Tensor,
+        action_type: torch.Tensor,
+        block_location: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.action_model(dist_inputs, action_type, block_location)[1]
 
     def value_function(self):
         return self.value_head(self._value_out)[:, 0]

@@ -33,13 +33,13 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         action_type_dist = self._action_type_distribution()
         action_type = action_type_dist.sample()
 
-        # Next, sample a block_id.
-        block_id_dist = self._block_id_distribution(action_type)
-        block_id = block_id_dist.sample()
-
-        # Finally, sample a block_location.
-        block_location_dist = self._block_location_distribution(action_type, block_id)
+        # Next, sample a block_location.
+        block_location_dist = self._block_location_distribution(action_type)
         block_location = block_location_dist.sample()
+
+        # Finally, sample a block_id.
+        block_id_dist = self._block_id_distribution(action_type, block_location)
+        block_id = block_id_dist.sample()
 
         self._sampled_logp = self._calculate_logp(
             action_type_dist,
@@ -56,13 +56,13 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         action_type_dist = self._action_type_distribution()
         action_type = action_type_dist.deterministic_sample()
 
-        # Next, sample a block_id.
-        block_id_dist = self._block_id_distribution(action_type)
-        block_id = block_id_dist.deterministic_sample()
-
-        # Finally, sample a block_location.
-        block_location_dist = self._block_location_distribution(action_type, block_id)
+        # Next, sample a block_location.
+        block_location_dist = self._block_location_distribution(action_type)
         block_location = block_location_dist.deterministic_sample()
+
+        # Finally, sample a block_id.
+        block_id_dist = self._block_id_distribution(action_type, block_location)
+        block_id = block_id_dist.deterministic_sample()
 
         self._sampled_logp = self._calculate_logp(
             action_type_dist,
@@ -83,7 +83,7 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         block_id = actions[:, 2].long()
 
         action_type_dist, block_id_dist, block_location_dist = self._all_distributions(
-            action_type, block_id
+            action_type, block_location
         )
 
         return self._calculate_logp(
@@ -98,9 +98,9 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
     def entropy(self):
         action_type_dist = self._action_type_distribution()
         action_type = action_type_dist.sample()
-        block_id_dist = self._block_id_distribution(action_type)
-        block_id = block_id_dist.sample()
-        block_location_dist = self._block_location_distribution(action_type, block_id)
+        block_location_dist = self._block_location_distribution(action_type)
+        block_location = block_location_dist.sample()
+        block_id_dist = self._block_id_distribution(action_type, block_location)
 
         # Only count block_id and block_location entropy for actions which use them.
         block_id_use_prob = action_type_dist.dist.probs[
@@ -119,24 +119,39 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
     def kl(self, other: "MbagAutoregressiveActionDistribution"):
         action_type_dist = self._action_type_distribution()
         action_type = action_type_dist.sample()
-        block_id_dist = self._block_id_distribution(action_type)
-        block_id = block_id_dist.sample()
-        block_location_dist = self._block_location_distribution(action_type, block_id)
+        block_location_dist = self._block_location_distribution(action_type)
+        block_location = block_location_dist.sample()
+        block_id_dist = self._block_id_distribution(action_type, block_location)
 
         return (
             action_type_dist.kl(other._action_type_distribution())
-            + block_id_dist.kl(other._block_id_distribution(action_type))
-            + block_location_dist.kl(
-                other._block_location_distribution(action_type, block_id)
+            + block_id_dist.kl(
+                other._block_id_distribution(action_type, block_location)
             )
+            + block_location_dist.kl(other._block_location_distribution(action_type))
         )
 
     def _action_type_distribution(self) -> TorchCategorical:
         action_type_logits = self.model.action_type_model(self.inputs)
         return TorchCategorical(action_type_logits)  # type: ignore
 
-    def _block_id_distribution(self, action_type) -> TorchCategorical:
-        block_id_logits = self.model.block_id_model(self.inputs, action_type)
+    def _block_location_distribution(
+        self, action_type, mask_logit=-1e8
+    ) -> TorchCategorical:
+        # Should be a BxWxHxD tensor:
+        block_location_logits = self.model.block_location_model(
+            self.inputs,
+            action_type,
+        )
+        assert len(block_location_logits.size()) == 4
+        return self._block_location_logits_to_distribution(
+            action_type, block_location_logits, mask_logit
+        )
+
+    def _block_id_distribution(self, action_type, block_location) -> TorchCategorical:
+        block_id_logits = self.model.block_id_model(
+            self.inputs, action_type, block_location
+        )
         return TorchCategorical(block_id_logits)  # type: ignore
 
     def _block_location_logits_to_distribution(
@@ -177,26 +192,14 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
 
         return TorchCategorical(block_location_logits.flatten(start_dim=1))  # type: ignore
 
-    def _block_location_distribution(
-        self, action_type, block_id, mask_logit=-1e8
-    ) -> TorchCategorical:
-        # Should be a BxWxHxD tensor:
-        block_location_logits = self.model.block_location_model(
-            self.inputs, action_type, block_id
-        )
-        assert len(block_location_logits.size()) == 4
-        return self._block_location_logits_to_distribution(
-            action_type, block_location_logits, mask_logit
-        )
-
     def _all_distributions(
-        self, action_type, block_id
+        self, action_type, block_location
     ) -> Tuple[TorchCategorical, TorchCategorical, TorchCategorical]:
         (
             action_type_logits,
             block_id_logits,
             block_location_logits,
-        ) = self.model.action_model(self.inputs, action_type, block_id)
+        ) = self.model.action_model(self.inputs, action_type, block_location)
         return (
             TorchCategorical(action_type_logits),
             TorchCategorical(block_id_logits),
