@@ -47,6 +47,13 @@ class RewardsConfigDict(TypedDict):
     or negative to discourage noops.
     """
 
+    place_wrong: float
+    """
+    The reward for placing a block which is not correct, but in a place where a block
+    should go. The negative of this is also given for breaking a block which is not
+    correct.
+    """
+
 
 class MbagConfigDict(TypedDict, total=False):
     num_players: int
@@ -81,6 +88,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     },
     "rewards": {
         "noop": 0,
+        "place_wrong": 0,
     },
 }
 
@@ -253,8 +261,12 @@ class MbagEnv(object):
 
             # Calculate reward based on progress towards goal.
             new_block = self.current_blocks[action.block_location]
-            prev_goal_similarity = self._get_goal_similarity(prev_block, goal_block)
-            new_goal_similarity = self._get_goal_similarity(new_block, goal_block)
+            prev_goal_similarity = self._get_goal_similarity(
+                prev_block, goal_block, partial_credit=True
+            )
+            new_goal_similarity = self._get_goal_similarity(
+                new_block, goal_block, partial_credit=True
+            )
             reward = new_goal_similarity - prev_goal_similarity
 
         if noop:
@@ -273,6 +285,7 @@ class MbagEnv(object):
         self,
         current_block: Tuple[np.ndarray, np.ndarray],
         goal_block: Tuple[np.ndarray, np.ndarray],
+        partial_credit: bool = False,
     ):
         """
         Get the similarity between this block and the goal block, used to calculate
@@ -284,10 +297,12 @@ class MbagEnv(object):
         goal_block_id, goal_block_state = goal_block
 
         similarity = np.zeros_like(current_block_id, dtype=float)
-        similarity[
-            (goal_block_id != MinecraftBlocks.AIR)
-            & (current_block_id != MinecraftBlocks.AIR)
-        ] = 0.5  # Give partial credit for placing the wrong block type.
+        if partial_credit:
+            # Give partial credit for placing the wrong block type.
+            similarity[
+                (goal_block_id != MinecraftBlocks.AIR)
+                & (current_block_id != MinecraftBlocks.AIR)
+            ] = self.config["rewards"]["place_wrong"]
         similarity[goal_block_id == current_block_id] = 1
         return similarity
 
