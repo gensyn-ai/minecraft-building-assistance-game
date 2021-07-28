@@ -357,6 +357,7 @@
   "Lily Pad": ["air", null],
   "Lime Carpet": ["air", null],
   "Lime Stained Clay": ["stained_hardened_clay", "lime"],
+  "Lime Stained Glass": ["glass", null],
   "Lime Stained Glass Pane": ["glass", null],
   "Lime Wool": ["wool", "lime"],
   "Magenta Stained Clay": ["stained_hardened_clay", "magenta"],

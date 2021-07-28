@@ -93,7 +93,6 @@ class GrabcraftGoalGenerator(GoalGenerator):
         return width, height, depth
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        goal = MinecraftBlocks(size)
         success = False
         while not success:
             success = True
@@ -114,16 +113,10 @@ class GrabcraftGoalGenerator(GoalGenerator):
                 success = False
                 continue
 
-            # Center structure if it's smaller than given size.
-            offset = (
-                (size[0] - structure_size[0]) // 2,
-                0,
-                (size[2] - structure_size[2]) // 2,
-            )
-
             # Next, make sure all blocks are valid.
-            goal.blocks[:] = MinecraftBlocks.AIR
-            goal.block_states[:] = 0
+            structure = MinecraftBlocks(structure_size)
+            structure.blocks[:] = MinecraftBlocks.AIR
+            structure.block_states[:] = 0
             for y_str, y_layer in structure_json.items():
                 y = int(y_str)
                 for x_str, x_layer in y_layer.items():
@@ -138,13 +131,16 @@ class GrabcraftGoalGenerator(GoalGenerator):
                             block_name, variant_name = block_variant
                             block_id = MinecraftBlocks.NAME2ID.get(block_name)
                             if block_id is not None:
-                                goal.blocks[
-                                    x + offset[0] - 1,
-                                    y + offset[1] - 1,
-                                    z + offset[2] - 1,
+                                structure.blocks[
+                                    x - 1,
+                                    y - 1,
+                                    z - 1,
                                 ] = block_id
                             else:
                                 success = False
+
+            # Randomly place structure within world.
+            goal = GoalGenerator.randomly_place_structure(structure, size)
 
             # Add a layer of dirt at the bottom of the structure wherever there's still
             # air.
