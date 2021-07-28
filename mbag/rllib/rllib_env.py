@@ -50,5 +50,8 @@ class MbagMultiAgentEnv(MultiAgentEnv):
 
         return obs_dict, reward_dict, done_dict, info_dict
 
+    def render(self):
+        return None
+
 
 register_env("MBAG-v1", lambda config: MbagMultiAgentEnv(**config))

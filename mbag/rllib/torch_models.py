@@ -58,6 +58,10 @@ class MbagModel(ABC, TorchModelV2):
 
 class MbagConvolutionalModelConfig(TypedDict, total=False):
     embedding_size: int
+    use_extra_features: bool
+    """Use extra hand-designed features as input to the network."""
+    num_conv_1_layers: int
+    """Number of 1x1x1 convolutions before the main backbone."""
     num_layers: int
     filter_size: int
     hidden_channels: int
@@ -69,6 +73,8 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
 
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "embedding_size": 8,
+    "use_extra_features": False,
+    "num_conv_1_layers": 0,
     "num_layers": 3,
     "filter_size": 3,
     "hidden_channels": 32,
@@ -111,12 +117,18 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         extra_config = CONV_DEFAULT_CONFIG
         extra_config.update(cast(MbagConvolutionalModelConfig, kwargs))
         self.embedding_size = extra_config["embedding_size"]
+        self.use_extra_features = extra_config["use_extra_features"]
+        self.num_conv_1_layers = extra_config["num_conv_1_layers"]
         self.num_layers = extra_config["num_layers"]
         self.filter_size = extra_config["filter_size"]
         self.hidden_channels = extra_config["hidden_channels"]
         self.num_block_id_layers = extra_config["num_block_id_layers"]
         self.num_location_layers = extra_config["num_location_layers"]
+
         self.in_planes = 2  # TODO: update if we add more
+        self.in_channels = self.in_planes * self.embedding_size
+        if self.use_extra_features:
+            self.in_channels += 1
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -178,16 +190,20 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
 
     def _construct_backbone(self):
         backbone_layers: List[nn.Module] = []
-        for layer_index in range(self.num_layers):
+        for layer_index in range(self.num_conv_1_layers + self.num_layers):
+            if layer_index < self.num_conv_1_layers:
+                filter_size = 1
+            else:
+                filter_size = self.filter_size
             backbone_layers.append(
                 nn.Conv3d(
-                    in_channels=self.embedding_size * self.in_planes
+                    in_channels=self.in_channels
                     if layer_index == 0
                     else self.hidden_channels,
                     out_channels=self.hidden_channels,
-                    kernel_size=self.filter_size,
+                    kernel_size=filter_size,
                     stride=1,
-                    padding=(self.filter_size - 1) // 2,
+                    padding=(filter_size - 1) // 2,
                 )
             )
             backbone_layers.append(nn.ReLU())
@@ -200,24 +216,40 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self._world_obs = self._world_obs.long()
         embedded_blocks = self.block_id_embedding(self._world_obs[:, 0])
         embedded_goal_blocks = self.block_id_embedding(self._world_obs[:, 2])
-        embedded_obs = torch.cat([embedded_blocks, embedded_goal_blocks], dim=-1)
+        embedded_obs_pieces = [embedded_blocks, embedded_goal_blocks]
+        if self.use_extra_features:
+            # Feature for if goal block is the same as the current block at each
+            # location.
+            embedded_obs_pieces.append(
+                (self._world_obs[:, 0] == self._world_obs[:, 2]).float()[..., None]
+            )
+        embedded_obs = torch.cat(embedded_obs_pieces, dim=-1)
 
         self._embedded_obs = embedded_obs.permute(0, 4, 1, 2, 3)
 
         if self.vf_share_layers:
             self._backbone_out = self.backbone(self._embedded_obs)
-            return self._backbone_out, []
+            self._backbone_out_shape = self._backbone_out.size()[1:]
+            return self._backbone_out.flatten(start_dim=1), []
         else:
-            return self.action_backbone(self._embedded_obs), []
+            backbone_out = self.action_backbone(self._embedded_obs)
+            self._backbone_out_shape = backbone_out.size()[1:]
+            return backbone_out.flatten(start_dim=1), []
 
     def action_type_model(self, dist_inputs: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.action_type_head(dist_inputs))
+        return cast(
+            torch.Tensor,
+            self.action_type_head(
+                dist_inputs.reshape((-1,) + self._backbone_out_shape)
+            ),
+        )
 
     def block_location_model(
         self,
         dist_inputs: torch.Tensor,
         action_type: torch.Tensor,
     ) -> torch.Tensor:
+        dist_inputs = dist_inputs.reshape((-1,) + self._backbone_out_shape)
         world_size = dist_inputs.size()[-3:]
         head_input = torch.cat(
             [
@@ -239,9 +271,9 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         batch_size = dist_inputs.size()[0]
         head_input = torch.cat(
             [
-                dist_inputs.flatten(start_dim=2)[
-                    torch.arange(batch_size), :, block_location
-                ],
+                dist_inputs.reshape((-1,) + self._backbone_out_shape).flatten(
+                    start_dim=2
+                )[torch.arange(batch_size), :, block_location],
                 F.one_hot(action_type, self.action_type_space.n),
             ],
             dim=1,

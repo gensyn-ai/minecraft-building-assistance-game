@@ -24,21 +24,29 @@ def add_tune_config(
     experiment_name,
     policies_to_train,
 ):
+    train_batch_size_max = 20000
+    sgd_minibatch_size_max = 4000
+
     config.update(
         {
-            "train_batch_size": tune.qrandint(1000, 20000, 1000),
-            "sgd_minibatch_size": tune.qrandint(100, 4000, 100),
+            "train_batch_size": tune.qrandint(1000, train_batch_size_max, 1000),
+            "sgd_minibatch_size": tune.qrandint(100, sgd_minibatch_size_max, 100),
             "num_sgd_iter": tune.randint(1, 10),
-            "gamma": tune.uniform(0.9, 1),
             "lr": tune.loguniform(1e-5, 1e-1),
-            "kl_target": tune.loguniform(0.001, 1),
-            "grad_clip": 1,
-            "vf_loss_coeff": tune.loguniform(1e-5, 1e-2),
             "evaluation_interval": None,
         }
     )
+    if run != "distillation_prediction":
+        config.update(
+            {
+                "gamma": tune.uniform(0.9, 1),
+                "kl_target": tune.loguniform(0.001, 1),
+                "grad_clip": 1,
+                "vf_loss_coeff": tune.loguniform(1e-5, 1e-2),
+            }
+        )
 
-    if config["entropy_coeff_schedule"] is not None:
+    if config.get("entropy_coeff_schedule") is not None:
         config["entropy_coeff_schedule"] = [
             (0, tune.loguniform(1e-4, 1)),
             (tune.loguniform(1, 1e7), 0),
@@ -48,6 +56,7 @@ def add_tune_config(
         config["env_config"]["rewards"].update(
             {
                 "noop": tune.uniform(-2, 0),
+                "place_wrong": tune.uniform(0, 1),
             }
         )
 
@@ -58,26 +67,32 @@ def add_tune_config(
         policy_config["model"]["custom_model_config"].update(
             {
                 "embedding_size": tune.qrandint(4, 16, 4),
-                "position_embedding_size": tune.qrandint(4, 16, 4),
+                "position_embedding_size": tune.qrandint(6, 18, 6),
+                "use_extra_features": tune.choice([False, True]),
+                "num_conv_1_layers": tune.randint(1, 5),
                 "num_layers": tune.randint(1, 5),
                 "filter_size": tune.choice([3, 5]),
                 "hidden_channels": tune.qrandint(8, 64, 8),
-                "hidden_size": tune.qrandint(8, 64, 8),
+                "hidden_size": tune.qrandint(16, 64, 8),
                 "num_block_id_layers": tune.randint(1, 5),
                 "num_location_layers": tune.randint(1, 5),
                 "num_decoder_layers": tune.randint(1, 5),
-                "num_heads": tune.randint(1, 9),
+                "num_heads": tune.choice([1, 2, 4]),
             }
         )
 
     time_attr = "time_total_s"
-    tune_metric = "custom_metrics/goal_similarity_mean"
+    if run == "distillation_prediction":
+        tune_metric = "info/learner/ppo/initial_cross_entropy"
+        mode = "min"
+    else:
+        tune_metric = "custom_metrics/goal_similarity_mean"
+        mode = "max"
     max_t = 4 * 60 * 60
     grace_period = 10 * 60
     scheduler_params = {  # noqa: F841
         "time_attr": time_attr,
         "metric": tune_metric,
-        "mode": "max",
         "max_t": max_t,
         "grace_period": grace_period,
     }
@@ -92,6 +107,7 @@ def add_tune_config(
         "time_budget_s": time_budget_s,
         "num_samples": num_samples,
         "local_dir": tune_log_dir,
+        "mode": mode,
     }
 
 

@@ -18,7 +18,7 @@ from .torch_models import MbagConvolutionalModelConfig, MbagTransformerModelConf
 from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
 from .training_utils import build_logger_creator
-from .policies import MbagAgentPolicy
+from .policies import MBAG_POLICIES, MbagAgentPolicy
 from .distillation_prediction import DEFAULT_CONFIG as distillation_default_config
 
 from sacred import Experiment
@@ -33,20 +33,29 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
     def sacred_config(_log):  # noqa
         # Environment
         goal_generator = "random"
+        train_goals = True  # False for test set
         horizon = 50
         num_players = 1
         height = 5
         width = 5
         depth = 5
-        noop_reward = -1
+        noop_reward = 0
+        place_wrong_reward = 0
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
-            "goal_generator": (ALL_GOAL_GENERATORS[goal_generator], {}),
+            "goal_generator": (
+                ALL_GOAL_GENERATORS[goal_generator],
+                {
+                    "data_dir": f"data/{goal_generator}",
+                    "train": train_goals,
+                },
+            ),
             "goal_visibility": [True] * num_players,
             "rewards": {
                 "noop": noop_reward,
+                "place_wrong": place_wrong_reward,
             },
         }
         env = MbagMultiAgentEnv(**environment_params)
@@ -54,15 +63,16 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         # Training
         run = "PPO"
         num_workers = 2
+        num_aggregation_workers = min(1, num_workers)
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
         train_batch_size = 5000
         sgd_minibatch_size = 500
         rollout_fragment_length = horizon
         num_training_iters = 500  # noqa: F841
-        lr = 3e-4
+        lr = 1e-3
         grad_clip = 0.1
-        gamma = 0.93
+        gamma = 0.95
         gae_lambda = 0.98
         vf_share_layers = False
         vf_loss_coeff = 1e-4
@@ -70,17 +80,20 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         entropy_coeff_end = 0
         entropy_coeff_horizon = 3e6
         kl_coeff = 0.2
-        kl_target = 0.01
+        kl_target = 0.1
         clip_param = 0.05
         num_sgd_iter = 6
+        compress_observations = True
 
         # Model
         model: Literal["convolutional", "transformer"] = "convolutional"
         embedding_size = 8
         position_embedding_size = 8
-        num_layers = 2
+        use_extra_features = False
+        num_conv_1_layers = 0
+        num_layers = 1
         filter_size = 3
-        hidden_channels = 32
+        hidden_channels = 64
         hidden_size = hidden_channels
         num_block_id_layers = 3
         num_location_layers = 3
@@ -94,6 +107,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         if model == "convolutional":
             conv_config: MbagConvolutionalModelConfig = {
                 "embedding_size": embedding_size,
+                "use_extra_features": use_extra_features,
+                "num_conv_1_layers": num_conv_1_layers,
                 "num_layers": num_layers,
                 "filter_size": filter_size,
                 "hidden_channels": hidden_channels,
@@ -138,10 +153,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         checkpoint_path = None  # noqa: F841
 
         policies: MultiAgentPolicyConfigDict = {}
-
         for policy_id in policy_ids:
             policies[policy_id] = (
-                None,
+                MBAG_POLICIES.get(run),
                 env.observation_space,
                 env.action_space,
                 {"model": model_config},
@@ -157,19 +171,14 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             },
             "callbacks": MbagCallbacks,
             "num_workers": num_workers,
+            "num_gpus": num_gpus,
+            "lr": lr,
             "train_batch_size": train_batch_size,
             "sgd_minibatch_size": sgd_minibatch_size,
-            "rollout_fragment_length": rollout_fragment_length,
-            "num_sgd_iter": num_sgd_iter,
-            "lr": lr,
-            "grad_clip": grad_clip,
-            "gamma": gamma,
-            "lambda": gae_lambda,
             "vf_loss_coeff": vf_loss_coeff,
-            "kl_coeff": kl_coeff,
-            "kl_target": kl_target,
-            "clip_param": clip_param,
-            "num_gpus": num_gpus,
+            "compress_observations": compress_observations,
+            "rollout_fragment_length": rollout_fragment_length,
+            "grad_clip": grad_clip,
             "seed": seed,
             "entropy_coeff_schedule": [
                 (0, entropy_coeff_start),
@@ -177,6 +186,24 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             ],
             "framework": "torch",
         }
+        if "PPO" in run:
+            config.update(
+                {
+                    "num_sgd_iter": num_sgd_iter,
+                    "gamma": gamma,
+                    "lambda": gae_lambda,
+                    "kl_coeff": kl_coeff,
+                    "kl_target": kl_target,
+                    "clip_param": clip_param,
+                }
+            )
+        if run in ["IMPALA", "APPO"]:
+            config.update(
+                {
+                    "num_aggregation_workers": num_aggregation_workers,
+                }
+            )
+            config["train_batch_size"] = config.pop("sgd_minibatch_size")
 
         # Distillation
         if run == "distillation_prediction":
