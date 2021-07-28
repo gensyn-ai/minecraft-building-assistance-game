@@ -172,6 +172,9 @@ class MinecraftBlocks(object):
             if self.blocks[block_location] != MinecraftBlocks.AIR:
                 # Can only place block in air space.
                 return None
+            elif block_id not in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                # Can't place an unplaceable block.
+                return None
         else:
             if self.blocks[block_location] in [
                 MinecraftBlocks.AIR,

@@ -1,4 +1,4 @@
-from typing import Tuple, cast
+from typing import List, Tuple, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
 
@@ -43,6 +43,11 @@ class MbagAction(object):
     BREAK_BLOCK: MbagActionType = 2
 
     NUM_ACTION_TYPES = 3
+    ACTION_TYPE_NAMES = {
+        NOOP: "NOOP",
+        PLACE_BLOCK: "PLACE_BLOCK",
+        BREAK_BLOCK: "BREAK_BLOCK",
+    }
 
     action_type: MbagActionType
     block_location: BlockLocation
@@ -57,6 +62,19 @@ class MbagAction(object):
         self.block_location = cast(
             BlockLocation, tuple(np.unravel_index(block_location_index, world_size))
         )
+
+    def __str__(self):
+        from .blocks import MinecraftBlocks
+
+        parts: List[str] = [MbagAction.ACTION_TYPE_NAMES[self.action_type]]
+        if self.action_type in MbagAction.BLOCK_ID_ACTION_TYPES:
+            parts.append(MinecraftBlocks.ID2NAME[self.block_id])
+        if self.action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES:
+            parts.append(str(self.block_location))
+        return " ".join(parts)
+
+    def __repr__(self):
+        return f"MbagAction<{self}>"
 
 
 class MbagInfoDict(TypedDict):
