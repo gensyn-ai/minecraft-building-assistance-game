@@ -27,7 +27,7 @@ def test_single_agent():
         ],
     )
     reward = evaluator.rollout()
-    assert reward == 13.5
+    assert reward == 18
 
 
 def test_two_agents():
@@ -50,7 +50,7 @@ def test_two_agents():
         ],
     )
     reward = evaluator.rollout()
-    assert reward == 13.5
+    assert reward == 18
 
 
 @pytest.mark.xfail(strict=False)
