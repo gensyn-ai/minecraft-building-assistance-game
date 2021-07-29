@@ -447,10 +447,9 @@ def async_execution_plan(workers, config):
     )
 
     # Split train batches into minibatches for SGD.
-    minibatches = (
-        train_batches.for_each(SplitMinibatches(config["sgd_minibatch_size"]))
-        .flatten()
-    )
+    minibatches = train_batches.for_each(
+        SplitMinibatches(config["sgd_minibatch_size"])
+    ).flatten()
 
     # Start the learner thread.
     learner_thread = LearnerThread(
