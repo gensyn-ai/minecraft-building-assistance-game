@@ -60,6 +60,8 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     embedding_size: int
     use_extra_features: bool
     """Use extra hand-designed features as input to the network."""
+    mask_goal: bool
+    """Remove goal information from observations before passing into the network."""
     num_conv_1_layers: int
     """Number of 1x1x1 convolutions before the main backbone."""
     num_layers: int
@@ -74,6 +76,7 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "embedding_size": 8,
     "use_extra_features": False,
+    "mask_goal": False,
     "num_conv_1_layers": 0,
     "num_layers": 3,
     "filter_size": 3,
@@ -118,6 +121,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         extra_config.update(cast(MbagConvolutionalModelConfig, kwargs))
         self.embedding_size = extra_config["embedding_size"]
         self.use_extra_features = extra_config["use_extra_features"]
+        self.mask_goal = extra_config["mask_goal"]
         self.num_conv_1_layers = extra_config["num_conv_1_layers"]
         self.num_layers = extra_config["num_layers"]
         self.filter_size = extra_config["filter_size"]
@@ -125,7 +129,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.num_block_id_layers = extra_config["num_block_id_layers"]
         self.num_location_layers = extra_config["num_location_layers"]
 
-        self.in_planes = 2  # TODO: update if we add more
+        self.in_planes = 1 if self.mask_goal else 2  # TODO: update if we add more
         self.in_channels = self.in_planes * self.embedding_size
         if self.use_extra_features:
             self.in_channels += 1
@@ -215,8 +219,10 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         # TODO: embed other block info?
         self._world_obs = self._world_obs.long()
         embedded_blocks = self.block_id_embedding(self._world_obs[:, 0])
-        embedded_goal_blocks = self.block_id_embedding(self._world_obs[:, 2])
-        embedded_obs_pieces = [embedded_blocks, embedded_goal_blocks]
+        embedded_obs_pieces = [embedded_blocks]
+        if not self.mask_goal:
+            embedded_goal_blocks = self.block_id_embedding(self._world_obs[:, 2])
+            embedded_obs_pieces.append(embedded_goal_blocks)
         if self.use_extra_features:
             # Feature for if goal block is the same as the current block at each
             # location.

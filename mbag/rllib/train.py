@@ -17,7 +17,7 @@ from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from .torch_models import MbagConvolutionalModelConfig, MbagTransformerModelConfig
 from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
-from .training_utils import build_logger_creator
+from .training_utils import build_logger_creator, load_trainer_config
 from .policies import MBAG_POLICIES, MbagAgentPolicy
 from .distillation_prediction import DEFAULT_CONFIG as distillation_default_config
 
@@ -90,6 +90,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         embedding_size = 8
         position_embedding_size = 8
         use_extra_features = False
+        mask_goal = False
         num_conv_1_layers = 0
         num_layers = 1
         filter_size = 3
@@ -108,6 +109,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             conv_config: MbagConvolutionalModelConfig = {
                 "embedding_size": embedding_size,
                 "use_extra_features": use_extra_features,
+                "mask_goal": mask_goal,
                 "num_conv_1_layers": num_conv_1_layers,
                 "num_layers": num_layers,
                 "filter_size": filter_size,
@@ -151,6 +153,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             experiment_name_parts.append(experiment_tag)
         experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
         checkpoint_path = None  # noqa: F841
+        checkpoint_to_load_policies = None
 
         policies: MultiAgentPolicyConfigDict = {}
         for policy_id in policy_ids:
@@ -175,6 +178,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "lr": lr,
             "train_batch_size": train_batch_size,
             "sgd_minibatch_size": sgd_minibatch_size,
+            "num_sgd_iter": num_sgd_iter,
             "vf_loss_coeff": vf_loss_coeff,
             "compress_observations": compress_observations,
             "rollout_fragment_length": rollout_fragment_length,
@@ -189,7 +193,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         if "PPO" in run:
             config.update(
                 {
-                    "num_sgd_iter": num_sgd_iter,
                     "gamma": gamma,
                     "lambda": gae_lambda,
                     "kl_coeff": kl_coeff,
@@ -206,21 +209,45 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             config["train_batch_size"] = config.pop("sgd_minibatch_size")
 
         # Distillation
-        if run == "distillation_prediction":
-            heuristic = "layer_builder"
-            mbag_agent = ALL_HEURISTIC_AGENTS[heuristic]({}, environment_params)
-            config["multiagent"]["policies"][heuristic] = (
-                MbagAgentPolicy,
-                env.observation_space,
-                env.action_space,
-                {"mbag_agent": mbag_agent},
-            )
-            config["multiagent"][
-                "distillation_mapping_fn"
-            ] = lambda policy_id, to_policy_id=policy_ids[0]: to_policy_id
-            config["multiagent"][
-                "policy_mapping_fn"
-            ] = lambda agent_id, to_policy_id=heuristic: to_policy_id
+        if "distillation_prediction" in run:
+            if checkpoint_to_load_policies is None:
+                # Distill a heuristic policy.
+                heuristic = "layer_builder"
+                mbag_agent = ALL_HEURISTIC_AGENTS[heuristic]({}, environment_params)
+                config["multiagent"]["policies"][heuristic] = (
+                    MbagAgentPolicy,
+                    env.observation_space,
+                    env.action_space,
+                    {"mbag_agent": mbag_agent},
+                )
+                config["multiagent"][
+                    "distillation_mapping_fn"
+                ] = lambda policy_id, to_policy_id=policy_ids[0]: to_policy_id
+                config["multiagent"][
+                    "policy_mapping_fn"
+                ] = lambda agent_id, to_policy_id=heuristic: to_policy_id
+            else:
+                checkpoint_to_load_policies_config = load_trainer_config(
+                    checkpoint_to_load_policies
+                )
+                # Add a corresponding distilled policy for each policy in the checkpoint.
+                previous_policy_ids = list(policies.keys())
+                policies_to_train.clear()
+                for policy_id in previous_policy_ids:
+                    policies[policy_id] = checkpoint_to_load_policies_config[
+                        "multiagent"
+                    ]["policies"][policy_id]
+                    distill_policy_id = f"{policy_id}_distilled"
+                    policies[distill_policy_id] = (
+                        MBAG_POLICIES.get(run),
+                        env.observation_space,
+                        env.action_space,
+                        {"model": model_config},
+                    )
+                    policies_to_train.append(distill_policy_id)
+                config["multiagent"][
+                    "distillation_mapping_fn"
+                ] = lambda policy_id: f"{policy_id}_distilled"
             # Remove extra config parameters.
             for key in list(config.keys()):
                 if key not in distillation_default_config:

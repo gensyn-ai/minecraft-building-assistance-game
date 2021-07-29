@@ -6,9 +6,17 @@ for predicting the next action given past actions.
 import logging
 import gym
 import numpy as np
+from ray.rllib.execution.concurrency_ops import Concurrently, Dequeue, Enqueue
+from ray.rllib.execution.learner_thread import LearnerThread
 from ray.rllib.models.torch.attention_net import AttentionWrapper
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.utils.sgd import minibatches
 from ray.tune.registry import register_trainable
+from ray.rllib.execution.common import (
+    AGENT_STEPS_TRAINED_COUNTER,
+    STEPS_TRAINED_COUNTER,
+    _get_shared_metrics,
+)
 import torch
 from typing import Dict, List, Type, Union, Callable, cast
 
@@ -354,3 +362,132 @@ DistillationPredictionTrainer = build_trainer(
 )
 
 register_trainable("distillation_prediction", DistillationPredictionTrainer)
+
+
+ASYNC_DEFAULT_CONFIG = {
+    **DEFAULT_CONFIG,
+    # how many train batches should be retained for minibatching. This conf
+    # only has an effect if `num_sgd_iter > 1`.
+    "minibatch_buffer_size": 1,
+    # max queue size for train batches feeding into the learner
+    "learner_queue_size": 40,
+    # wait for train batches to be available in minibatch buffer queue
+    # this many seconds. This may need to be increased e.g. when training
+    # with a slow environment
+    "learner_queue_timeout": 300,
+    # max number of workers to broadcast one set of weights to
+    "broadcast_interval": 1,
+}
+
+
+class SplitMinibatches:
+    """
+    Splits larger batches into minibatches.
+    """
+
+    def __init__(self, sgd_minibatch_size: int):
+        self.sgd_minibatch_size = sgd_minibatch_size
+
+    def __call__(self, samples: SampleBatch) -> List[SampleBatch]:
+        assert isinstance(samples, MultiAgentBatch)
+
+        all_minibatches: List[SampleBatch] = []
+        for policy_id, policy_batch in samples.policy_batches.items():
+            for minibatch in minibatches(policy_batch, self.sgd_minibatch_size):
+                all_minibatches.append(
+                    MultiAgentBatch(
+                        {policy_id: minibatch},
+                        minibatch.count,
+                    )
+                )
+
+        return all_minibatches
+
+
+def record_steps_trained(item):
+    count, fetches = item
+    metrics = _get_shared_metrics()
+    # Manually update the steps trained counter since the learner thread
+    # is executing outside the pipeline.
+    metrics.counters[STEPS_TRAINED_COUNTER] += count
+    metrics.counters[AGENT_STEPS_TRAINED_COUNTER] += count
+    return item
+
+
+def use_steps_trained_for_timesteps_total(result):
+    metrics = _get_shared_metrics()
+    result["timesteps_total"] = metrics.counters[STEPS_TRAINED_COUNTER]
+    return result
+
+
+def async_execution_plan(workers, config):
+    rollouts = ParallelRollouts(workers, mode="async", num_async=2)
+
+    # Map batches to the policies getting distilled onto.
+    policies_recurrent = dict(
+        workers.foreach_policy(
+            lambda policy, policy_id: (policy_id, policy.is_recurrent())
+        )
+    )
+    rollouts = rollouts.for_each(
+        MapExperiences(
+            config["multiagent"]["distillation_mapping_fn"],
+            policies_recurrent,
+        )
+    )
+
+    # Collect batches for the trainable policies.
+    rollouts = rollouts.for_each(SelectExperiences(workers.trainable_policies()))
+    # Concatenate the SampleBatches into one.
+    train_batches = rollouts.combine(
+        ConcatBatches(
+            min_batch_size=config["train_batch_size"],
+            count_steps_by=config["multiagent"]["count_steps_by"],
+        )
+    )
+
+    # Split train batches into minibatches for SGD.
+    minibatches = (
+        train_batches.for_each(SplitMinibatches(config["sgd_minibatch_size"]))
+        .flatten()
+    )
+
+    # Start the learner thread.
+    learner_thread = LearnerThread(
+        workers.local_worker(),
+        minibatch_buffer_size=config["minibatch_buffer_size"],
+        num_sgd_iter=config["num_sgd_iter"],
+        learner_queue_size=config["learner_queue_size"],
+        learner_queue_timeout=config["learner_queue_timeout"],
+    )
+    learner_thread.start()
+
+    # This sub-flow sends experiences to the learner.
+    enqueue_op = minibatches.for_each(Enqueue(learner_thread.inqueue))
+
+    # This sub-flow updates the steps trained counter based on learner output.
+    dequeue_op = Dequeue(
+        learner_thread.outqueue, check=learner_thread.is_alive
+    ).for_each(record_steps_trained)
+
+    merged_op = Concurrently([enqueue_op, dequeue_op], mode="async", output_indexes=[1])
+
+    return (
+        StandardMetricsReporting(merged_op, workers, config)
+        .for_each(use_steps_trained_for_timesteps_total)
+        .for_each(learner_thread.add_learner_metrics)
+        .for_each(PredictionMetrics(config, workers))
+    )
+
+
+AsyncDistillationPredictionTrainer = build_trainer(
+    name="AsyncDistillationPredictionTrainer",
+    default_config=ASYNC_DEFAULT_CONFIG,
+    validate_config=validate_config,
+    default_policy=DistillationPredictionPolicy,
+    get_policy_class=lambda config: DistillationPredictionPolicy,
+    after_init=after_init,
+    execution_plan=async_execution_plan,
+)
+
+register_trainable("async_distillation_prediction", AsyncDistillationPredictionTrainer)

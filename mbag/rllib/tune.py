@@ -23,6 +23,7 @@ def add_tune_config(
     log_dir,
     experiment_name,
     policies_to_train,
+    mask_goal,
 ):
     train_batch_size_max = 20000
     sgd_minibatch_size_max = 4000
@@ -68,7 +69,9 @@ def add_tune_config(
             {
                 "embedding_size": tune.qrandint(4, 16, 4),
                 "position_embedding_size": tune.qrandint(6, 18, 6),
-                "use_extra_features": tune.choice([False, True]),
+                "use_extra_features": False
+                if mask_goal
+                else tune.choice([False, True]),
                 "num_conv_1_layers": tune.randint(1, 5),
                 "num_layers": tune.randint(1, 5),
                 "filter_size": tune.choice([3, 5]),
@@ -82,8 +85,8 @@ def add_tune_config(
         )
 
     time_attr = "time_total_s"
-    if run == "distillation_prediction":
-        tune_metric = "info/learner/ppo/initial_cross_entropy"
+    if "distillation_prediction" in run:
+        tune_metric = f"info/learner/{policies_to_train[0]}/initial_cross_entropy"
         mode = "min"
     else:
         tune_metric = "custom_metrics/goal_similarity_mean"
