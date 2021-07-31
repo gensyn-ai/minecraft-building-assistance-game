@@ -27,6 +27,8 @@ from sacred import SETTINGS as sacred_settings
 ex = Experiment("train_mbag")
 sacred_settings.CONFIG.READ_ONLY_CONFIG = False
 
+torch.autograd.set_detect_anomaly(True)
+
 
 def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
@@ -97,9 +99,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         hidden_channels = 64
         hidden_size = hidden_channels
         num_block_id_layers = 3
-        num_location_layers = 3
         num_heads = 4
-        num_decoder_layers = 3
         model_config = {
             "custom_model": f"mbag_{model}_model",
             "custom_action_dist": "mbag_autoregressive",
@@ -115,7 +115,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "filter_size": filter_size,
                 "hidden_channels": hidden_channels,
                 "num_block_id_layers": num_block_id_layers,
-                "num_location_layers": num_location_layers,
             }
             model_config["custom_model_config"] = conv_config
         elif model == "transformer":
@@ -125,7 +124,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "num_layers": num_layers,
                 "num_heads": num_heads,
                 "hidden_size": hidden_size,
-                "num_decoder_layers": num_decoder_layers,
+                "num_block_id_layers": num_block_id_layers,
             }
             model_config["custom_model_config"] = transformer_config
 

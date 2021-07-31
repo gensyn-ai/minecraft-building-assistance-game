@@ -1,9 +1,11 @@
-from typing import List, Tuple, cast
+from typing import List, Optional, Tuple, cast
 import gym
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.distributions import Categorical
+import numpy as np
 
 from ray.rllib.utils.typing import ModelConfigDict
 from ray.rllib.models.torch.torch_action_dist import (
@@ -12,17 +14,23 @@ from ray.rllib.models.torch.torch_action_dist import (
 )
 from ray.rllib.models.catalog import ModelCatalog
 
-from mbag.environment.types import MbagAction
+from mbag.environment.types import MbagAction, WorldSize
 from mbag.environment.blocks import MinecraftBlocks
 from .torch_models import MbagModel
 
 
 class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
     """
-    An auto-regressive action distribution for the MBAG environment. It first samples
-    an action type (e.g., NOOP, PLACE_BLOCK, etc.). Then, if necessary, it samples a
-    block type given the action type. Finally, if necessary, it samples a
-    block location given the action type and block type.
+    An auto-regressive action distribution for the MBAG environment. First, it samples
+    a location and action type (e.g., NOOP, PLACE_BLOCK, etc.). Then, it samples a
+    block type based on the action type and location.
+
+    The distribution inputs should be of size
+    (num_action_types + extra_size) x width x height x depth
+    The first num_action_types channels are used as logits for the action_type and
+    location. Then, the inputs at the sampled location are passed to
+    model.block_id_model, except that the first num_action_types channels are replaced
+    by a one-hot vector with the sampled action type.
 
     This is meant to be used with the models in models.py
     """
@@ -34,9 +42,7 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
 
     _world_obs: torch.Tensor
     _cached_action_type = None
-    _cached_action_type_logits = None
     _cached_block_location = None
-    _cached_block_location_logits = None
     _cached_block_id_logits = None
 
     PLACEABLE_BLOCK_MASK = torch.tensor(
@@ -50,6 +56,9 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
     def __init__(self, inputs: List[torch.Tensor], model: TorchModelV2):
         super().__init__(inputs, model)
 
+        self._world_size = self.model.obs_space.original_space[0].shape[1:]
+        self.inputs = self.inputs.reshape(self.inputs.size()[0], -1, *self._world_size)
+
         self._world_obs = getattr(self.model, "_world_obs", None)
         if self._world_obs is not None:
             self._world_obs = self._world_obs[: self.inputs.size()[0]]
@@ -59,48 +68,38 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         self.inputs = self.inputs.to(self.model_device)
 
     def sample(self):
-        # First, sample an action_type.
-        action_type_dist = self._action_type_distribution()
-        action_type = action_type_dist.sample()
+        # First, sample a block_location and action_type.
+        action_type_location_dist = self._action_type_location_distribution()
+        action_type, block_location = action_type_location_dist.sample()
 
-        # Next, sample a block_location.
-        block_location_dist = self._block_location_distribution(action_type)
-        block_location = block_location_dist.sample()
-
-        # Finally, sample a block_id.
+        # Then, sample a block_id.
         block_id_dist = self._block_id_distribution(action_type, block_location)
         block_id = block_id_dist.sample()
 
         self._sampled_logp = self._calculate_logp(
-            action_type_dist,
+            action_type_location_dist,
             action_type,
+            block_location,
             block_id_dist,
             block_id,
-            block_location_dist,
-            block_location,
         )
         return action_type, block_location, block_id
 
     def deterministic_sample(self):
-        # First, sample an action_type.
-        action_type_dist = self._action_type_distribution()
-        action_type = action_type_dist.deterministic_sample()
+        # First, sample a block_location and action_type.
+        action_type_location_dist = self._action_type_location_distribution()
+        action_type, block_location = action_type_location_dist.deterministic_sample()
 
-        # Next, sample a block_location.
-        block_location_dist = self._block_location_distribution(action_type)
-        block_location = block_location_dist.deterministic_sample()
-
-        # Finally, sample a block_id.
+        # Then, sample a block_id.
         block_id_dist = self._block_id_distribution(action_type, block_location)
         block_id = block_id_dist.deterministic_sample()
 
         self._sampled_logp = self._calculate_logp(
-            action_type_dist,
+            action_type_location_dist,
             action_type,
+            block_location,
             block_id_dist,
             block_id,
-            block_location_dist,
-            block_location,
         )
         return action_type, block_location, block_id
 
@@ -114,138 +113,109 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         block_location = actions[:, 1].long()
         block_id = actions[:, 2].long()
 
-        action_type_dist, block_id_dist, block_location_dist = self._all_distributions(
-            action_type, block_location
-        )
+        action_type_location_dist = self._action_type_location_distribution()
+        block_id_dist = self._block_id_distribution(action_type, block_location)
 
         return self._calculate_logp(
-            action_type_dist,
+            action_type_location_dist,
             action_type,
+            block_location,
             block_id_dist,
             block_id,
-            block_location_dist,
-            block_location,
         )
 
     def entropy(self):
+        action_type_location_dist = self._action_type_location_distribution()
         if (
             self._cached_action_type is not None
             and self._cached_block_location is not None
         ):
-            (
-                action_type_dist,
-                block_id_dist,
-                block_location_dist,
-            ) = self._all_distributions(
+            block_id_dist = self._block_id_distribution(
                 self._cached_action_type, self._cached_block_location
             )
         else:
-            action_type_dist = self._action_type_distribution()
-            action_type = action_type_dist.sample()
-            block_location_dist = self._block_location_distribution(action_type)
-            block_location = block_location_dist.sample()
+            action_type, block_location = action_type_location_dist.sample()
             block_id_dist = self._block_id_distribution(action_type, block_location)
 
         # Only count block_id and block_location entropy for actions which use them.
-        block_id_use_prob = action_type_dist.dist.probs[
+        block_id_use_prob = action_type_location_dist.action_type_distribution.probs[
             :, MbagAction.BLOCK_ID_ACTION_TYPES
-        ].sum(1)
-        block_location_use_prob = action_type_dist.dist.probs[
-            :, MbagAction.BLOCK_LOCATION_ACTION_TYPES
         ].sum(1)
 
         entropy = (
-            action_type_dist.entropy()
+            action_type_location_dist.entropy()
             + block_id_dist.entropy() * block_id_use_prob
-            + block_location_dist.entropy() * block_location_use_prob
         )
-        if torch.any(entropy > 100):
-            import pdb
-
-            pdb.set_trace()
         return entropy
 
     def kl(self, other: "MbagAutoregressiveActionDistribution"):
+        action_type_location_dist = self._action_type_location_distribution()
         if (
             self._cached_action_type is not None
             and self._cached_block_location is not None
         ):
-            (
-                action_type_dist,
-                block_id_dist,
-                block_location_dist,
-            ) = self._all_distributions(
+            block_id_dist = self._block_id_distribution(
                 self._cached_action_type, self._cached_block_location
             )
         else:
-            action_type_dist = self._action_type_distribution()
-            action_type = action_type_dist.sample()
-            block_location_dist = self._block_location_distribution(action_type)
-            block_location = block_location_dist.sample()
+            action_type, block_location = action_type_location_dist.sample()
             block_id_dist = self._block_id_distribution(action_type, block_location)
 
-        action_type_kl = action_type_dist.kl(other._action_type_distribution())
+        action_type_location_kl = action_type_location_dist.kl(
+            other._action_type_location_distribution()
+        )
         block_id_kl = block_id_dist.kl(
             other._block_id_distribution(action_type, block_location, skip_cache=True)
         )
         # Ignore infinite KL for block_id since the supervised loss tends to push
         # some probabilities down to zero.
         block_id_kl[torch.isinf(block_id_kl)] = 0
-        block_location_kl = block_location_dist.kl(
-            other._block_location_distribution(action_type, skip_cache=True)
-        )
 
-        return action_type_kl + block_id_kl + block_location_kl
+        return action_type_location_kl + block_id_kl
 
-    def _action_type_distribution(self) -> TorchCategorical:
-        if self._cached_action_type_logits is None:
-            self._cached_action_type_logits = self.model.action_type_model(self.inputs)
-        return TorchCategorical(self._cached_action_type_logits)  # type: ignore
-
-    def _block_location_distribution(
-        self, action_type, mask_logit=-1e8, skip_cache=False
-    ) -> TorchCategorical:
-        if skip_cache:
-            block_location_logits = self.model.block_location_model(
-                self.inputs,
-                action_type,
-            )
-        else:
-            if self._cached_block_location_logits is None or not torch.all(
-                self._cached_action_type == action_type
-            ):
-                self._cached_block_location_logits = self.model.block_location_model(
-                    self.inputs,
-                    action_type,
-                )
-                self._cached_action_type = action_type
-            block_location_logits = self._cached_block_location_logits
-        # Should be a BxWxHxD tensor:
-        assert len(block_location_logits.size()) == 4
-        return self._block_location_logits_to_distribution(
-            action_type, block_location_logits.clone(), mask_logit
+    def _action_type_location_distribution(
+        self, mask_logit=-1e8
+    ) -> "ActionTypeLocationDistribution":
+        action_type_location_logits = self.inputs[:, : MbagAction.NUM_ACTION_TYPES]
+        return ActionTypeLocationDistribution(
+            action_type_location_logits, self.model, self._world_obs
         )
 
     def _block_id_distribution(
         self, action_type, block_location, mask_logit=-1e8, skip_cache=False
     ) -> TorchCategorical:
-        if skip_cache:
-            block_id_logits = self.model.block_id_model(
-                self.inputs, action_type, block_location
-            )
-        else:
-            if self._cached_block_id_logits is None or not (
+        if (
+            self._cached_block_id_logits is None
+            or skip_cache
+            or not (
                 torch.all(self._cached_action_type == action_type)
                 and torch.all(self._cached_block_location == block_location)
-            ):
-                self._cached_block_id_logits = self.model.block_id_model(
-                    self.inputs, action_type, block_location
-                )
+            )
+        ):
+            location_inputs = self.inputs.flatten(start_dim=2)[
+                torch.arange(self.inputs.size()[0]), :, block_location
+            ]
+            assert location_inputs.size() == self.inputs.size()[:2]
+            hidden_state = location_inputs[:, MbagAction.NUM_ACTION_TYPES :]
+            hidden_state_with_action_type = torch.cat(
+                [
+                    hidden_state,
+                    F.one_hot(action_type, MbagAction.NUM_ACTION_TYPES),
+                ],
+                dim=1,
+            )
+            block_id_logits = self.model.block_id_model(
+                hidden_state_with_action_type,
+            )
+            if not skip_cache:
+                self._cached_block_id_logits = block_id_logits
                 self._cached_action_type = action_type
                 self._cached_block_location = block_location
+        else:
             block_id_logits = self._cached_block_id_logits
 
         # Mask out logits for placing unplaceable blocks.
+        block_id_logits = block_id_logits.clone()
         block_id_logits[
             (action_type == MbagAction.PLACE_BLOCK)[:, None]
             & ~MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[None, :]
@@ -253,15 +223,99 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
 
         return TorchCategorical(block_id_logits)  # type: ignore
 
-    def _block_location_logits_to_distribution(
-        self, action_type, block_location_logits, mask_logit=-1e8
-    ) -> TorchCategorical:
+    def _calculate_logp(
+        self,
+        action_type_location_dist: "ActionTypeLocationDistribution",
+        action_type,
+        block_location,
+        block_id_dist: TorchCategorical,
+        block_id,
+    ):
+        """
+        Carefully calculates the log probability of different actions, ignoring parts
+        of the action which don't matter (for instance, block_location in a movement
+        action).
+        """
+
+        action_type_location_logp = action_type_location_dist.logp(
+            action_type, block_location
+        )
+
+        block_id_logp = block_id_dist.logp(block_id)
+        block_id_action_types = torch.tensor(
+            MbagAction.BLOCK_ID_ACTION_TYPES, device=block_id.device
+        )
+        block_id_mask = (action_type[:, None] == block_id_action_types).any(1)
+        block_id_logp[~block_id_mask] = 0
+
+        return (action_type_location_logp + block_id_logp).to(self.inputs_device)
+
+    @staticmethod
+    def required_model_output_shape(
+        action_space: gym.Space, model_config: ModelConfigDict
+    ):
+        return 1
+
+
+class ActionTypeLocationDistribution(TorchCategorical):
+    """
+    Distribution over action types and locations, parameterized by logits of size
+    num_action_types x width x height x depth. Returns a tuple (action_type, location).
+    """
+
+    inputs: torch.Tensor  # type: ignore
+    _world_size: WorldSize
+
+    def __init__(
+        self, inputs, model: TorchModelV2, world_obs: Optional[torch.Tensor] = None
+    ):
+        self._world_obs = world_obs
+        assert inputs.size()[1] == MbagAction.NUM_ACTION_TYPES
+        super().__init__(self._mask_logits(inputs).flatten(start_dim=1), model=model)
+        self._world_size = inputs.size()[-3:]
+        self._num_world_blocks = int(np.prod(self._world_size))
+
+    def _tuple_to_index(
+        self, action_type: torch.Tensor, location: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Combine a tuple of (action_type, location) tensors into a single tensor of
+        indices.
+        """
+
+        return action_type * self._num_world_blocks + location
+
+    def _index_to_tuple(
+        self, action_type_location: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Split a single tensor of indices into a tuple (action_type, location).
+        """
+
+        action_type = torch.div(
+            action_type_location, self._num_world_blocks, rounding_mode="floor"
+        )
+        location = action_type_location % self._num_world_blocks
+        return action_type, location
+
+    def _mask_logits(
+        self, location_action_type_logits: torch.Tensor, mask_logit=-1e8
+    ) -> torch.Tensor:
+        """
+        Given location and action_type logits of size
+        num_action_types x width x height x depth,
+        this masks out action_type + location pairs that are impossible (for instance,
+        breaking bedrock or placing a block in mid-air).
+        """
+
+        # Clone logits since we're going to modify them.
+        location_action_type_logits = location_action_type_logits.clone()
+
         if self._world_obs is not None:
             # Mask the distribution to blocks that can actually be affected.
             # First, we can't break air or bedrock.
-            block_location_logits[
-                (action_type == MbagAction.BREAK_BLOCK)[:, None, None, None]
-                & (
+            location_action_type_logits[:, MbagAction.BREAK_BLOCK][
+                (
                     (self._world_obs[:, 0] == MinecraftBlocks.AIR)
                     | (self._world_obs[:, 0] == MinecraftBlocks.BEDROCK)
                 )
@@ -285,90 +339,77 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
                 )
                 > 0
             ).squeeze(1)
-            block_location_logits[
-                (action_type == MbagAction.PLACE_BLOCK)[:, None, None, None]
-                & ((self._world_obs[:, 0] != MinecraftBlocks.AIR) | ~next_to_solid)
+            location_action_type_logits[:, MbagAction.PLACE_BLOCK][
+                (self._world_obs[:, 0] != MinecraftBlocks.AIR) | ~next_to_solid
             ] = mask_logit
 
-        return TorchCategorical(block_location_logits.flatten(start_dim=1))  # type: ignore
+        return location_action_type_logits
 
-    def _all_distributions(
-        self, action_type, block_location
-    ) -> Tuple[TorchCategorical, TorchCategorical, TorchCategorical]:
-        if (
-            self._cached_action_type_logits is None
-            or self._cached_block_location_logits is None
-            or self._cached_block_id_logits is None
-            or not (
-                torch.all(self._cached_action_type == action_type)
-                and torch.all(self._cached_block_location == block_location)
-            )
-        ):
-            (
-                self._cached_action_type_logits,
-                self._cached_block_id_logits,
-                self._cached_block_location_logits,
-            ) = self.model.action_model(self.inputs, action_type, block_location)
-            self._cached_action_type = action_type
-            self._cached_block_location = block_location
-        return (
-            TorchCategorical(self._cached_action_type_logits),
-            TorchCategorical(self._cached_block_id_logits),
-            self._block_location_logits_to_distribution(
-                action_type, self._cached_block_location_logits.clone()
-            ),
-        )
+    def sample(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self._index_to_tuple(super().sample())
 
-    def _calculate_logp(
-        self,
-        action_type_dist: TorchCategorical,
-        action_type,
-        block_id_dist: TorchCategorical,
-        block_id,
-        block_location_dist: TorchCategorical,
-        block_location,
-    ):
-        """
-        Carefully calculates the log probability of different actions, ignoring parts
-        of the action which don't matter (for instance, block_location in a movement
-        action).
-        """
+    def deterministic_sample(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self._index_to_tuple(super().deterministic_sample())
 
-        action_type_logp = action_type_dist.logp(action_type)
-
-        block_id_logp = block_id_dist.logp(block_id)
-        block_id_action_types = torch.tensor(
-            MbagAction.BLOCK_ID_ACTION_TYPES, device=block_id.device
-        )
-        block_id_mask = (action_type[:, None] == block_id_action_types).any(1)
-        block_id_logp[~block_id_mask] = 0
-
-        block_location_logp = block_location_dist.logp(block_location)
-        block_location_action_types = torch.tensor(
-            MbagAction.BLOCK_LOCATION_ACTION_TYPES, device=block_location.device
-        )
-        block_location_mask = (action_type[:, None] == block_location_action_types).any(
-            1
-        )
-        block_location_logp[~block_location_mask] = 0
-
+    def logp(self, action_type, location) -> torch.Tensor:
+        indices = self._tuple_to_index(action_type, location)
+        logp: torch.Tensor = super().logp(indices)
         # If for some reason some of the locations given to this method are invalid
         # (i.e., a block can't be placed/broken there), then just set the log probs
         # to 0.
-        block_location_logp[
-            block_location_dist.dist.probs.gather(-1, block_location[:, None])[:, 0]
-            == 0
-        ] = 0
+        logp[self.dist.probs.gather(-1, indices[:, None])[:, 0] == 0] = 0
+        return logp
 
-        return (action_type_logp + block_id_logp + block_location_logp).to(
-            self.inputs_device
+    @property
+    def action_type_distribution(self) -> Categorical:
+        """
+        The marginal distribution over action types.
+        """
+
+        batch_size = self.inputs.size()[0]
+        raw_probs = self.dist.probs.reshape(batch_size, MbagAction.NUM_ACTION_TYPES, -1)
+        return Categorical(probs=raw_probs.flatten(start_dim=2).sum(dim=2))
+
+    @property
+    def _combined_probs(self) -> torch.Tensor:
+        """
+        Combines probabilities of actions which are equivalent, i.e. for different
+        locations for action types which do not use a location.
+        """
+
+        batch_size = self.inputs.size()[0]
+        raw_probs = self.dist.probs.reshape(batch_size, MbagAction.NUM_ACTION_TYPES, -1)
+
+        probs_using_location = raw_probs[
+            :, MbagAction.BLOCK_LOCATION_ACTION_TYPES
+        ].flatten(start_dim=1)
+        non_location_action_types = list(
+            set(range(MbagAction.NUM_ACTION_TYPES))
+            - set(MbagAction.BLOCK_LOCATION_ACTION_TYPES)
+        )
+        probs_not_using_location = raw_probs[:, non_location_action_types].sum(dim=2)
+        combined_probs = torch.cat(
+            [probs_using_location, probs_not_using_location], dim=1
         )
 
-    @staticmethod
-    def required_model_output_shape(
-        action_space: gym.Space, model_config: ModelConfigDict
-    ):
-        return 1
+        assert combined_probs.size() == (
+            batch_size,
+            len(MbagAction.BLOCK_LOCATION_ACTION_TYPES) * (self._num_world_blocks - 1)
+            + MbagAction.NUM_ACTION_TYPES,
+        )
+        return combined_probs
+
+    def entropy(self) -> torch.Tensor:
+        return cast(torch.Tensor, Categorical(probs=self._combined_probs).entropy())
+
+    def kl(self, other: "ActionTypeLocationDistribution") -> torch.Tensor:
+        return cast(
+            torch.Tensor,
+            torch.distributions.kl.kl_divergence(
+                Categorical(probs=self._combined_probs),
+                Categorical(probs=other._combined_probs),
+            ),
+        )
 
 
 ModelCatalog.register_custom_action_dist(

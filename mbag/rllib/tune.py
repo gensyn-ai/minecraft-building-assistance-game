@@ -57,7 +57,7 @@ def add_tune_config(
         config["env_config"]["rewards"].update(
             {
                 "noop": tune.uniform(-2, 0),
-                "place_wrong": tune.uniform(0, 1),
+                "place_wrong": tune.uniform(-1, 1),
             }
         )
 
@@ -79,7 +79,6 @@ def add_tune_config(
                 "hidden_size": tune.qrandint(16, 64, 8),
                 "num_block_id_layers": tune.randint(1, 5),
                 "num_location_layers": tune.randint(1, 5),
-                "num_decoder_layers": tune.randint(1, 5),
                 "num_heads": tune.choice([1, 2, 4]),
             }
         )

@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, cast
+from typing import List, cast
 import torch
 import numpy as np
 from torch import nn
@@ -18,42 +18,11 @@ class MbagModel(ABC, TorchModelV2):
     """
 
     @abstractmethod
-    def action_type_model(self, dist_inputs: torch.Tensor) -> torch.Tensor:
-        ...
-
-    @abstractmethod
-    def block_location_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-    ) -> torch.Tensor:
-        ...
-
-    @abstractmethod
     def block_id_model(
         self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-        block_location: torch.Tensor,
+        inputs: torch.Tensor,
     ) -> torch.Tensor:
         ...
-
-    def action_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-        block_location: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        This should return the distribution outputs for all three parts of the action.
-        For some model implementations, this may be computationally cheaper than
-        computing each one in sequence when doing optimization.
-        """
-
-        action_type_logits = self.action_type_model(dist_inputs)
-        block_location_logits = self.block_location_model(dist_inputs, action_type)
-        block_id_logits = self.block_id_model(dist_inputs, action_type, block_location)
-        return action_type_logits, block_id_logits, block_location_logits
 
 
 class MbagConvolutionalModelConfig(TypedDict, total=False):
@@ -69,8 +38,6 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     hidden_channels: int
     num_block_id_layers: int
     """Number of extra layers for the block ID head."""
-    num_location_layers: int
-    """Number of extra layers for the block location head."""
 
 
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
@@ -82,7 +49,6 @@ CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "filter_size": 3,
     "hidden_channels": 32,
     "num_block_id_layers": 1,
-    "num_location_layers": 1,
 }
 
 
@@ -127,7 +93,6 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.filter_size = extra_config["filter_size"]
         self.hidden_channels = extra_config["hidden_channels"]
         self.num_block_id_layers = extra_config["num_block_id_layers"]
-        self.num_location_layers = extra_config["num_location_layers"]
 
         self.in_planes = 1 if self.mask_goal else 2  # TODO: update if we add more
         self.in_channels = self.in_planes * self.embedding_size
@@ -146,32 +111,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             self.action_backbone = self._construct_backbone()
             self.value_backbone = self._construct_backbone()
 
-        self.action_type_head = nn.Sequential(
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
-            nn.Flatten(),
-            nn.Linear(self.hidden_channels, self.action_type_space.n, bias=True),
-        )
-
-        block_location_in_channels = self.hidden_channels + self.action_type_space.n
-        block_location_layers: List[nn.Module] = []
-        for layer_index in range(self.num_location_layers):
-            block_location_layers.append(
-                nn.Conv3d(
-                    in_channels=block_location_in_channels
-                    if layer_index == 0
-                    else self.hidden_channels,
-                    out_channels=1
-                    if layer_index == self.num_location_layers - 1
-                    else self.hidden_channels,
-                    kernel_size=1,
-                    stride=1,
-                )
-            )
-            if layer_index < self.num_location_layers - 1:
-                block_location_layers.append(nn.ReLU())
-        self.block_location_head = nn.Sequential(*block_location_layers)
-
-        block_id_in_channels = self.hidden_channels + self.action_type_space.n
+        block_id_in_channels = self.action_type_space.n + self.hidden_channels
         block_id_layers: List[nn.Module] = []
         for layer_index in range(self.num_block_id_layers):
             block_id_layers.append(
@@ -183,13 +123,13 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 )
             )
             if layer_index < self.num_block_id_layers - 1:
-                block_id_layers.append(nn.ReLU())
+                block_id_layers.append(nn.LeakyReLU())
         self.block_id_head = nn.Sequential(*block_id_layers)
 
         self.value_head = nn.Sequential(
             nn.AdaptiveAvgPool3d((1, 1, 1)),
             nn.Flatten(),
-            nn.Linear(self.hidden_channels, 1, bias=True),
+            nn.Linear(self.action_type_space.n + self.hidden_channels, 1, bias=True),
         )
 
     def _construct_backbone(self):
@@ -199,18 +139,25 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 filter_size = 1
             else:
                 filter_size = self.filter_size
+            if layer_index == 0:
+                in_channels = self.in_channels
+            else:
+                in_channels = self.hidden_channels
+            if layer_index == self.num_conv_1_layers + self.num_layers - 1:
+                out_channels = self.action_type_space.n + self.hidden_channels
+            else:
+                out_channels = self.hidden_channels
             backbone_layers.append(
                 nn.Conv3d(
-                    in_channels=self.in_channels
-                    if layer_index == 0
-                    else self.hidden_channels,
-                    out_channels=self.hidden_channels,
+                    in_channels=in_channels,
+                    out_channels=out_channels,
                     kernel_size=filter_size,
                     stride=1,
                     padding=(filter_size - 1) // 2,
                 )
             )
-            backbone_layers.append(nn.ReLU())
+            backbone_layers.append(nn.LeakyReLU())
+        backbone_layers = backbone_layers[:-1]  # Remove last ReLU.
         return nn.Sequential(*backbone_layers)
 
     def forward(self, input_dict, state, seq_lens):
@@ -242,48 +189,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             self._backbone_out_shape = backbone_out.size()[1:]
             return backbone_out.flatten(start_dim=1), []
 
-    def action_type_model(self, dist_inputs: torch.Tensor) -> torch.Tensor:
-        return cast(
-            torch.Tensor,
-            self.action_type_head(
-                dist_inputs.reshape((-1,) + self._backbone_out_shape)
-            ),
-        )
-
-    def block_location_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-    ) -> torch.Tensor:
-        dist_inputs = dist_inputs.reshape((-1,) + self._backbone_out_shape)
-        world_size = dist_inputs.size()[-3:]
-        head_input = torch.cat(
-            [
-                dist_inputs,
-                F.one_hot(action_type, self.action_type_space.n)[
-                    :, :, None, None, None
-                ].expand(-1, -1, *world_size),
-            ],
-            dim=1,
-        )
-        return cast(torch.Tensor, self.block_location_head(head_input)[:, 0])
-
-    def block_id_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-        block_location: torch.Tensor,
-    ) -> torch.Tensor:
-        batch_size = dist_inputs.size()[0]
-        head_input = torch.cat(
-            [
-                dist_inputs.reshape((-1,) + self._backbone_out_shape).flatten(
-                    start_dim=2
-                )[torch.arange(batch_size), :, block_location],
-                F.one_hot(action_type, self.action_type_space.n),
-            ],
-            dim=1,
-        )
+    def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
         return cast(torch.Tensor, self.block_id_head(head_input))
 
     def value_function(self):
@@ -302,7 +208,7 @@ class MbagTransformerModelConfig(TypedDict, total=False):
     num_layers: int
     num_heads: int
     hidden_size: int
-    num_decoder_layers: int
+    num_block_id_layers: int
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
@@ -311,7 +217,7 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
     "num_layers": 3,
     "num_heads": 2,
     "hidden_size": 32,
-    "num_decoder_layers": 2,
+    "num_block_id_layers": 2,
 }
 
 
@@ -355,7 +261,7 @@ class MbagTransformerModel(MbagModel, nn.Module):
         self.num_layers = extra_config["num_layers"]
         self.num_heads = extra_config["num_heads"]
         self.hidden_size = extra_config["hidden_size"]
-        self.num_decoder_layers = extra_config["num_decoder_layers"]
+        self.num_block_id_layers = extra_config["num_block_id_layers"]
         assert (
             self.embedding_size * 2 + self.position_embedding_size <= self.hidden_size
         )
@@ -371,9 +277,6 @@ class MbagTransformerModel(MbagModel, nn.Module):
         # Special embeddings for the sequence elements for value function, action_type,
         # block_id, and block_location outputs.
         self.vf_embedding = nn.Parameter(torch.zeros((1, self.position_embedding_size)))
-        self.action_part_embeddings = nn.Parameter(
-            torch.zeros((3, self.position_embedding_size))
-        )
 
         # Initialize positional embeddings along each dimension.
         dim_embedding_size = self.position_embedding_size // 3
@@ -403,8 +306,6 @@ class MbagTransformerModel(MbagModel, nn.Module):
         ]
 
         self.vf_embedding.data.normal_()
-        self.action_part_embeddings.data.normal_()
-        self.action_part_embeddings.data[:, -1] = 1
 
         self.vf_share_layers: bool = model_config["vf_share_layers"]
         if not self.vf_share_layers:
@@ -421,23 +322,26 @@ class MbagTransformerModel(MbagModel, nn.Module):
             ),
             self.num_layers,
         )
-        self.action_decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(
-                d_model=self.hidden_size,
-                nhead=self.num_heads,
-                dim_feedforward=self.hidden_size,
-                batch_first=True,
-            ),
-            self.num_decoder_layers,
+
+        self.action_type_location_head = nn.Linear(
+            self.hidden_size, self.action_type_space.n + self.hidden_size, bias=True
         )
 
-        self.action_type_head = nn.Linear(
-            self.hidden_size, self.action_type_space.n, bias=True
-        )
-        self.block_location_head = nn.Linear(self.hidden_size, 1, bias=False)
-        self.block_id_head = nn.Linear(
-            self.hidden_size, self.block_id_space.n, bias=True
-        )
+        block_id_in_size = self.action_type_space.n + self.hidden_size
+        block_id_layers: List[nn.Module] = []
+        for layer_index in range(self.num_block_id_layers):
+            block_id_layers.append(
+                nn.Linear(
+                    block_id_in_size if layer_index == 0 else self.hidden_size,
+                    self.block_id_space.n
+                    if layer_index == self.num_block_id_layers - 1
+                    else self.hidden_channels,
+                )
+            )
+            if layer_index < self.num_block_id_layers - 1:
+                block_id_layers.append(nn.LeakyReLU())
+        self.block_id_head = nn.Sequential(*block_id_layers)
+
         self.value_head = nn.Linear(self.hidden_size, 1, bias=True)
 
     def _get_position_embedding(self, seq_len: int, size: int) -> torch.Tensor:
@@ -491,101 +395,22 @@ class MbagTransformerModel(MbagModel, nn.Module):
 
         backbone_out = self.backbone_encoder(encoder_input)
         self._value_out = backbone_out[:, 0]
-        self._backbone_out = backbone_out[:, 1:]
+        backbone_out = backbone_out[:, 1:]
 
-        return self._backbone_out, []
-
-    def action_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: Optional[torch.Tensor] = None,
-        block_location: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        batch_size = dist_inputs.size()[0]
-        decoder_inputs: List[torch.Tensor] = []
-
-        # First input is just the action_type embedding.
-        decoder_inputs.append(
-            self._pad_to_hidden_size(
-                self.action_part_embeddings[None, None, 0].expand(batch_size, -1, -1)
+        dist_inputs = (
+            self.action_type_location_head(backbone_out)
+            .transpose(1, 2)
+            .reshape(
+                batch_size,
+                self.action_type_space.n + self.hidden_size,
+                *self.world_size,
             )
         )
 
-        if action_type is not None:
-            # Second input is the chosen action_type.
-            decoder_inputs.append(
-                self._pad_to_hidden_size(
-                    torch.cat(
-                        [
-                            self.action_part_embeddings[None, None, 1].expand(
-                                batch_size, -1, -1
-                            ),
-                            F.one_hot(action_type, self.action_type_space.n)[:, None],
-                        ],
-                        dim=2,
-                    )
-                )
-            )
+        return dist_inputs, []
 
-        decoder_inputs.append(dist_inputs)
-        decoder_seq_len = sum(inp.size()[1] for inp in decoder_inputs)
-        target_mask = torch.zeros(
-            (decoder_seq_len, decoder_seq_len),
-            dtype=torch.bool,
-            device=dist_inputs.device,
-        )
-        target_mask[0, 1:] = True  # action_type only depends on itself
-        action_decoder_out = self.action_decoder(
-            torch.cat(decoder_inputs, dim=1),
-            dist_inputs,
-            target_mask,
-        )
-
-        # Now, we pass the output through the appropriate heads.
-        action_type_logits = self.action_type_head(action_decoder_out[:, 0])
-
-        if action_type is not None:
-            block_location_out = action_decoder_out[:, 2:]
-            block_location_logits = self.block_location_head(block_location_out)[
-                :, :, 0
-            ]
-        else:
-            block_location_logits = torch.zeros(
-                (batch_size, self.block_location_space.n), device=dist_inputs.device
-            )
-
-        if block_location is not None:
-            block_id_head_input = action_decoder_out[
-                torch.arange(batch_size),
-                block_location + 2,
-            ]
-            block_id_logits = self.block_id_head(block_id_head_input)
-        else:
-            block_id_logits = torch.zeros(
-                (batch_size, self.block_id_space.n), device=dist_inputs.device
-            )
-
-        block_location_logits = block_location_logits.reshape(-1, *self.world_size)
-
-        return action_type_logits, block_id_logits, block_location_logits
-
-    def action_type_model(self, dist_inputs: torch.Tensor) -> torch.Tensor:
-        return self.action_model(dist_inputs)[0]
-
-    def block_location_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-    ) -> torch.Tensor:
-        return self.action_model(dist_inputs, action_type)[2]
-
-    def block_id_model(
-        self,
-        dist_inputs: torch.Tensor,
-        action_type: torch.Tensor,
-        block_location: torch.Tensor,
-    ) -> torch.Tensor:
-        return self.action_model(dist_inputs, action_type, block_location)[1]
+    def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.block_id_head(head_input))
 
     def value_function(self):
         return self.value_head(self._value_out)[:, 0]
