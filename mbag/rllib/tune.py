@@ -24,6 +24,7 @@ def add_tune_config(
     experiment_name,
     policies_to_train,
     mask_goal,
+    save_freq,
 ):
     train_batch_size_max = 20000
     sgd_minibatch_size_max = 4000
@@ -110,6 +111,7 @@ def add_tune_config(
         "num_samples": num_samples,
         "local_dir": tune_log_dir,
         "mode": mode,
+        "checkpoint_freq": save_freq,
     }
 
 
