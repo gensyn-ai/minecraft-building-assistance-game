@@ -42,7 +42,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         width = 5
         depth = 5
         noop_reward = 0
-        place_wrong_reward = 0
+        place_wrong_reward = -1
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
@@ -78,11 +78,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         gae_lambda = 0.98
         vf_share_layers = False
         vf_loss_coeff = 1e-4
-        entropy_coeff_start = 0
+        entropy_coeff_start = 0.01
         entropy_coeff_end = 0
-        entropy_coeff_horizon = 3e6
+        entropy_coeff_horizon = 1e5
         kl_coeff = 0.2
-        kl_target = 0.1
+        kl_target = 0.01
         clip_param = 0.05
         num_sgd_iter = 6
         compress_observations = True
@@ -91,14 +91,14 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         model: Literal["convolutional", "transformer"] = "convolutional"
         embedding_size = 8
         position_embedding_size = 8
-        use_extra_features = False
+        use_extra_features = True
         mask_goal = False
-        num_conv_1_layers = 0
+        num_conv_1_layers = 1
         num_layers = 1
         filter_size = 3
-        hidden_channels = 64
+        hidden_channels = 16
         hidden_size = hidden_channels
-        num_block_id_layers = 3
+        num_block_id_layers = 2
         num_heads = 4
         model_config = {
             "custom_model": f"mbag_{model}_model",
@@ -209,6 +209,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         # Distillation
         if "distillation_prediction" in run:
+            config["checkpoint_to_load_policies"] = checkpoint_to_load_policies
             if checkpoint_to_load_policies is None:
                 # Distill a heuristic policy.
                 heuristic = "layer_builder"
