@@ -66,6 +66,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         run = "PPO"
         num_workers = 2
         num_aggregation_workers = min(1, num_workers)
+        input = "sampler"
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
         train_batch_size = 5000
@@ -178,6 +179,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "callbacks": MbagCallbacks,
             "num_workers": num_workers,
             "num_gpus": num_gpus,
+            "input": input,
+            "input_evaluation": [],
             "lr": lr,
             "train_batch_size": train_batch_size,
             "sgd_minibatch_size": sgd_minibatch_size,

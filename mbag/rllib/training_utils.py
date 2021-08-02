@@ -55,10 +55,11 @@ def load_trainer_config(checkpoint_path: str) -> TrainerConfigDict:
 def load_trainer(
     checkpoint_path: str,
     run: Union[str, Type[Trainer]],
+    config_updates: dict = {},
 ) -> Trainer:
     config = load_trainer_config(checkpoint_path)
-
-    config["num_workers"] = 0
+    config_updates.setdefault("num_workers", 0)
+    config.update(config_updates)
 
     # Create the Trainer from config.
     if isinstance(run, str):
