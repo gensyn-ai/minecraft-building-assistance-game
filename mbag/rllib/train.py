@@ -88,7 +88,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         compress_observations = True
 
         # Model
-        model: Literal["convolutional", "transformer"] = "convolutional"
+        model: Literal[
+            "convolutional", "recurrent_convolutional", "transformer"
+        ] = "convolutional"
         embedding_size = 8
         position_embedding_size = 8
         use_extra_features = True
@@ -100,12 +102,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         hidden_size = hidden_channels
         num_block_id_layers = 2
         num_heads = 4
+        num_unet_layers = 0
         model_config = {
             "custom_model": f"mbag_{model}_model",
             "custom_action_dist": "mbag_autoregressive",
             "vf_share_layers": vf_share_layers,
         }
-        if model == "convolutional":
+        if model in ["convolutional", "recurrent_convolutional"]:
             conv_config: MbagConvolutionalModelConfig = {
                 "embedding_size": embedding_size,
                 "use_extra_features": use_extra_features,
@@ -115,6 +118,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "filter_size": filter_size,
                 "hidden_channels": hidden_channels,
                 "num_block_id_layers": num_block_id_layers,
+                "num_unet_layers": num_unet_layers,
             }
             model_config["custom_model_config"] = conv_config
         elif model == "transformer":

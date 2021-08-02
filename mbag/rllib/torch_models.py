@@ -1,4 +1,4 @@
-from typing import List, cast
+from typing import Dict, List, Tuple, cast
 import torch
 import numpy as np
 from torch import nn
@@ -38,6 +38,8 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     hidden_channels: int
     num_block_id_layers: int
     """Number of extra layers for the block ID head."""
+    num_unet_layers: int
+    """Number of layers to include in a UNet3d, if any."""
 
 
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
@@ -49,7 +51,98 @@ CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "filter_size": 3,
     "hidden_channels": 32,
     "num_block_id_layers": 1,
+    "num_unet_layers": 0,
 }
+
+
+class UNet3d(nn.Module):
+    """
+    Implements a model similar to U-Nets, but for 3d data.
+    """
+
+    def __init__(
+        self,
+        size: int,
+        in_channels: int,
+        out_channels: int,
+        num_layers: int,
+        fc_layer: nn.Module = nn.Identity(),
+    ):
+        """
+        Expects inputs of shape
+        (batch, in_channels, size, size, size)
+        and produces outputs of shape
+        (batch, out_channels, size, size, size)
+        """
+        super().__init__()
+
+        self.size = size
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.num_layers = num_layers
+        self.fc_layer = fc_layer
+
+        self.down_layers: List[nn.Module] = []
+        self.up_layers: List[nn.Module] = []
+        layer_size = self.size
+        for layer_index in range(self.num_layers):
+            down_layer = nn.Sequential(
+                nn.Conv3d(
+                    in_channels=self.in_channels * (2 ** layer_index),
+                    out_channels=self.in_channels * 2 * (2 ** layer_index),
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                ),
+                nn.LeakyReLU(),
+            )
+            self.down_layers.append(down_layer)
+            self.add_module(f"down_{layer_index}", down_layer)
+
+            up_layer = nn.Sequential(
+                nn.ConvTranspose3d(
+                    in_channels=self.in_channels * 4 * (2 ** layer_index),
+                    out_channels=self.in_channels * (2 ** layer_index),
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1 if layer_size % 2 == 0 else 0,
+                ),
+                nn.LeakyReLU(),
+            )
+            self.up_layers.append(up_layer)
+            self.add_module(f"up_{layer_index}", up_layer)
+
+            layer_size = (layer_size + 1) // 2
+
+        self.fc_layer_size = (
+            (layer_size ** 3) * self.in_channels * (2 ** self.num_layers)
+        )
+
+        # Final 1x1x1 convolution to get the right number of out channels.
+        self.final_layer = nn.Conv3d(
+            in_channels=self.in_channels * 2,
+            out_channels=self.out_channels,
+            kernel_size=1,
+        )
+
+    def set_fc_layer(self, fc_layer: nn.Module):
+        self.fc_layer = fc_layer
+
+    def forward(self, inputs: torch.Tensor, *extra_fc_inputs):
+        activations = [inputs]
+        for down_layer in self.down_layers:
+            activations.append(down_layer(activations[-1]))
+
+        fc_layer_inputs = activations[-1].flatten(start_dim=1)
+        outputs = self.fc_layer(fc_layer_inputs, *extra_fc_inputs)
+        outputs = outputs.reshape(activations[-1].size())
+
+        for layer_index, up_layer in reversed(list(enumerate(self.up_layers))):
+            layer_inputs = torch.cat([activations[layer_index + 1], outputs], dim=1)
+            outputs = up_layer(layer_inputs)
+        final_layer_inputs = torch.cat([activations[0], outputs], dim=1)
+        return self.final_layer(final_layer_inputs)
 
 
 class MbagConvolutionalModel(MbagModel, nn.Module):
@@ -93,6 +186,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.filter_size = extra_config["filter_size"]
         self.hidden_channels = extra_config["hidden_channels"]
         self.num_block_id_layers = extra_config["num_block_id_layers"]
+        self.num_unet_layers = extra_config["num_unet_layers"]
 
         self.in_planes = 1 if self.mask_goal else 2  # TODO: update if we add more
         self.in_channels = self.in_planes * self.embedding_size
@@ -106,9 +200,9 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
 
         self.vf_share_layers: bool = model_config["vf_share_layers"]
         if self.vf_share_layers:
-            self.backbone = self._construct_backbone()
+            self.backbone = self._construct_backbone(include_unet=True)
         else:
-            self.action_backbone = self._construct_backbone()
+            self.action_backbone = self._construct_backbone(include_unet=True)
             self.value_backbone = self._construct_backbone()
 
         block_id_in_channels = self.action_type_space.n + self.hidden_channels
@@ -132,7 +226,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             nn.Linear(self.action_type_space.n + self.hidden_channels, 1, bias=True),
         )
 
-    def _construct_backbone(self):
+    def _construct_backbone(self, include_unet=False):
         backbone_layers: List[nn.Module] = []
         for layer_index in range(self.num_conv_1_layers + self.num_layers):
             if layer_index < self.num_conv_1_layers:
@@ -143,7 +237,9 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 in_channels = self.in_channels
             else:
                 in_channels = self.hidden_channels
-            if layer_index == self.num_conv_1_layers + self.num_layers - 1:
+            if layer_index == self.num_conv_1_layers + self.num_layers - 1 and (
+                self.num_unet_layers == 0 or not include_unet
+            ):
                 out_channels = self.action_type_space.n + self.hidden_channels
             else:
                 out_channels = self.hidden_channels
@@ -157,7 +253,16 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 )
             )
             backbone_layers.append(nn.LeakyReLU())
-        backbone_layers = backbone_layers[:-1]  # Remove last ReLU.
+        if include_unet and self.num_unet_layers > 0:
+            self.unet = UNet3d(
+                self.world_obs_space.shape[1],
+                self.hidden_channels,
+                self.action_type_space.n + self.hidden_channels,
+                self.num_unet_layers,
+            )
+            backbone_layers.append(self.unet)
+        else:
+            backbone_layers = backbone_layers[:-1]  # Remove last ReLU.
         return nn.Sequential(*backbone_layers)
 
     def forward(self, input_dict, state, seq_lens):
@@ -200,6 +305,108 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
 
 
 ModelCatalog.register_custom_model("mbag_convolutional_model", MbagConvolutionalModel)
+
+
+class MbagRecurrentConvolutionalModelConfig(MbagConvolutionalModelConfig):
+    pass
+
+
+RECURRENT_CONV_DEFAULT_CONFIG: MbagRecurrentConvolutionalModelConfig = {
+    **CONV_DEFAULT_CONFIG,  # type: ignore
+}
+
+
+class AddTimeDimRNN(nn.Module):
+    _rnn_state: Tuple[torch.Tensor, torch.Tensor]
+
+    def __init__(self, rnn: nn.Module):
+        super().__init__()
+        self.rnn = rnn
+
+    def set_state_seq_lens(self, rnn_state, seq_lens):
+        if isinstance(seq_lens, np.ndarray):
+            seq_lens = torch.Tensor(seq_lens).int()
+        self._seq_lens = seq_lens
+        self._rnn_state = rnn_state
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        max_seq_len = inputs.shape[0] // self._seq_lens.shape[0]
+        input_shape = inputs.size()[1:]
+        inputs = inputs.reshape(-1, max_seq_len, *input_shape)
+        outputs, new_state = self.rnn(
+            inputs,
+            [self._rnn_state[0].unsqueeze(0), self._rnn_state[1].unsqueeze(0)],
+        )
+        self._new_state = [new_state[0].squeeze(0), new_state[1].squeeze(0)]
+        return cast(torch.Tensor, outputs.reshape(-1, *input_shape))
+
+    def get_new_state(self):
+        return self._new_state
+
+
+class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
+    def __init__(
+        self,
+        obs_space: spaces.Space,
+        action_space: spaces.Space,
+        num_outputs: int,
+        model_config,
+        name,
+        **kwargs,
+    ):
+        nn.Module.__init__(self)
+        super().__init__(obs_space, action_space, num_outputs, model_config, name)
+
+        extra_config = CONV_DEFAULT_CONFIG
+        extra_config.update(cast(MbagRecurrentConvolutionalModelConfig, kwargs))
+
+        self.conv_model = MbagConvolutionalModel(
+            obs_space,
+            action_space,
+            num_outputs,
+            model_config,
+            name=f"{name}.conv_model",
+            **extra_config,
+        )
+        assert hasattr(self.conv_model, "unet")
+        unet: UNet3d = self.conv_model.unet
+        self.rnn_hidden_dim = unet.fc_layer_size
+
+        self.lstm = nn.LSTM(self.rnn_hidden_dim, self.rnn_hidden_dim, batch_first=True)
+        self.rnn = AddTimeDimRNN(self.lstm)
+        unet.set_fc_layer(self.rnn)
+
+    def get_initial_state(self):
+        # Place hidden states on same device as model.
+        param = next(iter(self.lstm.parameters()))
+        h = [
+            param.new(1, self.rnn_hidden_dim).zero_().squeeze(0),
+            param.new(1, self.rnn_hidden_dim).zero_().squeeze(0),
+        ]
+        return h
+
+    def value_function(self):
+        return self.conv_model.value_function()
+
+    def forward(
+        self,
+        input_dict: Dict[str, torch.Tensor],
+        state: List[torch.Tensor],
+        seq_lens: torch.Tensor,
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        self.rnn.set_state_seq_lens(state, seq_lens)
+        logits, _ = self.conv_model.forward(input_dict, state, seq_lens)
+        new_state = self.rnn.get_new_state()
+
+        return logits, new_state
+
+    def block_id_model(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.conv_model.block_id_model(inputs)
+
+
+ModelCatalog.register_custom_model(
+    "mbag_recurrent_convolutional_model", MbagRecurrentConvolutionalModel
+)
 
 
 class MbagTransformerModelConfig(TypedDict, total=False):

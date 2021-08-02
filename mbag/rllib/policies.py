@@ -137,7 +137,7 @@ def add_supervised_loss_to_policy(
         actions = train_batch[SampleBatch.ACTIONS].long()
         place_block_ids = goal_block_ids.flatten(start_dim=1)[
             torch.arange(
-                0, len(train_batch), dtype=torch.long, device=goal_block_ids.device
+                0, actions.size()[0], dtype=torch.long, device=goal_block_ids.device
             ),
             actions[:, 1],
         ]

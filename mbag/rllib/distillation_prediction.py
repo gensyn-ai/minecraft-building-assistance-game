@@ -146,6 +146,7 @@ def distillation_loss(
                     + view_req.space.shape
                 )
 
+    train_batch.dont_check_lens = True
     logits, state = model.from_batch(train_batch, is_training=True)
     action_dist = dist_class(logits, model)
 
@@ -340,7 +341,12 @@ def after_init(trainer):
             for data_col, view_requirement in distillation_view_requirements[
                 policy_id
             ].items():
-                if data_col not in policy.view_requirements:
+                # Ignore state since it may be different for teacher and student
+                # policies.
+                if (
+                    data_col not in policy.view_requirements
+                    and not data_col.startswith("state_")
+                ):
                     policy.view_requirements[data_col] = view_requirement
 
     cast(WorkerSet, trainer.workers).foreach_policy(add_trajectory_views)

@@ -79,6 +79,7 @@ def add_tune_config(
                 "hidden_channels": tune.qrandint(8, 64, 8),
                 "hidden_size": tune.qrandint(16, 64, 8),
                 "num_block_id_layers": tune.randint(1, 5),
+                "num_unet_layers": tune.randint(0, 6),
                 "num_location_layers": tune.randint(1, 5),
                 "num_heads": tune.choice([1, 2, 4]),
             }
