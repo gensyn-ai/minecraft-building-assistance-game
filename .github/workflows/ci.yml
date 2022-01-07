@@ -42,7 +42,7 @@ jobs:
         if: ${{ always() }}
         run: |
           # Shim for this issue: https://github.com/ray-project/ray/issues/14431
-          touch /opt/hostedtoolcache/Python/3.8.12/x64/lib/python3.8/site-packages/ray/py.typed
+          touch `python -c 'import site; print(site.getsitepackages()[0])'`/ray/py.typed
           mypy mbag tests
 
       - name: Run tests
