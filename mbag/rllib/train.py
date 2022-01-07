@@ -1,3 +1,4 @@
+from ray.rllib.policy.policy import PolicySpec
 from ray.tune.registry import get_trainable_cls
 from typing import Callable, List, Optional
 from typing_extensions import Literal
@@ -161,7 +162,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         policies: MultiAgentPolicyConfigDict = {}
         for policy_id in policy_ids:
-            policies[policy_id] = (
+            policies[policy_id] = PolicySpec(
                 MBAG_POLICIES.get(run),
                 env.observation_space,
                 env.action_space,

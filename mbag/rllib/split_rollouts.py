@@ -33,7 +33,8 @@ def main(
         _log.info(f"reading {rollout_fname}...")
         with open(rollout_fname, "r") as rollout_file:
             for rollout_line in rollout_file:
-                sample_batch: MultiAgentBatch = _from_json(rollout_line.strip())
+                sample_batch = _from_json(rollout_line.strip())
+                assert isinstance(sample_batch, MultiAgentBatch)
 
                 slice_starts = range(0, sample_batch.count, rollout_fragment_length)
                 _log.info(f"splitting into {len(slice_starts)} slices...")

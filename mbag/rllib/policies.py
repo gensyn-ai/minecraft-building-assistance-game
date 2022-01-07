@@ -9,7 +9,9 @@ from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import TensorType, TrainerConfigDict
 from ray.rllib.models.modelv2 import ModelV2, restore_original_dimensions
-from ray.rllib.agents.ppo.ppo_torch_policy import (
+
+# TODO: update to newer RLlib interface
+from ray.rllib.agents.ppo.ppo_torch_policy import (  # type: ignore
     PPOTorchPolicy,
     ppo_surrogate_loss,
     kl_and_loss_stats as ppo_stats,

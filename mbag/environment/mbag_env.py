@@ -1,4 +1,4 @@
-from typing import List, Optional, TYPE_CHECKING, Tuple, Type, cast
+from typing import List, Optional, TYPE_CHECKING, Sequence, Tuple, Type, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
 from gym import spaces
@@ -7,6 +7,7 @@ import logging
 
 from .blocks import MinecraftBlocks
 from .types import (
+    BlockLocation,
     MbagAction,
     MbagActionTuple,
     MbagInfoDict,
@@ -329,8 +330,10 @@ class MbagEnv(object):
             self.config["world_size"], malmo_state["goal"]
         )
 
-        for location in map(
-            tuple, np.argwhere(malmo_blocks.blocks != self.current_blocks.blocks)
+        location: BlockLocation
+        for location in cast(
+            Sequence[BlockLocation],
+            map(tuple, np.argwhere(malmo_blocks.blocks != self.current_blocks.blocks)),
         ):
             logger.warning(
                 f"block discrepancy at {location}: "
@@ -340,8 +343,9 @@ class MbagEnv(object):
                 f"{MinecraftBlocks.ID2NAME[malmo_blocks.blocks[location]]} "
                 "from Malmo"
             )
-        for location in map(
-            tuple, np.argwhere(malmo_goal.blocks != self.goal_blocks.blocks)
+        for location in cast(
+            Sequence[BlockLocation],
+            map(tuple, np.argwhere(malmo_goal.blocks != self.goal_blocks.blocks)),
         ):
             logger.error(
                 f"goal discrepancy at {location}: "

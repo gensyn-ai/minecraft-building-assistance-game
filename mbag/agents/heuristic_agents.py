@@ -60,10 +60,11 @@ class LayerBuilderAgent(MbagAgent):
                 self.current_layer,
                 layer_block_location[1],
             )
-            block_location_id = np.ravel_multi_index(
-                block_location, self.env_config["world_size"]
+            block_location_id = int(
+                np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
 
+            block_id: int
             if layer_blocks[layer_block_location] == MinecraftBlocks.AIR:
                 action_type = MbagAction.PLACE_BLOCK
                 block_id = goal_blocks[layer_block_location]

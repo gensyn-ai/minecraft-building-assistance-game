@@ -40,7 +40,7 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
     model_device: torch.device
     inputs_device: torch.device
 
-    _world_obs: torch.Tensor
+    _world_obs: Optional[torch.Tensor]
     _cached_action_type = None
     _cached_block_location = None
     _cached_block_id_logits = None
