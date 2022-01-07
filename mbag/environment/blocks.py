@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 from typing_extensions import Literal
+from numpy.typing import NDArray
 import numpy as np
 import random
 
@@ -111,8 +112,8 @@ class MinecraftBlocks(object):
 
     def __init__(self, size: Tuple[int, int, int]):
         self.size = size
-        self.blocks = np.zeros(self.size, np.uint8)
-        self.block_states = np.zeros(self.size, np.uint8)
+        self.blocks: NDArray[np.uint8] = np.zeros(self.size, np.uint8)
+        self.block_states: NDArray[np.uint8] = np.zeros(self.size, np.uint8)
 
     def copy(self) -> "MinecraftBlocks":
         copy = MinecraftBlocks(self.size)
@@ -215,7 +216,7 @@ class MinecraftBlocks(object):
         click_locations = click_locations[:click_location_index]
         click_locations = click_locations[self.valid_block_locations(click_locations)]
 
-        player_locations: np.ndarray
+        player_locations: NDArray[np.float_]
         if player_location is not None:
             player_locations = np.array([player_location])
         else:
@@ -254,16 +255,26 @@ class MinecraftBlocks(object):
         )
 
         # Restrict player locations to those where they aren't inside a block.
-        feet_block_locations = player_locations.astype(int)
-        head_block_locations = feet_block_locations.copy()
+        feet_block_locations: NDArray[np.int_] = player_locations.astype(int)
+        head_block_locations: NDArray[np.int_] = feet_block_locations.copy()
         head_block_locations[:, 1] += 1
         player_locations = player_locations[
             (
-                blocks.flat[np.ravel_multi_index(feet_block_locations.T, blocks.shape)]
+                blocks.flat[
+                    np.ravel_multi_index(
+                        cast(Sequence[NDArray[np.int_]], feet_block_locations.T),
+                        blocks.shape,
+                    )
+                ]
                 == MinecraftBlocks.AIR
             )
             & (
-                blocks.flat[np.ravel_multi_index(head_block_locations.T, blocks.shape)]
+                blocks.flat[
+                    np.ravel_multi_index(
+                        cast(Sequence[NDArray[np.int_]], head_block_locations.T),
+                        blocks.shape,
+                    )
+                ]
                 == MinecraftBlocks.AIR
             )
         ]
@@ -309,7 +320,10 @@ class MinecraftBlocks(object):
 
             intersection |= (
                 blocks.flat[
-                    np.ravel_multi_index(current_block_locations.T, blocks.shape)
+                    np.ravel_multi_index(
+                        cast(Sequence[NDArray[np.int_]], current_block_locations.T),
+                        blocks.shape,
+                    )
                 ]
                 != MinecraftBlocks.AIR
             )
