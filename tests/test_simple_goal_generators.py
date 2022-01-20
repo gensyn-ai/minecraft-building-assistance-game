@@ -2,7 +2,10 @@ import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent
-from mbag.environment.goals.simple import RandomGoalGenerator, SimpleOverhangGoalGenerator
+from mbag.environment.goals.simple import (
+    RandomGoalGenerator,
+    SimpleOverhangGoalGenerator,
+)
 
 
 def test_random_goal_generator():
@@ -55,6 +58,7 @@ def test_random_goal_generator_in_malmo():
     reward = evaluator.rollout()
     assert reward > 0
 
+
 def test_simple_overhang_goal_generator():
     evaluator = MbagEvaluator(
         {
@@ -78,6 +82,7 @@ def test_simple_overhang_goal_generator():
     )
     reward = evaluator.rollout()
     assert reward > 0
+
 
 @pytest.mark.xfail(strict=False)
 def test_simple_overhang_goal_generator_in_malmo():

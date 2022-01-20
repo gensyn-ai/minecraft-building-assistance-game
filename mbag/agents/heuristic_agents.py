@@ -80,12 +80,14 @@ class LayerBuilderAgent(MbagAgent):
     def set_state(self, state: List[np.ndarray]) -> None:
         self.current_layer = int(state[0][0])
 
+
 class SearchAgent(MbagAgent):
     """
     Builds the goal structure one layer at a time, from bottom to top.
     """
 
     current_layer: int
+    placed: np.ndarray
 
     def reset(self):
         self.current_layer = 0
@@ -139,5 +141,5 @@ class SearchAgent(MbagAgent):
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
-    "search": SearchAgent
+    "search": SearchAgent,
 }
