@@ -53,7 +53,7 @@ def test_two_agents():
     assert reward == 18
 
 
-@pytest.mark.xfail(strict=False)
+# @pytest.mark.xfail(strict=False)
 def test_malmo():
     evaluator = MbagEvaluator(
         {
