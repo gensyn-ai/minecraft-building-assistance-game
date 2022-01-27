@@ -42,11 +42,24 @@ class MbagAction(object):
     PLACE_BLOCK: MbagActionType = 1
     BREAK_BLOCK: MbagActionType = 2
 
-    NUM_ACTION_TYPES = 3
+    MOVE_POS_X: MbagActionType = 3
+    MOVE_NEG_X: MbagActionType = 4
+    MOVE_POS_Y: MbagActionType = 5
+    MOVE_NEG_Y: MbagActionType = 6
+    MOVE_POS_Z: MbagActionType = 7
+    MOVE_NEG_Z: MbagActionType = 8
+
+    NUM_ACTION_TYPES = 9
     ACTION_TYPE_NAMES = {
         NOOP: "NOOP",
         PLACE_BLOCK: "PLACE_BLOCK",
         BREAK_BLOCK: "BREAK_BLOCK",
+        MOVE_POS_X: "MOVE_POS_X",
+        MOVE_NEG_X: "MOVE_NEG_X",
+        MOVE_POS_Y: "MOVE_POS_Y",
+        MOVE_NEG_Y: "MOVE_NEG_Y",
+        MOVE_POS_Z: "MOVE_POS_X",
+        MOVE_NEG_Z: "MOVE_NEG_Z",
     }
 
     action_type: MbagActionType

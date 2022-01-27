@@ -25,6 +25,23 @@ class NoopAgent(MbagAgent):
         return action_dist
 
 
+class MovementAgent(MbagAgent):
+    """
+    Moves around randomly
+    """
+
+    def get_action_type_distribution(self, obs: MbagObs) -> np.ndarray:
+        action_dist = np.zeros(MbagAction.NUM_ACTION_TYPES)
+        action_dist[MbagAction.MOVE_POS_X] = 1 / 6
+        action_dist[MbagAction.MOVE_NEG_X] = 1 / 6
+        action_dist[MbagAction.MOVE_POS_Y] = 1 / 6
+        action_dist[MbagAction.MOVE_NEG_Y] = 1 / 6
+        action_dist[MbagAction.MOVE_POS_Z] = 1 / 6
+        action_dist[MbagAction.MOVE_NEG_Z] = 1 / 6
+
+        return action_dist
+
+
 class LayerBuilderAgent(MbagAgent):
     """
     Builds the goal structure one layer at a time, from bottom to top.
