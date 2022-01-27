@@ -74,5 +74,3 @@ Tests are contained in the `tests` directory.
 ## Training agents with RL
 
 _Coming soon!_
-
-ln -s `pwd`../MalmoPlatform/Malmo/src/PythonWrapper/MalmoPython.so `python3 -c 'import site; print(site.getsitepackages()[0])'`

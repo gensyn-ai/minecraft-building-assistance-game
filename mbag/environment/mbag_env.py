@@ -56,6 +56,18 @@ class RewardsConfigDict(TypedDict):
     """
 
 
+class LimitationsConfigDict(TypedDict):
+    teleportation: bool
+    """
+    Whether the agent can teleport or must move block by block
+    """
+
+    flying: bool
+    """
+    Whether the agent can fly or if the agent must be standing on a block at all times
+    """
+
+
 class MbagConfigDict(TypedDict, total=False):
     num_players: int
     horizon: int
@@ -75,6 +87,9 @@ class MbagConfigDict(TypedDict, total=False):
     rewards: RewardsConfigDict
     """Configuration options for environment reward."""
 
+    limitations: LimitationsConfigDict
+    """Configuration for limits placed on the agent (flying, teleportation, inventory, etc...) """
+
 
 DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
@@ -91,6 +106,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "noop": 0,
         "place_wrong": 0,
     },
+    "limitations": {"teleportation": True, "flying": True},
 }
 
 
