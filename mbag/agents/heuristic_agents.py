@@ -3,9 +3,9 @@ A collection of agents following simple heuristics.
 """
 
 from typing import Dict, List, Tuple, Type
-from queue import PriorityQueue
 import numpy as np
 import random
+import heapq
 
 from ..environment.types import (
     BlockLocation,
@@ -90,10 +90,10 @@ class PriorityQueueAgent(MbagAgent):
     """
 
     seeding: bool  # Whether blocks have been placed yet
-    blockFrontier: PriorityQueue  # PQ to store blocks and their layers
+    block_frontier: list  # PQ to store blocks and their layers
 
     def reset(self):
-        self.blockFrontier = PriorityQueue()
+        self.block_frontier = []
         self.seeding = False
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
@@ -114,15 +114,14 @@ class PriorityQueueAgent(MbagAgent):
             layer_block_location: Tuple[int, int] = tuple(
                 random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
             )
-            self.blockFrontier.put((0, layer_block_location))
+            heapq.heappush(self.block_frontier, (0, layer_block_location))
 
-        print(self.blockFrontier)
         action_type: MbagActionType
-        if self.blockFrontier.empty():
+        if len(self.block_frontier) == 0:
             action_type = MbagAction.NOOP
             return action_type, 0, 0
         else:
-            layer, location = self.blockFrontier.get()
+            layer, location = heapq.heappop(self.block_frontier)
 
             axes = [(0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0)]
             for direction in axes:
@@ -144,9 +143,9 @@ class PriorityQueueAgent(MbagAgent):
                 actual_block = world_obs[0, x, y, z]
                 if (
                     goal_block != actual_block
-                    and not (y, (x, z)) in self.blockFrontier.queue
+                    and not (y, (x, z)) in self.block_frontier
                 ):
-                    self.blockFrontier.put((y, (x, z)))
+                    heapq.heappush(self.block_frontier, (y, (x, z)))
 
             if world_obs[0, location[0], layer, location[1]] == MinecraftBlocks.AIR:
                 action_type = MbagAction.PLACE_BLOCK
@@ -167,11 +166,16 @@ class PriorityQueueAgent(MbagAgent):
             return action_type, block_location_id, block_id
 
     def get_state(self) -> List[np.ndarray]:
-        return [np.array([self.seeding]), np.array([self.blockFrontier])]
+        # print("Getting state")
+        # print([np.array([self.seeding, self.block_frontier])])
+        return [np.array([self.seeding, self.block_frontier], dtype=object)]
 
     def set_state(self, state: List[np.ndarray]) -> None:
+        # print("setting state")
+        # print(state)
+        # print(self.block_frontier)
         self.seeding = bool(state[0][0])
-        self.blockFrontier = state[1][0]
+        self.block_frontier = list(map(tuple, state[0][1]))
 
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {

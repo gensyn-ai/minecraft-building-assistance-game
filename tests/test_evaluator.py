@@ -4,11 +4,9 @@ from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
     LayerBuilderAgent,
     NoopAgent,
-    PriorityQueueAgent,
 )
 from mbag.environment.goals.simple import (
     BasicGoalGenerator,
-    SimpleOverhangGoalGenerator,
 )
 
 
@@ -77,30 +75,6 @@ def test_malmo():
         },
         [
             (LayerBuilderAgent, {}),
-        ],
-    )
-    reward = evaluator.rollout()
-    assert reward == 18
-
-
-@pytest.mark.xfail(strict=False)
-def test_malmo_pq():
-    print("Testing malmo pq")
-    evaluator = MbagEvaluator(
-        {
-            "world_size": (8, 8, 8),
-            "num_players": 1,
-            "horizon": 100,
-            "goal_generator": (SimpleOverhangGoalGenerator, {}),
-            "goal_visibility": [True],
-            "malmo": {
-                "use_malmo": True,
-                "use_spectator": False,
-                "video_dir": None,
-            },
-        },
-        [
-            (PriorityQueueAgent, {}),
         ],
     )
     reward = evaluator.rollout()
