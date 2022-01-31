@@ -34,7 +34,6 @@ def test_layer_builder_agent():
     assert reward == 18
 
 
-@pytest.mark.xfail(strict=False)
 def test_pq_agent_basic():
     evaluator = MbagEvaluator(
         {
@@ -61,7 +60,6 @@ def test_pq_agent_basic():
     assert reward == 18
 
 
-@pytest.mark.xfail(strict=False)
 def test_pq_agent_overhangs():
     evaluator = MbagEvaluator(
         {
@@ -69,7 +67,7 @@ def test_pq_agent_overhangs():
             "num_players": 1,
             "horizon": 100,
             "goal_generator": (SimpleOverhangGoalGenerator, {}),
-            "goal_visibility": [False],
+            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -82,7 +80,7 @@ def test_pq_agent_overhangs():
         force_get_set_state=True,
     )
     reward = evaluator.rollout()
-    assert reward == 16
+    assert reward == 13
 
 
 @pytest.mark.xfail(strict=False)
@@ -103,6 +101,7 @@ def test_malmo_pq():
         [
             (PriorityQueueAgent, {}),
         ],
+        force_get_set_state=True,
     )
     reward = evaluator.rollout()
-    assert reward == 16
+    assert reward == 13

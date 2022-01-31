@@ -114,7 +114,7 @@ class PriorityQueueAgent(MbagAgent):
             layer_block_location: Tuple[int, int] = tuple(
                 random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
             )
-            heapq.heappush(self.block_frontier, (0, layer_block_location))
+            heapq.heappush(self.block_frontier, (layer, layer_block_location))
 
         action_type: MbagActionType
         if len(self.block_frontier) == 0:
