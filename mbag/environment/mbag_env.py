@@ -240,7 +240,7 @@ class MbagEnv(object):
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
-                delta /= np.sqrt((delta ** 2).sum())
+                delta /= np.sqrt((delta**2).sum())
                 yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
