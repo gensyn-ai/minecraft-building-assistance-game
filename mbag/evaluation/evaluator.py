@@ -21,8 +21,8 @@ class MbagEvaluator(object):
     ):
         self.env = MbagEnv(env_config)
         self.agents = [
-            AgentClass(agent_config, env_config)
-            for AgentClass, agent_config in agent_configs
+            agent_class(agent_config, env_config)
+            for agent_class, agent_config in agent_configs
         ]
         self.force_get_set_state = force_get_set_state
 

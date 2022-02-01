@@ -2,7 +2,7 @@ from typing import Dict, List, Tuple, cast
 import torch
 import numpy as np
 from torch import nn
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from abc import ABC, abstractmethod
 from typing_extensions import TypedDict
 from gym import spaces

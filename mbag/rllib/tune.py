@@ -5,12 +5,12 @@ from ray import tune
 from ray.tune.schedulers.async_hyperband import ASHAScheduler
 
 from sacred import Experiment
-from sacred import SETTINGS as sacred_settings
+from sacred import SETTINGS as SACRED_SETTINGS
 
 from .train import make_mbag_sacred_config
 
 ex = Experiment("tune_mbag")
-sacred_settings.CONFIG.READ_ONLY_CONFIG = False
+SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
 
 make_mbag_sacred_config(ex)

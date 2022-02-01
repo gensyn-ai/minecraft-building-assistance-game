@@ -121,8 +121,8 @@ class MbagEnv(object):
             )
         )
 
-        GoalGeneratorClass, goal_generator_config = self.config["goal_generator"]
-        self.goal_generator = GoalGeneratorClass(goal_generator_config)
+        goal_generator_class, goal_generator_config = self.config["goal_generator"]
+        self.goal_generator = goal_generator_class(goal_generator_config)
 
         if self.config["malmo"]["use_malmo"]:
             from .malmo import MalmoClient

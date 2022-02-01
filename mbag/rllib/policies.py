@@ -103,7 +103,7 @@ class MbagAgentPolicy(Policy):
 
 
 def add_supervised_loss_to_policy(
-    PolicyClass: Type[TorchPolicy],
+    policy_class: Type[TorchPolicy],
     name: str,
     loss_fn: Callable[
         [Policy, ModelV2, Type[TorchDistributionWrapper], SampleBatch], TensorType
@@ -174,7 +174,7 @@ def add_supervised_loss_to_policy(
             stats["place_block_loss"] = policy._place_block_loss  # type: ignore
         return stats
 
-    return PolicyClass.with_updates(  # type: ignore
+    return policy_class.with_updates(  # type: ignore
         name=name,
         loss_fn=loss_with_supervision,
         stats_fn=supervision_stats,
