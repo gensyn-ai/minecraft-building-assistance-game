@@ -117,12 +117,17 @@ class PriorityQueueAgent(MbagAgent):
             heapq.heappush(self.block_frontier, (layer, layer_block_location))
 
         action_type: MbagActionType
+
+        # If there is nothing in the priority queue, run a noop
         if len(self.block_frontier) == 0:
             action_type = MbagAction.NOOP
             return action_type, 0, 0
         else:
+
+            # Pop the lowest block location off of the priority queue
             layer, location = heapq.heappop(self.block_frontier)
 
+            # Iterate over blocks adjacent to the current block
             axes = [(0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0)]
             for direction in axes:
                 x = location[0] + direction[0]
@@ -139,6 +144,7 @@ class PriorityQueueAgent(MbagAgent):
                 ):
                     continue
 
+                # If the actual block is different from the goal block, add the block location to the queue
                 goal_block = world_obs[2, x, y, z]
                 actual_block = world_obs[0, x, y, z]
                 if (
@@ -147,6 +153,7 @@ class PriorityQueueAgent(MbagAgent):
                 ):
                     heapq.heappush(self.block_frontier, (y, (x, z)))
 
+            # Decide whether a block needs to be placed or removed
             if world_obs[0, location[0], layer, location[1]] == MinecraftBlocks.AIR:
                 action_type = MbagAction.PLACE_BLOCK
                 block_id = world_obs[2, location[0], layer, location[1]]
@@ -154,6 +161,14 @@ class PriorityQueueAgent(MbagAgent):
                 action_type = MbagAction.BREAK_BLOCK
                 block_id = 0
 
+                # If the goal block is not air, we need to process it again in the heap
+                if (
+                    not world_obs[2, location[0], layer, location[1]]
+                    == MinecraftBlocks.AIR
+                ):
+                    heapq.heappush(self.block_frontier, (layer, location))
+
+            # Encode and return action
             block_location: BlockLocation = (
                 location[0],
                 layer,
@@ -163,17 +178,13 @@ class PriorityQueueAgent(MbagAgent):
                 np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
 
+            print(location, layer, action_type)
             return action_type, block_location_id, block_id
 
     def get_state(self) -> List[np.ndarray]:
-        # print("Getting state")
-        # print([np.array([self.seeding, self.block_frontier])])
         return [np.array([self.seeding, self.block_frontier], dtype=object)]
 
     def set_state(self, state: List[np.ndarray]) -> None:
-        # print("setting state")
-        # print(state)
-        # print(self.block_frontier)
         self.seeding = bool(state[0][0])
         self.block_frontier = list(map(tuple, state[0][1]))
 

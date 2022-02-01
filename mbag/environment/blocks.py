@@ -292,7 +292,7 @@ class MinecraftBlocks(object):
         # Calculate deltas and make sure that the click location is within the reachable
         # distance.
         deltas = viewpoint_click_candidates[:, 1] - viewpoint_click_candidates[:, 0]
-        reachable = (deltas**2).sum(axis=1) ** 0.5 <= MAX_PLAYER_REACH
+        reachable = (deltas ** 2).sum(axis=1) ** 0.5 <= MAX_PLAYER_REACH
         viewpoint_click_candidates = viewpoint_click_candidates[reachable]
         deltas = deltas[reachable]
         viewpoints = viewpoint_click_candidates[:, 0]
