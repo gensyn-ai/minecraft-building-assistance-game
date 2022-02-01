@@ -29,8 +29,8 @@ def test_random_goal_generator():
             )
         ],
     )
-    reward = evaluator.rollout()
-    assert reward > 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
 
 
 @pytest.mark.xfail(strict=False)
@@ -55,8 +55,8 @@ def test_random_goal_generator_in_malmo():
             ),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward > 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
 
 
 def test_simple_overhang_goal_generator():
@@ -80,8 +80,8 @@ def test_simple_overhang_goal_generator():
             )
         ],
     )
-    reward = evaluator.rollout()
-    assert reward > 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
 
 
 @pytest.mark.xfail(strict=False)
@@ -106,5 +106,5 @@ def test_simple_overhang_goal_generator_in_malmo():
             ),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward > 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0

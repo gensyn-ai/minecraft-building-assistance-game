@@ -31,8 +31,8 @@ def test_single_agent():
             )
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == 18
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
 
 
 def test_two_agents():
@@ -54,8 +54,8 @@ def test_two_agents():
             (NoopAgent, {}),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == 18
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
 
 
 @pytest.mark.xfail(strict=False)
@@ -77,5 +77,5 @@ def test_malmo():
             (LayerBuilderAgent, {}),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == 18
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18

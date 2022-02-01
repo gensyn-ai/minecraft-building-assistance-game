@@ -30,8 +30,8 @@ def test_layer_builder_agent():
         ],
         force_get_set_state=True,
     )
-    reward = evaluator.rollout()
-    assert reward == 18
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
 
 
 def test_pq_agent_basic():
@@ -56,8 +56,8 @@ def test_pq_agent_basic():
         ],
         force_get_set_state=True,
     )
-    reward = evaluator.rollout()
-    assert reward == 18
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
 
 
 def test_pq_agent_overhangs():
@@ -79,8 +79,8 @@ def test_pq_agent_overhangs():
         ],
         force_get_set_state=True,
     )
-    reward = evaluator.rollout()
-    assert reward == 13
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 13
 
 
 @pytest.mark.xfail(strict=False)
@@ -103,5 +103,5 @@ def test_malmo_pq():
         ],
         force_get_set_state=True,
     )
-    reward = evaluator.rollout()
-    assert reward == 13
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 13
