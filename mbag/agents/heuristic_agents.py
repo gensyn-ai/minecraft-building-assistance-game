@@ -5,6 +5,7 @@ A collection of agents following simple heuristics.
 from typing import Dict, List, Tuple, Type
 import numpy as np
 import random
+import heapq
 
 from ..environment.types import (
     BlockLocation,
@@ -60,10 +61,11 @@ class LayerBuilderAgent(MbagAgent):
                 self.current_layer,
                 layer_block_location[1],
             )
-            block_location_id = np.ravel_multi_index(
-                block_location, self.env_config["world_size"]
+            block_location_id = int(
+                np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
 
+            block_id: int
             if layer_blocks[layer_block_location] == MinecraftBlocks.AIR:
                 action_type = MbagAction.PLACE_BLOCK
                 block_id = goal_blocks[layer_block_location]
@@ -80,6 +82,114 @@ class LayerBuilderAgent(MbagAgent):
         self.current_layer = int(state[0][0])
 
 
+class PriorityQueueAgent(MbagAgent):
+    """
+    Places the block with lowest layer that is reachable
+    Assumes that there is a block at layer 0, otherwise the structure is floating
+    Todo: Preprocess the goal?
+    """
+
+    seeding: bool  # Whether blocks have been placed yet
+    block_frontier: list  # PQ to store blocks and their layers
+
+    def reset(self):
+        self.block_frontier = []
+        self.seeding = False
+
+    def get_action(self, obs: MbagObs) -> MbagActionTuple:
+        (world_obs,) = obs
+
+        # Check if we need to seed the PQ with a random initial block from the base layer
+        if not self.seeding:
+            self.seeding = True
+
+            layer = 0
+            while layer < self.env_config["world_size"][1] and np.all(
+                world_obs[:2, :, layer] == world_obs[2:4, :, layer]
+            ):
+                layer += 1
+
+            goal_blocks = world_obs[2, :, layer, :]
+            layer_blocks = world_obs[0, :, layer, :]
+            layer_block_location: Tuple[int, int] = tuple(
+                random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
+            )
+            heapq.heappush(self.block_frontier, (layer, layer_block_location))
+
+        action_type: MbagActionType
+
+        # If there is nothing in the priority queue, run a noop
+        if len(self.block_frontier) == 0:
+            action_type = MbagAction.NOOP
+            return action_type, 0, 0
+        else:
+
+            # Pop the lowest block location off of the priority queue
+            layer, location = heapq.heappop(self.block_frontier)
+
+            # Iterate over blocks adjacent to the current block
+            axes = [(0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0)]
+            for direction in axes:
+                x = location[0] + direction[0]
+                y = layer + direction[1]
+                z = location[1] + direction[2]
+
+                if (
+                    x < 0
+                    or y < 0
+                    or z < 0
+                    or x >= world_obs.shape[1]
+                    or y >= world_obs.shape[2]
+                    or z >= world_obs.shape[3]
+                ):
+                    continue
+
+                # If the actual block is different from the goal block, add the block location to the queue
+                goal_block = world_obs[2, x, y, z]
+                actual_block = world_obs[0, x, y, z]
+                if (
+                    goal_block != actual_block
+                    and not (y, (x, z)) in self.block_frontier
+                ):
+                    heapq.heappush(self.block_frontier, (y, (x, z)))
+
+            # Decide whether a block needs to be placed or removed
+            if world_obs[0, location[0], layer, location[1]] == MinecraftBlocks.AIR:
+                action_type = MbagAction.PLACE_BLOCK
+                block_id = world_obs[2, location[0], layer, location[1]]
+            else:
+                action_type = MbagAction.BREAK_BLOCK
+                block_id = 0
+
+                # If the goal block is not air, we need to process it again in the heap
+                if (
+                    not world_obs[2, location[0], layer, location[1]]
+                    == MinecraftBlocks.AIR
+                ):
+                    heapq.heappush(self.block_frontier, (layer, location))
+
+            # Encode and return action
+            block_location: BlockLocation = (
+                location[0],
+                layer,
+                location[1],
+            )
+            block_location_id = int(
+                np.ravel_multi_index(block_location, self.env_config["world_size"])
+            )
+
+            print(location, layer, action_type)
+            return action_type, block_location_id, block_id
+
+    def get_state(self) -> List[np.ndarray]:
+        return [np.array([self.seeding, self.block_frontier], dtype=object)]
+
+    def set_state(self, state: List[np.ndarray]) -> None:
+        self.seeding = bool(state[0][0])
+        self.block_frontier = list(map(tuple, state[0][1]))
+
+
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
+    "priority_queue": PriorityQueueAgent,
 }

@@ -29,7 +29,7 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
-          pip install flake8 black mypy pytest
+          pip install flake8 black mypy pytest pep8-naming
       - name: Run flake8
         run: flake8 mbag tests
         if: ${{ always() }}
@@ -42,7 +42,7 @@ jobs:
         if: ${{ always() }}
         run: |
           # Shim for this issue: https://github.com/ray-project/ray/issues/14431
-          touch /opt/hostedtoolcache/Python/3.8.11/x64/lib/python3.8/site-packages/ray/py.typed
+          touch `python -c 'import site; print(site.getsitepackages()[0])'`/ray/py.typed
           mypy mbag tests
 
       - name: Run tests

@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 import gym
 from datetime import datetime
 import ray
@@ -63,7 +64,8 @@ def main(
     )
 
     trainer = load_trainer(checkpoint, run, config_updates)
-    evaluation_workers: WorkerSet = trainer.evaluation_workers
+    evaluation_workers: Optional[WorkerSet] = trainer.evaluation_workers
+    assert evaluation_workers is not None
 
     # Remove the action_dist_inputs view requirement since it results in massive
     # (multi-gigabyte) JSON rollout files.

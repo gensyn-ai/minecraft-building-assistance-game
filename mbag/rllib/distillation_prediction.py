@@ -32,7 +32,12 @@ from ray.rllib.execution.train_ops import TrainOneStep
 from ray.rllib.execution.metric_ops import StandardMetricsReporting
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
-from ray.rllib.utils.typing import PolicyID, TrainerConfigDict, TensorType
+from ray.rllib.utils.typing import (
+    PolicyID,
+    SampleBatchType,
+    TrainerConfigDict,
+    TensorType,
+)
 from ray.util.iter import LocalIterator
 from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
@@ -146,14 +151,15 @@ def distillation_loss(
                     + view_req.space.shape
                 )
 
-    train_batch.dont_check_lens = True
+    # TODO: is this still an issue?
+    # train_batch.dont_check_lens = True
     logits, state = model.from_batch(train_batch, is_training=True)
     action_dist = dist_class(logits, model)
 
     # RNN case: Mask away 0-padded chunks at end of time axis.
     if state:
-        B = len(train_batch["seq_lens"])
-        max_seq_len = logits.shape[0] // B
+        batch_size = len(train_batch["seq_lens"])
+        max_seq_len = logits.shape[0] // batch_size
         mask = sequence_mask(
             train_batch["seq_lens"], max_seq_len, time_major=model.is_time_major()
         )
@@ -233,7 +239,7 @@ class MapExperiences:
         self.distillation_mapping_fn = distillation_mapping_fn
         self.policies_recurrent = policies_recurrent
 
-    def __call__(self, samples: SampleBatch) -> SampleBatch:
+    def __call__(self, samples: SampleBatchType) -> SampleBatchType:
         assert isinstance(samples, MultiAgentBatch)
 
         policy_batches: Dict[PolicyID, SampleBatch] = {}
@@ -280,7 +286,9 @@ class PredictionMetrics:
 def execution_plan(
     workers: WorkerSet, config: TrainerConfigDict
 ) -> LocalIterator[dict]:
-    rollouts = ParallelRollouts(workers, mode="bulk_sync")
+    rollouts = cast(
+        LocalIterator[SampleBatchType], ParallelRollouts(workers, mode="bulk_sync")
+    )
 
     # Map batches to the policies getting distilled onto.
     policies_recurrent = dict(
@@ -394,10 +402,10 @@ class SplitMinibatches:
     def __init__(self, sgd_minibatch_size: int):
         self.sgd_minibatch_size = sgd_minibatch_size
 
-    def __call__(self, samples: SampleBatch) -> List[SampleBatch]:
+    def __call__(self, samples: SampleBatchType) -> List[SampleBatchType]:
         assert isinstance(samples, MultiAgentBatch)
 
-        all_minibatches: List[SampleBatch] = []
+        all_minibatches: List[SampleBatchType] = []
         for policy_id, policy_batch in samples.policy_batches.items():
             for minibatch in minibatches(policy_batch, self.sgd_minibatch_size):
                 all_minibatches.append(
@@ -427,7 +435,10 @@ def use_steps_trained_for_timesteps_total(result):
 
 
 def async_execution_plan(workers, config):
-    rollouts = ParallelRollouts(workers, mode="async", num_async=2)
+    rollouts = cast(
+        LocalIterator[SampleBatchType],
+        ParallelRollouts(workers, mode="async", num_async=2),
+    )
 
     # Map batches to the policies getting distilled onto.
     policies_recurrent = dict(

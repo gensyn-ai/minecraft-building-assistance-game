@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple, cast
 import gym
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from torch import nn
 from torch.distributions import Categorical
 import numpy as np
@@ -40,7 +40,7 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
     model_device: torch.device
     inputs_device: torch.device
 
-    _world_obs: torch.Tensor
+    _world_obs: Optional[torch.Tensor]
     _cached_action_type = None
     _cached_block_location = None
     _cached_block_id_logits = None

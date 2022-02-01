@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.env.base_env import BaseEnv
-from ray.rllib.evaluation.episode import MultiAgentEpisode
+from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.rollout_worker import RolloutWorker
 from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import PolicyID
@@ -16,7 +16,7 @@ class MbagCallbacks(DefaultCallbacks):
         worker: RolloutWorker,
         base_env: BaseEnv,
         policies: Dict[PolicyID, Policy],
-        episode: MultiAgentEpisode,
+        episode: Episode,
         env_index: Optional[int] = None,
         **kwargs,
     ) -> None:

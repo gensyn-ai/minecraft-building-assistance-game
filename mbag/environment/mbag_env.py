@@ -1,4 +1,4 @@
-from typing import List, Optional, TYPE_CHECKING, Tuple, Type, Union, cast
+from typing import List, Optional, TYPE_CHECKING, Tuple, Type, Union, Sequence, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
 from gym import spaces
@@ -7,6 +7,7 @@ import logging
 
 from .blocks import MinecraftBlocks
 from .types import (
+    BlockLocation,
     MbagAction,
     MbagActionTuple,
     MbagInfoDict,
@@ -131,10 +132,10 @@ class MbagEnv(object):
             goal_generator_config = {}
         goal_generator_config.update(self.config["goal_generator_config"])
         if isinstance(goal_generator, str):
-            GoalGeneratorClass = ALL_GOAL_GENERATORS[goal_generator]
+            goal_generator_class = ALL_GOAL_GENERATORS[goal_generator]
         else:
-            GoalGeneratorClass = goal_generator
-        self.goal_generator = GoalGeneratorClass(goal_generator_config)
+            goal_generator_class = goal_generator
+        self.goal_generator = goal_generator_class(goal_generator_config)
 
         if self.config["malmo"]["use_malmo"]:
             from .malmo import MalmoClient
@@ -211,7 +212,7 @@ class MbagEnv(object):
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
-        # Generate a goal with buffer of at least 1 on the sides and 2 on the bottom.
+        # Generate a goal with buffer of at least 1 on the sides and bottom.
         world_size = self.config["world_size"]
         small_goal = self.goal_generator.generate_goal(
             (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
@@ -345,8 +346,10 @@ class MbagEnv(object):
             self.config["world_size"], malmo_state["goal"]
         )
 
-        for location in map(
-            tuple, np.argwhere(malmo_blocks.blocks != self.current_blocks.blocks)
+        location: BlockLocation
+        for location in cast(
+            Sequence[BlockLocation],
+            map(tuple, np.argwhere(malmo_blocks.blocks != self.current_blocks.blocks)),
         ):
             logger.warning(
                 f"block discrepancy at {location}: "
@@ -356,8 +359,9 @@ class MbagEnv(object):
                 f"{MinecraftBlocks.ID2NAME[malmo_blocks.blocks[location]]} "
                 "from Malmo"
             )
-        for location in map(
-            tuple, np.argwhere(malmo_goal.blocks != self.goal_blocks.blocks)
+        for location in cast(
+            Sequence[BlockLocation],
+            map(tuple, np.argwhere(malmo_goal.blocks != self.goal_blocks.blocks)),
         ):
             logger.error(
                 f"goal discrepancy at {location}: "

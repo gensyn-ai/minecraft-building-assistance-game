@@ -39,3 +39,18 @@ class RandomGoalGenerator(GoalGenerator):
         goal.blocks[:, 0, :][~structure_mask[:, 0, :]] = MinecraftBlocks.NAME2ID["dirt"]
 
         return goal
+
+
+class SimpleOverhangGoalGenerator(GoalGenerator):
+    """
+    Generates a structure with an overhang
+    """
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        goal = MinecraftBlocks(size)
+        goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["dirt"]
+        goal.blocks[0, :, size[2] // 2] = MinecraftBlocks.NAME2ID["cobblestone"]
+        goal.blocks[:, -2, size[2] // 2] = MinecraftBlocks.NAME2ID["cobblestone"]
+        goal.blocks[-1:, -3, size[2] // 2] = MinecraftBlocks.NAME2ID["cobblestone"]
+
+        return goal
