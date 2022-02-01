@@ -63,7 +63,9 @@ class MbagConfigDict(TypedDict, total=False):
     world_size: WorldSize
 
     # TODO: deprecate tuple version of this
-    goal_generator: Union[Tuple[Union[Type[GoalGenerator], str], dict], Type[GoalGenerator], str]
+    goal_generator: Union[
+        Tuple[Union[Type[GoalGenerator], str], dict], Type[GoalGenerator], str
+    ]
     goal_generator_config: dict
 
     goal_visibility: List[bool]
