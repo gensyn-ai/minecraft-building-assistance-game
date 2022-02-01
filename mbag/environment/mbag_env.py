@@ -63,7 +63,7 @@ class MbagConfigDict(TypedDict, total=False):
     world_size: WorldSize
 
     # TODO: deprecate tuple version of this
-    goal_generator: Union[Tuple[Type[GoalGenerator], dict], Type[GoalGenerator], str]
+    goal_generator: Union[Tuple[Union[Type[GoalGenerator], str], dict], Type[GoalGenerator], str]
     goal_generator_config: dict
 
     goal_visibility: List[bool]
@@ -150,7 +150,6 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
-        self.current_blocks.blocks[:, :4, :] = self.goal_blocks.blocks[:, :4, :]
 
         if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(
