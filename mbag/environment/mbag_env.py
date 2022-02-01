@@ -196,7 +196,7 @@ class MbagEnv(object):
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
-        # Generate a goal with buffer of at least 1 on the sides and 2 on the bottom.
+        # Generate a goal with buffer of at least 1 on the sides and bottom.
         world_size = self.config["world_size"]
         small_goal = self.goal_generator.generate_goal(
             (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
@@ -240,7 +240,7 @@ class MbagEnv(object):
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
-                delta /= np.sqrt((delta ** 2).sum())
+                delta /= np.sqrt((delta**2).sum())
                 yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")

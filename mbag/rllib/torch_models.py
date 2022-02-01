@@ -88,8 +88,8 @@ class UNet3d(nn.Module):
         for layer_index in range(self.num_layers):
             down_layer = nn.Sequential(
                 nn.Conv3d(
-                    in_channels=self.in_channels * (2 ** layer_index),
-                    out_channels=self.in_channels * 2 * (2 ** layer_index),
+                    in_channels=self.in_channels * (2**layer_index),
+                    out_channels=self.in_channels * 2 * (2**layer_index),
                     kernel_size=3,
                     stride=2,
                     padding=1,
@@ -101,8 +101,8 @@ class UNet3d(nn.Module):
 
             up_layer = nn.Sequential(
                 nn.ConvTranspose3d(
-                    in_channels=self.in_channels * 4 * (2 ** layer_index),
-                    out_channels=self.in_channels * (2 ** layer_index),
+                    in_channels=self.in_channels * 4 * (2**layer_index),
+                    out_channels=self.in_channels * (2**layer_index),
                     kernel_size=3,
                     stride=2,
                     padding=1,
@@ -116,7 +116,7 @@ class UNet3d(nn.Module):
             layer_size = (layer_size + 1) // 2
 
         self.fc_layer_size = (
-            (layer_size ** 3) * self.in_channels * (2 ** self.num_layers)
+            (layer_size**3) * self.in_channels * (2**self.num_layers)
         )
 
         # Final 1x1x1 convolution to get the right number of out channels.
