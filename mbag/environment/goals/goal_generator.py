@@ -7,10 +7,12 @@ from ..blocks import MinecraftBlocks
 
 
 class GoalGenerator(ABC):
+    default_config: Any = {}
     config: Any
 
     def __init__(self, config: dict):
-        self.config = config
+        self.config = dict(self.default_config)
+        self.config.update(config)
 
     @abstractmethod
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:

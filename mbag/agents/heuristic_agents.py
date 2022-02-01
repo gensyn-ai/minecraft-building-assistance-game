@@ -178,7 +178,6 @@ class PriorityQueueAgent(MbagAgent):
                 np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
 
-            print(location, layer, action_type)
             return action_type, block_location_id, block_id
 
     def get_state(self) -> List[np.ndarray]:
