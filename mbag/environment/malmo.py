@@ -83,6 +83,20 @@ class MalmoClient(object):
         </AgentSection>
         """
 
+    def _get_observer_agent_section_xml(self, env_config: MbagConfigDict) -> str:
+        width, height, depth = env_config["world_size"]
+        return f"""
+        <AgentSection mode="Creative">
+            <Name>observer</Name>
+            <AgentStart>
+                <Placement x="{width}" y="{height // 2}" z="-8" yaw="0"/>
+            </AgentStart>
+            <AgentHandlers>
+                <ObservationFromFullStats />
+            </AgentHandlers>
+        </AgentSection>
+        """
+
     def _blocks_to_drawing_decorator_xml(
         self, blocks: MinecraftBlocks, offset: BlockLocation = (0, 0, 0)
     ) -> str:
@@ -114,16 +128,20 @@ class MalmoClient(object):
     def _get_mission_spec_xml(
         self,
         env_config: MbagConfigDict,
+        current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
         force_reset: bool = True,
     ) -> str:
         width, height, depth = env_config["world_size"]
         force_reset_str = "true" if force_reset else "false"
 
-        agent_sections_xml = "\n".join(
+        agent_section_xmls = [
             self._get_agent_section_xml(player_index, env_config)
             for player_index in range(env_config["num_players"])
-        )
+        ]
+        if env_config["malmo"]["use_spectator"]:
+            agent_section_xmls.append(self._get_observer_agent_section_xml(env_config))
+        agent_sections_xml = "\n".join(agent_section_xmls)
 
         return f"""
         <?xml version="1.0" encoding="UTF-8" standalone="no" ?>
@@ -149,6 +167,7 @@ class MalmoClient(object):
                         destroyAfterUse="true"
                     />
                     <DrawingDecorator>
+                        {self._blocks_to_drawing_decorator_xml(current_blocks)}
                         {self._blocks_to_drawing_decorator_xml(goal_blocks, (width + 1, 0, 0))}
                     </DrawingDecorator>
                     <BuildBattleDecorator>
@@ -256,8 +275,19 @@ class MalmoClient(object):
             logger.error("timed out while waiting for mission to start")
             raise RuntimeError("timed out while waiting for mission to start")
 
-    def start_mission(self, env_config: MbagConfigDict, goal_blocks: MinecraftBlocks):
-        self._expand_client_pool(env_config["num_players"])
+    def _get_num_agents(self, env_config: MbagConfigDict):
+        num_agents = env_config["num_players"]
+        if env_config["malmo"]["use_spectator"]:
+            num_agents += 1
+        return num_agents
+
+    def start_mission(
+        self,
+        env_config: MbagConfigDict,
+        current_blocks: MinecraftBlocks,
+        goal_blocks: MinecraftBlocks,
+    ):
+        self._expand_client_pool(self._get_num_agents(env_config))
         self.experiment_id = str(uuid.uuid4())
 
         self.agent_hosts = []
@@ -265,7 +295,7 @@ class MalmoClient(object):
             agent_host = MalmoPython.AgentHost()
             self.agent_hosts.append(agent_host)
             mission_spec_xml = self._get_mission_spec_xml(
-                env_config, goal_blocks, force_reset=player_index == 0
+                env_config, current_blocks, goal_blocks, force_reset=player_index == 0
             )
             self._safe_start_mission(
                 agent_host,

@@ -4,7 +4,7 @@ import json
 import random
 import logging
 from typing import Dict, List, Optional, Tuple
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, Literal
 
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class GrabcraftGoalConfig(TypedDict):
     data_dir: str
+    subset: Literal["train", "val", "test"]
 
 
 class StructureMetadata(TypedDict):
@@ -51,6 +52,9 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
     def __init__(self, config: dict):
         super().__init__(config)
+
+        self.data_dir = os.path.join(self.config["data_dir"], self.config["subset"])
+
         self._load_block_map()
         self._load_metadata()
 
@@ -63,15 +67,11 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
     def _load_metadata(self):
         self.structure_metadata = {}
-        for metadata_fname in glob.glob(
-            os.path.join(self.config["data_dir"], "*.metadata.json")
-        ):
+        for metadata_fname in glob.glob(os.path.join(self.data_dir, "*.metadata.json")):
             with open(metadata_fname, "r") as metadata_file:
                 metadata = json.load(metadata_file)
             structure_id = metadata["id"]
-            if not os.path.exists(
-                os.path.join(self.config["data_dir"], f"{structure_id}.json")
-            ):
+            if not os.path.exists(os.path.join(self.data_dir, f"{structure_id}.json")):
                 continue  # Structure file does not exist.
 
             self.structure_metadata[structure_id] = metadata
@@ -99,7 +99,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
             structure_id = random.choice(list(self.structure_metadata.keys()))
             with open(
-                os.path.join(self.config["data_dir"], f"{structure_id}.json"), "r"
+                os.path.join(self.data_dir, f"{structure_id}.json"), "r"
             ) as structure_file:
                 structure_json: StructureJson = json.load(structure_file)
 

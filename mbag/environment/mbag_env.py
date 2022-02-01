@@ -1,4 +1,4 @@
-from typing import List, Optional, TYPE_CHECKING, Sequence, Tuple, Type, cast
+from typing import List, Optional, TYPE_CHECKING, Tuple, Type, Union, Sequence, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
 from gym import spaces
@@ -15,6 +15,7 @@ from .types import (
     WorldSize,
     num_world_obs_channels,
 )
+from .goals import ALL_GOAL_GENERATORS
 from .goals.goal_generator import GoalGenerator
 from .goals.simple import RandomGoalGenerator
 
@@ -61,7 +62,11 @@ class MbagConfigDict(TypedDict, total=False):
     horizon: int
     world_size: WorldSize
 
-    goal_generator: Tuple[Type[GoalGenerator], dict]
+    # TODO: deprecate tuple version of this
+    goal_generator: Union[
+        Tuple[Union[Type[GoalGenerator], str], dict], Type[GoalGenerator], str
+    ]
+    goal_generator_config: dict
 
     goal_visibility: List[bool]
     """
@@ -80,7 +85,8 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
     "horizon": 50,
     "world_size": (5, 5, 5),
-    "goal_generator": (RandomGoalGenerator, {}),
+    "goal_generator": RandomGoalGenerator,
+    "goal_generator_config": {},
     "goal_visibility": [True, False],
     "malmo": {
         "use_malmo": False,
@@ -121,7 +127,16 @@ class MbagEnv(object):
             )
         )
 
-        goal_generator_class, goal_generator_config = self.config["goal_generator"]
+        if isinstance(self.config["goal_generator"], (tuple, list)):
+            goal_generator, goal_generator_config = self.config["goal_generator"]
+        else:
+            goal_generator = self.config["goal_generator"]
+            goal_generator_config = {}
+        goal_generator_config.update(self.config["goal_generator_config"])
+        if isinstance(goal_generator, str):
+            goal_generator_class = ALL_GOAL_GENERATORS[goal_generator]
+        else:
+            goal_generator_class = goal_generator
         self.goal_generator = goal_generator_class(goal_generator_config)
 
         if self.config["malmo"]["use_malmo"]:
@@ -139,7 +154,9 @@ class MbagEnv(object):
         self.goal_blocks = self._generate_goal()
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_client.start_mission(self.config, self.goal_blocks)
+            self.malmo_client.start_mission(
+                self.config, self.current_blocks, self.goal_blocks
+            )
             if self.config["malmo"]["use_spectator"]:
                 logger.warn("use_spectator is not yet implemented")
             if self.config["malmo"]["video_dir"] is not None:

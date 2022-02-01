@@ -11,7 +11,11 @@ def test_goal_generator():
             "world_size": (20, 20, 20),
             "num_players": 1,
             "horizon": 500,
-            "goal_generator": (GrabcraftGoalGenerator, {"data_dir": "data/grabcraft"}),
+            "goal_generator": GrabcraftGoalGenerator,
+            "goal_generator_config": {
+                "data_dir": "data/grabcraft",
+                "subset": "train",
+            },
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -37,7 +41,11 @@ def test_goal_generator_in_malmo():
             "world_size": (20, 20, 20),
             "num_players": 1,
             "horizon": 1000,
-            "goal_generator": (GrabcraftGoalGenerator, {"data_dir": "data/grabcraft"}),
+            "goal_generator": GrabcraftGoalGenerator,
+            "goal_generator_config": {
+                "data_dir": "data/grabcraft",
+                "subset": "train",
+            },
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
