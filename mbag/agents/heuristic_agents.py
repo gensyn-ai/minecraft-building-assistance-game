@@ -99,25 +99,19 @@ class PriorityQueueAgent(MbagAgent):
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         (world_obs,) = obs
 
-        # Check if we need to seed the PQ with a random initial block from the base layer
+        # Check if we need to seed the PQ with all placeable blocks from the initial goal state
         if not self.seeding:
             self.seeding = True
 
-            layer = 0
-            while layer < self.env_config["world_size"][1] and np.all(
-                world_obs[:2, :, layer] == world_obs[2:4, :, layer]
-            ):
-                layer += 1
-
-            goal_blocks = world_obs[2, :, layer, :]
-            layer_blocks = world_obs[0, :, layer, :]
-            layer_block_location: Tuple[int, int] = tuple(
-                random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
-            )
-            heapq.heappush(self.block_frontier, (layer, layer_block_location))
+            for layer in range(3):
+                goal_blocks = world_obs[2, :, layer, :]
+                layer_blocks = world_obs[0, :, layer, :]
+                for layer_block_location in np.argwhere(layer_blocks != goal_blocks):
+                    heapq.heappush(
+                        self.block_frontier, (layer, tuple(layer_block_location))
+                    )
 
         action_type: MbagActionType
-
         # If there is nothing in the priority queue, run a noop
         if len(self.block_frontier) == 0:
             action_type = MbagAction.NOOP
@@ -144,15 +138,21 @@ class PriorityQueueAgent(MbagAgent):
                 ):
                     continue
 
-                # If the actual block is different from the goal block, add the block location to the queue
+                # Add the block location to the queue if
+                # Either the goal block is different from the actual block
+                # Or the world block is not air (means we need to explore it further)
                 goal_block = world_obs[2, x, y, z]
                 actual_block = world_obs[0, x, y, z]
-                if (
-                    goal_block != actual_block
-                    and not (y, (x, z)) in self.block_frontier
-                ):
+                if (goal_block != actual_block) and not (
+                    y,
+                    (x, z),
+                ) in self.block_frontier:
                     heapq.heappush(self.block_frontier, (y, (x, z)))
 
+            # Decide if we are making a change or simply exploring the terrain
+            # if (world_obs[0, location[0], layer, location[1]] == world_obs[2, location[0], layer, location[1]]):
+            #     action_type = MbagAction.NOOP
+            #     block_id = 0
             # Decide whether a block needs to be placed or removed
             if world_obs[0, location[0], layer, location[1]] == MinecraftBlocks.AIR:
                 action_type = MbagAction.PLACE_BLOCK
