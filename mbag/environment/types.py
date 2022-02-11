@@ -23,7 +23,7 @@ different information about the world. The channels are
 
 num_world_obs_channels = 4
 
-MbagObs = Tuple[MbagWorldObsArray]
+MbagObs = Tuple[MbagWorldObsArray, WorldLocation]
 
 
 MbagActionType = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8]

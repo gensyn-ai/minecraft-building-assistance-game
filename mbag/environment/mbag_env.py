@@ -8,6 +8,7 @@ import logging
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
+    WorldLocation,
     MbagAction,
     MbagActionTuple,
     MbagInfoDict,
@@ -114,6 +115,7 @@ class MbagEnv(object):
 
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
+    player_locations: List[WorldLocation]
     timestep: int
 
     def __init__(self, config: MbagConfigDict):
@@ -126,6 +128,7 @@ class MbagEnv(object):
         self.observation_space = spaces.Tuple(
             (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
         )
+        self.player_locations = [(0, 0, 0) for _ in range(self.config["num_players"])]
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
         # more details.
@@ -153,6 +156,7 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
+        self.player_locations = [(0, 0, 0) for _ in range(self.config["num_players"])]
 
         if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(self.config, self.goal_blocks)
@@ -256,7 +260,7 @@ class MbagEnv(object):
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
-                delta /= np.sqrt((delta ** 2).sum())
+                delta /= np.sqrt((delta**2).sum())
                 yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
@@ -332,7 +336,9 @@ class MbagEnv(object):
             world_obs[2] = self.goal_blocks.blocks
             world_obs[3] = self.goal_blocks.block_states
 
-        return (world_obs,)
+        player_position = self.player_locations[player_index]
+
+        return (world_obs, player_position)
 
     def _update_state_from_malmo(self):
         malmo_state = self.malmo_client.get_observation(0)
