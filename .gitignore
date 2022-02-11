@@ -4,3 +4,5 @@ __pycache__
 .vscode
 data
 venv
+.idea
+venv.bak

@@ -352,6 +352,20 @@ class MinecraftBlocks(object):
             cast(WorldLocation, tuple(click_location)),
         )
 
+    def density(self) -> float:
+        """
+        Returns percentage of blocks in volume not taken up by air
+        """
+        total_blocks = len(self.blocks) * len(self.blocks[0]) * len(self.blocks[0][0])
+        count = 0
+        for i in range(len(self.blocks)):
+            for j in range(len(self.blocks[0])):
+                for k in range(len(self.blocks[0][0])):
+                    if self.blocks[i][j][k] != 0:
+                        count += 1
+
+        return count / total_blocks
+
     @classmethod
     def from_malmo_grid(
         cls, size: WorldSize, block_names: List[str]

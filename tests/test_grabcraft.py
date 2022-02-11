@@ -2,7 +2,7 @@ import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent
-from mbag.environment.goals.grabcraft import GrabcraftGoalGenerator
+from mbag.environment.goals.grabcraft import GrabcraftGoalGenerator, CropGoalGenerator
 
 
 def test_goal_generator():
@@ -42,6 +42,35 @@ def test_goal_generator_in_malmo():
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": GrabcraftGoalGenerator,
+            "goal_generator_config": {
+                "data_dir": "data/grabcraft",
+                "subset": "train",
+            },
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                LayerBuilderAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
+
+
+def test_crop_generator_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (10, 10, 10),
+            "num_players": 1,
+            "horizon": 1000,
+            "goal_generator": CropGoalGenerator,
             "goal_generator_config": {
                 "data_dir": "data/grabcraft",
                 "subset": "train",
