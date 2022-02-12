@@ -64,6 +64,7 @@ def test_goal_generator_in_malmo():
     assert episode_info.cumulative_reward > 0
 
 
+@pytest.mark.xfail(strict=False)
 def test_crop_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
