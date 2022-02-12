@@ -241,9 +241,10 @@ class CropGoalGenerator(GrabcraftGoalGenerator):
 
                         CropGoalGenerator._fill_crop(structure, crop, (x, y, z))
 
-                        num = min(struct_density, crop.density())
-                        den = max(struct_density, crop.density())
-                        if abs(crop.density() - struct_density) / struct_density >= density_threshold:
+                        if (
+                            abs(crop.density() - struct_density) / struct_density
+                            >= density_threshold
+                        ):
                             valid_crops.append(crop)
 
             if len(valid_crops) == 0:
