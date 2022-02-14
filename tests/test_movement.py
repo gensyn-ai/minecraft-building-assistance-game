@@ -1,0 +1,58 @@
+import pytest
+
+from mbag.evaluation.evaluator import MbagEvaluator
+from mbag.agents.heuristic_agents import MovementAgent
+from mbag.environment.goals.simple import (
+    BasicGoalGenerator,
+)
+
+
+def test_movement():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (12, 12, 12),
+            "num_players": 1,
+            "horizon": 10,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                MovementAgent,
+                {},
+            ),
+        ],
+    )
+    reward = evaluator.rollout()
+    assert reward == 0
+
+
+@pytest.mark.xfail(strict=False)
+def test_movement_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (12, 12, 12),
+            "num_players": 1,
+            "horizon": 10,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                MovementAgent,
+                {},
+            ),
+        ],
+    )
+    reward = evaluator.rollout()
+    assert reward == 0

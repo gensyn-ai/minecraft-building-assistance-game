@@ -4,6 +4,7 @@ import numpy as np
 from gym import spaces
 import time
 import logging
+from operator import add
 
 from .blocks import MinecraftBlocks
 from .types import (
@@ -128,7 +129,7 @@ class MbagEnv(object):
         self.observation_space = spaces.Tuple(
             (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
         )
-        self.player_locations = [(0, 0, 0) for _ in range(self.config["num_players"])]
+        self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
         # more details.
@@ -156,7 +157,7 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
-        self.player_locations = [(0, 0, 0) for _ in range(self.config["num_players"])]
+        self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
 
         if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(self.config, self.goal_blocks)
@@ -289,7 +290,50 @@ class MbagEnv(object):
                 new_block, goal_block, partial_credit=True
             )
             reward = new_goal_similarity - prev_goal_similarity
+        elif action.action_type in [
+            MbagAction.MOVE_POS_X,
+            MbagAction.MOVE_NEG_X,
+            MbagAction.MOVE_POS_Y,
+            MbagAction.MOVE_NEG_Y,
+            MbagAction.MOVE_POS_Z,
+            MbagAction.MOVE_NEG_Z,
+        ]:
+            if self.config["limitations"]["teleportation"]:
+                noop = False
 
+                player_location_list = list(self.player_locations[player_index])
+
+                action_mask = {
+                    MbagAction.MOVE_POS_X: [1, 0, 0],
+                    MbagAction.MOVE_NEG_X: [-1, 0, 0],
+                    MbagAction.MOVE_POS_Y: [0, 1, 0],
+                    MbagAction.MOVE_NEG_Y: [0, -1, 0],
+                    MbagAction.MOVE_POS_Z: [0, 0, 1],
+                    MbagAction.MOVE_NEG_Z: [0, 0, -1],
+                }
+                new_player_location = list(
+                    map(
+                        add,
+                        action_mask[action.action_type],
+                        player_location_list,
+                    )
+                )
+                # print("Old", player_location_list)
+                # print("Proposed", new_player_location)
+                if self._is_valid_player_space(tuple(new_player_location)):
+                    player_location_list = new_player_location
+                else:
+                    noop = True
+
+                # print("New", player_location_list)
+                self.player_locations[player_index] = (player_location_list[0], player_location_list[1], player_location_list[2])
+
+                if self.config["malmo"]["use_malmo"]:
+                    self.malmo_client.send_command(
+                        player_index,
+                        "tp " + " ".join(map(str, tuple(player_location_list))),
+                    )
+                    time.sleep(0.5)
         if noop:
             reward += self.config["rewards"]["noop"]
 
@@ -301,6 +345,33 @@ class MbagEnv(object):
         }
 
         return reward, info
+
+    def _is_valid_player_space(self, proposed_block):
+        for i in range(3):
+            if (
+                proposed_block[i] < 0
+                or proposed_block[i] > self.config["world_size"][i]
+            ):
+                return False
+
+        if (
+            not self.current_blocks.blocks[
+                proposed_block[0], proposed_block[1], proposed_block[2]
+            ]
+            == MinecraftBlocks.AIR
+        ):
+            return False
+
+        if proposed_block[1] < self.config["world_size"][1] - 1:
+            if (
+                not self.current_blocks.blocks[
+                    proposed_block[0], proposed_block[1] + 1, proposed_block[2]
+                ]
+                == MinecraftBlocks.AIR
+            ):
+                return False
+
+        return True
 
     def _get_goal_similarity(
         self,
