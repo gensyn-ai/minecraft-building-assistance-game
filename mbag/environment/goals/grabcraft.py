@@ -98,46 +98,16 @@ class GrabcraftGoalGenerator(GoalGenerator):
             success = True
 
             structure_id = random.choice(list(self.structure_metadata.keys()))
-            with open(
-                os.path.join(self.data_dir, f"{structure_id}.json"), "r"
-            ) as structure_file:
-                structure_json: StructureJson = json.load(structure_file)
+            structure, structure_size = self._get_structure(structure_id)
 
-            # First, check if structure is too big.
-            structure_size = self._get_structure_size(structure_json)
-            if (
+            # check if structure is valid and within size constraints
+            if structure is None or (
                 structure_size[0] > size[0]
                 or structure_size[1] > size[1]
                 or structure_size[2] > size[2]
             ):
                 success = False
                 continue
-
-            # Next, make sure all blocks are valid.
-            structure = MinecraftBlocks(structure_size)
-            structure.blocks[:] = MinecraftBlocks.AIR
-            structure.block_states[:] = 0
-            for y_str, y_layer in structure_json.items():
-                y = int(y_str)
-                for x_str, x_layer in y_layer.items():
-                    x = int(x_str)
-                    for z_str, block in x_layer.items():
-                        z = int(z_str)
-                        block_variant = self.block_map.get(block["name"])
-                        if block_variant is None:
-                            logger.warning(f"no map entry for \"{block['name']}\"")
-                            success = False
-                        else:
-                            block_name, variant_name = block_variant
-                            block_id = MinecraftBlocks.NAME2ID.get(block_name)
-                            if block_id is not None:
-                                structure.blocks[
-                                    x - 1,
-                                    y - 1,
-                                    z - 1,
-                                ] = block_id
-                            else:
-                                success = False
 
             # Randomly place structure within world.
             goal = GoalGenerator.randomly_place_structure(structure, size)
@@ -149,16 +119,48 @@ class GrabcraftGoalGenerator(GoalGenerator):
                 "dirt"
             ]
 
+        return goal
+
+    def _get_structure(self, structure_id):
+        with open(
+            os.path.join(self.data_dir, f"{structure_id}.json"), "r"
+        ) as structure_file:
+            structure_json: StructureJson = json.load(structure_file)
+
+        structure_size = self._get_structure_size(structure_json)
+        structure = MinecraftBlocks(structure_size)
+        structure.blocks[:] = MinecraftBlocks.AIR
+        structure.block_states[:] = 0
+        for y_str, y_layer in structure_json.items():
+            y = int(y_str)
+            for x_str, x_layer in y_layer.items():
+                x = int(x_str)
+                for z_str, block in x_layer.items():
+                    z = int(z_str)
+                    block_variant = self.block_map.get(block["name"])
+                    if block_variant is None:
+                        logger.warning(f"no map entry for \"{block['name']}\"")
+                    else:
+                        block_name, variant_name = block_variant
+                        block_id = MinecraftBlocks.NAME2ID.get(block_name)
+                        if block_id is not None:
+                            structure.blocks[
+                                x - 1,
+                                y - 1,
+                                z - 1,
+                            ] = block_id
+                        else:
+                            return None, 0
+
         metadata = self.structure_metadata[structure_id]
         logger.info(f"chose structure {structure_id} ({metadata['title']})")
 
-        return goal
+        return structure, structure_size
 
 
-class CropGoalGenerator(GrabcraftGoalGenerator):
-    @classmethod
+class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
+    @staticmethod
     def _fill_crop(
-        cls,
         initial_struct: MinecraftBlocks,
         crop: MinecraftBlocks,
         coords: Tuple[int, int, int],
@@ -178,48 +180,27 @@ class CropGoalGenerator(GrabcraftGoalGenerator):
 
                     crop.blocks[i][j][k] = initial_struct.blocks[x + i][y + j][z + k]
 
-    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+    def generate_crops(
+        self,
+        size: WorldSize,
+        restrict_crops: int = None,
+        floating: bool = False,
+        only_bottom_layer: bool = False,
+    ) -> List[MinecraftBlocks]:
         success = False
+        chosen_crops = []
         while not success:
             success = True
-            valid_crops = []
 
             structure_id = random.choice(list(self.structure_metadata.keys()))
-            with open(
-                os.path.join(self.data_dir, f"{structure_id}.json"), "r"
-            ) as structure_file:
-                structure_json: StructureJson = json.load(structure_file)
+            structure, structure_size = self._get_structure(structure_id)
 
-            structure_size = self._get_structure_size(structure_json)
-            structure = MinecraftBlocks(structure_size)
-            structure.blocks[:] = MinecraftBlocks.AIR
-            structure.block_states[:] = 0
-            for y_str, y_layer in structure_json.items():
-                y = int(y_str)
-                for x_str, x_layer in y_layer.items():
-                    x = int(x_str)
-                    for z_str, block in x_layer.items():
-                        z = int(z_str)
-                        block_variant = self.block_map.get(block["name"])
-                        if block_variant is None:
-                            logger.warning(f"no map entry for \"{block['name']}\"")
-                            success = False
-                        else:
-                            block_name, variant_name = block_variant
-                            block_id = MinecraftBlocks.NAME2ID.get(block_name)
-                            if block_id is not None:
-                                structure.blocks[
-                                    x - 1,
-                                    y - 1,
-                                    z - 1,
-                                ] = block_id
-                            else:
-                                success = False
-
-            if not success:
+            if structure is None:
+                success = False
                 continue
 
-            density_threshold = 0.7
+            valid_crops = []
+            density_threshold = 0.1
             struct_density = structure.density()
 
             step_x = size[0] // 2
@@ -232,40 +213,57 @@ class CropGoalGenerator(GrabcraftGoalGenerator):
                 min(size[2], structure_size[2]),
             )
 
+            valid_y_range = len(structure.blocks[0])
+            if only_bottom_layer:
+                valid_y_range = 1
+
             for x in range(0, len(structure.blocks), step_x):
-                for y in range(0, len(structure.blocks[0]), step_y):
+                for y in range(0, valid_y_range, step_y):
                     for z in range(0, len(structure.blocks[0][0]), step_z):
                         crop = MinecraftBlocks(crop_size)
                         crop.blocks[:] = MinecraftBlocks.AIR
                         crop.block_states[:] = 0
 
-                        CropGoalGenerator._fill_crop(structure, crop, (x, y, z))
+                        self._fill_crop(structure, crop, (x, y, z))
 
                         if (
                             abs(crop.density() - struct_density) / struct_density
-                            >= density_threshold
+                            <= density_threshold
                         ):
                             valid_crops.append(crop)
+
+            if not floating:
+                for i, crop in enumerate(valid_crops):
+                    if not crop.is_continuous():
+                        valid_crops.pop(i)
 
             if len(valid_crops) == 0:
                 success = False
                 continue
 
-            rand_crop = random.choice(valid_crops)
-            print(rand_crop.density())
-            # Randomly place structure within world.
-            goal = GoalGenerator.randomly_place_structure(rand_crop, size)
+            chosen_crops = valid_crops
+            if restrict_crops is not None:
+                chosen_crops = [
+                    chosen_crops.pop(random.randrange(len(chosen_crops)))
+                    for _ in range(min(len(valid_crops), restrict_crops))
+                ]
 
-            # Add a layer of dirt at the bottom of the structure wherever there's still
-            # air.
-            bottom_layer = goal.blocks[:, 0, :]
-            bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-                "dirt"
-            ]
+        return chosen_crops
 
-            metadata = self.structure_metadata[structure_id]
-            logger.info(
-                f"chose crop from structure {structure_id} ({metadata['title']})"
-            )
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        crops = self.generate_crops(
+            size, restrict_crops=10, floating=True, only_bottom_layer=False
+        )
+
+        rand_crop = random.choice(crops)
+        # Randomly place structure within world.
+        goal = GoalGenerator.randomly_place_structure(rand_crop, size)
+
+        # Add a layer of dirt at the bottom of the structure wherever there's still
+        # air.
+        bottom_layer = goal.blocks[:, 0, :]
+        bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
+            "dirt"
+        ]
 
         return goal

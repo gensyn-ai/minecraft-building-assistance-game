@@ -2,7 +2,10 @@ import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent
-from mbag.environment.goals.grabcraft import GrabcraftGoalGenerator, CropGoalGenerator
+from mbag.environment.goals.grabcraft import (
+    GrabcraftGoalGenerator,
+    CroppedGrabcraftGoalGenerator,
+)
 
 
 def test_goal_generator():
@@ -68,10 +71,10 @@ def test_goal_generator_in_malmo():
 def test_crop_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
-            "world_size": (10, 10, 10),
+            "world_size": (15, 10, 15),
             "num_players": 1,
             "horizon": 1000,
-            "goal_generator": CropGoalGenerator,
+            "goal_generator": CroppedGrabcraftGoalGenerator,
             "goal_generator_config": {
                 "data_dir": "data/grabcraft",
                 "subset": "train",

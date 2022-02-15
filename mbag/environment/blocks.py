@@ -356,15 +356,82 @@ class MinecraftBlocks(object):
         """
         Returns percentage of blocks in volume not taken up by air
         """
-        total_blocks = len(self.blocks) * len(self.blocks[0]) * len(self.blocks[0][0])
-        count = 0
-        for i in range(len(self.blocks)):
-            for j in range(len(self.blocks[0])):
-                for k in range(len(self.blocks[0][0])):
-                    if self.blocks[i][j][k] != 0:
-                        count += 1
+        return float((self.blocks != MinecraftBlocks.AIR).astype(float).mean())
 
-        return count / total_blocks
+    def is_continuous(self) -> bool:
+        """
+        Returns true if all blocks are connected to at least one other
+        block and the structure is connected to the ground
+        """
+
+        def dfs_mark(
+            struct: MinecraftBlocks,
+            visited: List[List[List[bool]]],
+            start: Tuple[int, int, int],
+        ):
+            x, y, z = start
+            visited[x][y][z] = True
+            if (
+                x > 0
+                and struct.blocks[x - 1][y][z] != MinecraftBlocks.AIR
+                and not visited[x - 1][y][z]
+            ):
+                dfs_mark(struct, visited, (x - 1, y, z))
+            if (
+                x < struct.size[0] - 1
+                and struct.blocks[x + 1][y][z] != MinecraftBlocks.AIR
+                and not visited[x + 1][y][z]
+            ):
+                dfs_mark(struct, visited, (x + 1, y, z))
+            if (
+                y > 0
+                and struct.blocks[x][y - 1][z] != MinecraftBlocks.AIR
+                and not visited[x][y - 1][z]
+            ):
+                dfs_mark(struct, visited, (x, y - 1, z))
+            if (
+                y < struct.size[1] - 1
+                and self.blocks[x][y + 1][z] != MinecraftBlocks.AIR
+                and not visited[x][y + 1][z]
+            ):
+                dfs_mark(struct, visited, (x, y + 1, z))
+            if (
+                z > 0
+                and self.blocks[x][y][z - 1] != MinecraftBlocks.AIR
+                and not visited[x][y][z - 1]
+            ):
+                dfs_mark(struct, visited, (x, y, z - 1))
+            if (
+                z < struct.size[2] - 1
+                and self.blocks[x][y][z + 1] != MinecraftBlocks.AIR
+                and not visited[x][y][z + 1]
+            ):
+                dfs_mark(struct, visited, (x, y, z + 1))
+
+        def find_continuous_components(struct: MinecraftBlocks):
+            components_positions = []
+            visited = [
+                [[False for k in range(self.size[2])] for j in range(self.size[1])]
+                for i in range(self.size[0])
+            ]
+            for y in range(self.size[1]):
+                for x in range(self.size[0]):
+                    for z in range(self.size[2]):
+                        if (
+                            not visited[x][y][z]
+                            and self.blocks[x][y][z] != MinecraftBlocks.AIR
+                        ):
+                            components_positions.append((x, y, z))
+                            dfs_mark(struct, visited, (x, y, z))
+
+            print(components_positions)
+            return components_positions
+
+        for component_pos in find_continuous_components(self):
+            if component_pos[1] > 0:
+                return False
+
+        return True
 
     @classmethod
     def from_malmo_grid(
