@@ -29,7 +29,7 @@ jobs:
         run: |
           pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
-          pip install flake8 black mypy pytest pep8-naming
+          pip install flake8 black mypy pytest pytest-timeout pep8-naming
       - name: Run flake8
         run: flake8 mbag tests
         if: ${{ always() }}

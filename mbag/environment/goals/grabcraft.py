@@ -3,8 +3,10 @@ import os
 import json
 import random
 import logging
-from typing import Dict, List, Optional, Tuple
+import cc3d
+from typing import Dict, List, Optional, Tuple, Set
 from typing_extensions import TypedDict, Literal
+import numpy as np
 
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 class GrabcraftGoalConfig(TypedDict):
     data_dir: str
     subset: Literal["train", "val", "test"]
+    force_single_cc: bool
 
 
 class StructureMetadata(TypedDict):
@@ -46,6 +49,12 @@ StructureJson = Dict[str, Dict[str, Dict[str, StructureBlock]]]
 
 
 class GrabcraftGoalGenerator(GoalGenerator):
+    default_config: GrabcraftGoalConfig = {
+        "data_dir": "data/grabcraft",
+        "subset": "train",
+        "force_single_cc": False,
+    }
+
     config: GrabcraftGoalConfig
     structure_metadata: Dict[str, StructureMetadata]
     block_map: Dict[str, Tuple[str, Optional[str]]]
@@ -141,6 +150,23 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
             # Randomly place structure within world.
             goal = GoalGenerator.randomly_place_structure(structure, size)
+
+            # If we want to force the structure to be a single connected component,
+            # then check here.
+            if self.config["force_single_cc"]:
+                structure_mask = goal.blocks != MinecraftBlocks.AIR
+                structure_mask_ccs = cc3d.connected_components(
+                    structure_mask, connectivity=6
+                )
+                ground_ccs: Set[int] = set(
+                    structure_mask_ccs[:, 0, :].reshape(-1).tolist()
+                )
+                if np.any(~structure_mask[:, 0, :]):
+                    ground_ccs.remove(0)
+                if not np.all(
+                    structure_mask == np.isin(structure_mask_ccs, list(ground_ccs))
+                ):
+                    success = False
 
             # Add a layer of dirt at the bottom of the structure wherever there's still
             # air.
