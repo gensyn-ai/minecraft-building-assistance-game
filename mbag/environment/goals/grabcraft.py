@@ -101,6 +101,16 @@ class GrabcraftGoalGenerator(GoalGenerator):
                         depth = z
         return width, height, depth
 
+    def _is_structure_single_cc(self, blocks: MinecraftBlocks) -> bool:
+        structure_mask = blocks.blocks != MinecraftBlocks.AIR
+        structure_mask_ccs = cc3d.connected_components(structure_mask, connectivity=6)
+        ground_ccs: Set[int] = set(structure_mask_ccs[:, 0, :].reshape(-1).tolist())
+        if np.any(~structure_mask[:, 0, :]):
+            ground_ccs.remove(0)
+        return bool(
+            np.all(structure_mask == np.isin(structure_mask_ccs, list(ground_ccs)))
+        )
+
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         success = False
         while not success:
@@ -154,18 +164,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
             # If we want to force the structure to be a single connected component,
             # then check here.
             if self.config["force_single_cc"]:
-                structure_mask = goal.blocks != MinecraftBlocks.AIR
-                structure_mask_ccs = cc3d.connected_components(
-                    structure_mask, connectivity=6
-                )
-                ground_ccs: Set[int] = set(
-                    structure_mask_ccs[:, 0, :].reshape(-1).tolist()
-                )
-                if np.any(~structure_mask[:, 0, :]):
-                    ground_ccs.remove(0)
-                if not np.all(
-                    structure_mask == np.isin(structure_mask_ccs, list(ground_ccs))
-                ):
+                if not self._is_structure_single_cc(goal):
                     success = False
 
             # Add a layer of dirt at the bottom of the structure wherever there's still
