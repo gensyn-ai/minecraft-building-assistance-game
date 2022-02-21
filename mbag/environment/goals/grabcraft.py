@@ -252,7 +252,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         crops = self.generate_crops(
-            size, restrict_crops=10, floating=True, only_bottom_layer=False
+            size, restrict_crops=10, floating=False, only_bottom_layer=False
         )
 
         rand_crop = random.choice(crops)
