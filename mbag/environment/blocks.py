@@ -441,5 +441,5 @@ class MinecraftBlocks(object):
         # logger.info(block_names[:800])
         block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
         blocks = MinecraftBlocks(size)
-        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
+        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids
         return blocks
