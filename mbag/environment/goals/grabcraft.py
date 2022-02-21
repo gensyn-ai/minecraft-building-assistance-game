@@ -3,10 +3,8 @@ import os
 import json
 import random
 import logging
-import cc3d
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from typing_extensions import TypedDict, Literal
-import numpy as np
 
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize
@@ -101,16 +99,6 @@ class GrabcraftGoalGenerator(GoalGenerator):
                         depth = z
         return width, height, depth
 
-    def _is_structure_single_cc(self, blocks: MinecraftBlocks) -> bool:
-        structure_mask = blocks.blocks != MinecraftBlocks.AIR
-        structure_mask_ccs = cc3d.connected_components(structure_mask, connectivity=6)
-        ground_ccs: Set[int] = set(structure_mask_ccs[:, 0, :].reshape(-1).tolist())
-        if np.any(~structure_mask[:, 0, :]):
-            ground_ccs.remove(0)
-        return bool(
-            np.all(structure_mask == np.isin(structure_mask_ccs, list(ground_ccs)))
-        )
-
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         success = False
         while not success:
@@ -134,7 +122,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
             # If we want to force the structure to be a single connected component,
             # then check here.
             if self.config["force_single_cc"]:
-                if not self._is_structure_single_cc(goal):
+                if not goal.is_single_cc():
                     success = False
 
             # Add a layer of dirt at the bottom of the structure wherever there's still
@@ -183,102 +171,89 @@ class GrabcraftGoalGenerator(GoalGenerator):
         return structure, structure_size
 
 
+class CroppedGrabcraftGoalConfig(GrabcraftGoalConfig):
+    num_crops: int
+    allow_floating_blocks: bool
+    tethered_to_ground: bool
+    density_threshold: float
+
+
 class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
-    @staticmethod
-    def _fill_crop(
-        initial_struct: MinecraftBlocks,
-        crop: MinecraftBlocks,
-        coords: Tuple[int, int, int],
-    ) -> None:
-        x, y, z = coords
-        for i in range(len(crop.blocks)):
-            if x + i >= len(initial_struct.blocks):
-                break
+    default_config: CroppedGrabcraftGoalConfig = {
+        "data_dir": "data/grabcraft",
+        "subset": "train",
+        "force_single_cc": False,
+        "num_crops": 5,
+        "allow_floating_blocks": False,
+        "tethered_to_ground": True,
+        "density_threshold": 0.25,
+    }
 
-            for j in range(len(crop.blocks[0])):
-                if y + j >= len(initial_struct.blocks[0]):
-                    break
+    config: CroppedGrabcraftGoalConfig
 
-                for k in range(len(crop.blocks[0][0])):
-                    if z + k >= len(initial_struct.blocks[0][0]):
-                        break
+    def generate_crops(self, size: WorldSize) -> List[MinecraftBlocks]:
+        chosen_crops: List[MinecraftBlocks] = []
 
-                    crop.blocks[i][j][k] = initial_struct.blocks[x + i][y + j][z + k]
-
-    def generate_crops(
-        self,
-        size: WorldSize,
-        restrict_crops: int = None,
-        floating: bool = False,
-        only_bottom_layer: bool = False,
-    ) -> List[MinecraftBlocks]:
-        success = False
-        chosen_crops = []
-        while not success:
-            success = True
-
+        while len(chosen_crops) < self.config["num_crops"]:
             structure_id = random.choice(list(self.structure_metadata.keys()))
             structure, structure_size = self._get_structure(structure_id)
+            count = 0
 
-            if structure is None:
-                success = False
-                continue
+            success = False
+            while not success and count < 5:
+                count += 1
+                success = True
 
-            valid_crops = []
-            density_threshold = 0.1
-            struct_density = structure.density()
+                if structure is None:
+                    success = False
+                    continue
 
-            step_x = size[0] // 2
-            step_y = size[1] // 2
-            step_z = size[2] // 2
+                struct_density = structure.density()
 
-            crop_size = (
-                min(size[0], structure_size[0]),
-                min(size[1], structure_size[1]),
-                min(size[2], structure_size[2]),
-            )
+                crop_size = (
+                    min(size[0], structure_size[0]),
+                    min(size[1], structure_size[1]),
+                    min(size[2], structure_size[2]),
+                )
 
-            valid_y_range = len(structure.blocks[0])
-            if only_bottom_layer:
-                valid_y_range = 1
+                x_range = structure_size[0] - 1
+                y_range = (
+                    0 if self.config["tethered_to_ground"] else structure_size[1] - 1
+                )
+                z_range = structure_size[2] - 1
 
-            for x in range(0, len(structure.blocks), step_x):
-                for y in range(0, valid_y_range, step_y):
-                    for z in range(0, len(structure.blocks[0][0]), step_z):
-                        crop = MinecraftBlocks(crop_size)
-                        crop.blocks[:] = MinecraftBlocks.AIR
-                        crop.block_states[:] = 0
+                rand_crop = MinecraftBlocks(crop_size)
+                rand_crop.blocks[:] = MinecraftBlocks.AIR
+                rand_crop.block_states[:] = 0
+                rand_crop.fill_from_crop(
+                    structure,
+                    (
+                        random.randint(0, x_range),
+                        random.randint(0, y_range),
+                        random.randint(0, z_range),
+                    ),
+                )
 
-                        self._fill_crop(structure, crop, (x, y, z))
+                if (
+                    abs(rand_crop.density() - struct_density) / struct_density
+                    > self.config["density_threshold"]
+                ):
+                    success = False
+                    continue
 
-                        if (
-                            abs(crop.density() - struct_density) / struct_density
-                            <= density_threshold
-                        ):
-                            valid_crops.append(crop)
+                if (
+                    not self.config["allow_floating_blocks"]
+                    and not rand_crop.is_single_cc()
+                ):
+                    success = False
+                    continue
 
-            if not floating:
-                for i, crop in enumerate(valid_crops):
-                    if not crop.is_continuous():
-                        valid_crops.pop(i)
-
-            if len(valid_crops) == 0:
-                success = False
-                continue
-
-            chosen_crops = valid_crops
-            if restrict_crops is not None:
-                chosen_crops = [
-                    chosen_crops.pop(random.randrange(len(chosen_crops)))
-                    for _ in range(min(len(valid_crops), restrict_crops))
-                ]
+                chosen_crops.append(rand_crop)
 
         return chosen_crops
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        crops = self.generate_crops(
-            size, restrict_crops=10, floating=False, only_bottom_layer=False
-        )
+        crops = self.generate_crops(size)
 
         rand_crop = random.choice(crops)
         # Randomly place structure within world.

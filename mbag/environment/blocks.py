@@ -1,4 +1,6 @@
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
+
+import cc3d
 from typing_extensions import Literal
 from numpy.typing import NDArray
 import numpy as np
@@ -358,80 +360,43 @@ class MinecraftBlocks(object):
         """
         return float((self.blocks != MinecraftBlocks.AIR).astype(float).mean())
 
-    def is_continuous(self) -> bool:
+    def fill_from_crop(
+        self, initial_struct: "MinecraftBlocks", coords: Tuple[int, int, int]
+    ) -> None:
         """
-        Returns true if all blocks are connected to at least one other
-        block and the structure is connected to the ground
+        Crops section from initial_struct the size of the current structure.
+        Fills out-of-bounds areas with air.
         """
 
-        def dfs_mark(
-            struct: MinecraftBlocks,
-            visited: List[List[List[bool]]],
-            start: Tuple[int, int, int],
-        ):
-            x, y, z = start
-            visited[x][y][z] = True
-            if (
-                x > 0
-                and struct.blocks[x - 1][y][z] != MinecraftBlocks.AIR
-                and not visited[x - 1][y][z]
-            ):
-                dfs_mark(struct, visited, (x - 1, y, z))
-            if (
-                x < struct.size[0] - 1
-                and struct.blocks[x + 1][y][z] != MinecraftBlocks.AIR
-                and not visited[x + 1][y][z]
-            ):
-                dfs_mark(struct, visited, (x + 1, y, z))
-            if (
-                y > 0
-                and struct.blocks[x][y - 1][z] != MinecraftBlocks.AIR
-                and not visited[x][y - 1][z]
-            ):
-                dfs_mark(struct, visited, (x, y - 1, z))
-            if (
-                y < struct.size[1] - 1
-                and self.blocks[x][y + 1][z] != MinecraftBlocks.AIR
-                and not visited[x][y + 1][z]
-            ):
-                dfs_mark(struct, visited, (x, y + 1, z))
-            if (
-                z > 0
-                and self.blocks[x][y][z - 1] != MinecraftBlocks.AIR
-                and not visited[x][y][z - 1]
-            ):
-                dfs_mark(struct, visited, (x, y, z - 1))
-            if (
-                z < struct.size[2] - 1
-                and self.blocks[x][y][z + 1] != MinecraftBlocks.AIR
-                and not visited[x][y][z + 1]
-            ):
-                dfs_mark(struct, visited, (x, y, z + 1))
+        x, y, z = coords
+        width, height, depth = self.blocks.shape
+        initial_width, initial_height, initial_depth = initial_struct.blocks.shape
 
-        def find_continuous_components(struct: MinecraftBlocks):
-            components_positions = []
-            visited = [
-                [[False for k in range(self.size[2])] for j in range(self.size[1])]
-                for i in range(self.size[0])
-            ]
-            for y in range(self.size[1]):
-                for x in range(self.size[0]):
-                    for z in range(self.size[2]):
-                        if (
-                            not visited[x][y][z]
-                            and self.blocks[x][y][z] != MinecraftBlocks.AIR
-                        ):
-                            components_positions.append((x, y, z))
-                            dfs_mark(struct, visited, (x, y, z))
+        pad_x = max(0, x + width - initial_width)
+        pad_y = max(0, y + height - initial_height)
+        pad_z = max(0, z + depth - initial_depth)
+        padded_blocks = np.pad(
+            initial_struct.blocks,
+            pad_width=[(0, pad_x), (0, pad_y), (0, pad_z)],
+            mode="constant",
+            constant_values=MinecraftBlocks.AIR,
+        )
 
-            print(components_positions)
-            return components_positions
+        self.blocks[:] = padded_blocks[
+            x : x + width,
+            y : y + height,
+            z : z + depth,
+        ]
 
-        for component_pos in find_continuous_components(self):
-            if component_pos[1] > 0:
-                return False
-
-        return True
+    def is_single_cc(self) -> bool:
+        structure_mask = self.blocks != MinecraftBlocks.AIR
+        structure_mask_ccs = cc3d.connected_components(structure_mask, connectivity=6)
+        ground_ccs: Set[int] = set(structure_mask_ccs[:, 0, :].reshape(-1).tolist())
+        if np.any(~structure_mask[:, 0, :]):
+            ground_ccs.remove(0)
+        return bool(
+            np.all(structure_mask == np.isin(structure_mask_ccs, list(ground_ccs)))
+        )
 
     @classmethod
     def from_malmo_grid(

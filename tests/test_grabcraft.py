@@ -75,10 +75,7 @@ def test_crop_generator_in_malmo():
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": CroppedGrabcraftGoalGenerator,
-            "goal_generator_config": {
-                "data_dir": "data/grabcraft",
-                "subset": "train",
-            },
+            "goal_generator_config": {"data_dir": "data/grabcraft", "subset": "train"},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
