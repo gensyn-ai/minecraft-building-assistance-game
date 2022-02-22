@@ -6,3 +6,4 @@ data
 venv
 .idea
 venv.bak
+.DS_Store
