@@ -105,13 +105,13 @@ class GrabcraftGoalGenerator(GoalGenerator):
             success = True
 
             structure_id = random.choice(list(self.structure_metadata.keys()))
-            structure, structure_size = self._get_structure(structure_id)
+            structure = self._get_structure(structure_id)
 
             # check if structure is valid and within size constraints
             if structure is None or (
-                structure_size[0] > size[0]
-                or structure_size[1] > size[1]
-                or structure_size[2] > size[2]
+                structure.size[0] > size[0]
+                or structure.size[1] > size[1]
+                or structure.size[2] > size[2]
             ):
                 success = False
                 continue
@@ -134,7 +134,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
         return goal
 
-    def _get_structure(self, structure_id):
+    def _get_structure(self, structure_id: str) -> Optional[MinecraftBlocks]:
         with open(
             os.path.join(self.data_dir, f"{structure_id}.json"), "r"
         ) as structure_file:
@@ -163,65 +163,49 @@ class GrabcraftGoalGenerator(GoalGenerator):
                                 z - 1,
                             ] = block_id
                         else:
-                            return None, 0
+                            return None
 
         metadata = self.structure_metadata[structure_id]
         logger.info(f"chose structure {structure_id} ({metadata['title']})")
 
-        return structure, structure_size
+        return structure
 
 
 class CroppedGrabcraftGoalConfig(GrabcraftGoalConfig):
-    num_crops: int
-    allow_floating_blocks: bool
     tethered_to_ground: bool
     density_threshold: float
 
 
 class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
     default_config: CroppedGrabcraftGoalConfig = {
-        "data_dir": "data/grabcraft",
-        "subset": "train",
-        "force_single_cc": False,
-        "num_crops": 5,
-        "allow_floating_blocks": False,
+        "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
+        "subset": GrabcraftGoalGenerator.default_config["subset"],
+        "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
         "tethered_to_ground": True,
         "density_threshold": 0.25,
     }
 
     config: CroppedGrabcraftGoalConfig
 
-    def generate_crops(self, size: WorldSize) -> List[MinecraftBlocks]:
-        chosen_crops: List[MinecraftBlocks] = []
-
-        while len(chosen_crops) < self.config["num_crops"]:
+    def _generate_crop(self, size: WorldSize, retries: int = 5) -> MinecraftBlocks:
+        while True:
             structure_id = random.choice(list(self.structure_metadata.keys()))
-            structure, structure_size = self._get_structure(structure_id)
-            count = 0
+            structure = self._get_structure(structure_id)
+            if structure is None:
+                continue
+            struct_density = structure.density()
 
-            success = False
-            while not success and count < 5:
-                count += 1
-                success = True
+            crop_size = (
+                min(size[0], structure.size[0]),
+                min(size[1], structure.size[1]),
+                min(size[2], structure.size[2]),
+            )
 
-                if structure is None:
-                    success = False
-                    continue
+            x_range = structure.size[0] - 1
+            y_range = 0 if self.config["tethered_to_ground"] else structure.size[1] - 1
+            z_range = structure.size[2] - 1
 
-                struct_density = structure.density()
-
-                crop_size = (
-                    min(size[0], structure_size[0]),
-                    min(size[1], structure_size[1]),
-                    min(size[2], structure_size[2]),
-                )
-
-                x_range = structure_size[0] - 1
-                y_range = (
-                    0 if self.config["tethered_to_ground"] else structure_size[1] - 1
-                )
-                z_range = structure_size[2] - 1
-
+            for retry_index in range(retries):
                 rand_crop = MinecraftBlocks(crop_size)
                 rand_crop.blocks[:] = MinecraftBlocks.AIR
                 rand_crop.block_states[:] = 0
@@ -238,26 +222,18 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
                     abs(rand_crop.density() - struct_density) / struct_density
                     > self.config["density_threshold"]
                 ):
-                    success = False
                     continue
 
-                if (
-                    not self.config["allow_floating_blocks"]
-                    and not rand_crop.is_single_cc()
-                ):
-                    success = False
+                if self.config["force_single_cc"] and not rand_crop.is_single_cc():
                     continue
 
-                chosen_crops.append(rand_crop)
-
-        return chosen_crops
+                return rand_crop
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        crops = self.generate_crops(size)
+        crop = self._generate_crop(size)
 
-        rand_crop = random.choice(crops)
         # Randomly place structure within world.
-        goal = GoalGenerator.randomly_place_structure(rand_crop, size)
+        goal = GoalGenerator.randomly_place_structure(crop, size)
 
         # Add a layer of dirt at the bottom of the structure wherever there's still
         # air.

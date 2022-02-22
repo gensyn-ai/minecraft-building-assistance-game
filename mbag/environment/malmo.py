@@ -6,6 +6,7 @@ from typing import List, Optional, TypedDict, cast
 import MalmoPython
 import logging
 import time
+import sys
 import uuid
 import json
 import numpy as np
@@ -201,7 +202,7 @@ class MalmoClient(object):
         mission: MalmoPython.MissionSpec,
         mission_record: MalmoPython.MissionRecordSpec,
         player_index: int,
-        max_attempts: int = 5,
+        max_attempts: int = 1 if "pytest" in sys.modules else 0,
     ):
         used_attempts = 0
         logger.info(f"starting Malmo mission for player {player_index}")

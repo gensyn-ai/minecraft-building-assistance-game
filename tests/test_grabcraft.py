@@ -1,7 +1,8 @@
 import pytest
+from mbag.environment.types import WorldSize
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import LayerBuilderAgent
+from mbag.agents.heuristic_agents import PriorityQueueAgent
 from mbag.environment.goals.grabcraft import (
     GrabcraftGoalGenerator,
     CroppedGrabcraftGoalGenerator,
@@ -28,7 +29,7 @@ def test_goal_generator():
         },
         [
             (
-                LayerBuilderAgent,
+                PriorityQueueAgent,
                 {},
             )
         ],
@@ -58,7 +59,49 @@ def test_goal_generator_in_malmo():
         },
         [
             (
-                LayerBuilderAgent,
+                PriorityQueueAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
+
+
+def test_crop_generator():
+    config = {"data_dir": "data/grabcraft", "subset": "train"}
+    world_size: WorldSize = (15, 10, 15)
+
+    generator = CroppedGrabcraftGoalGenerator(config)
+    goal = generator.generate_goal(world_size)
+    assert goal.size == world_size
+
+    generator = CroppedGrabcraftGoalGenerator(
+        {
+            **config,
+            "force_single_cc": True,
+        }
+    )
+    goal = generator.generate_goal(world_size)
+    assert goal.is_single_cc()
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (15, 10, 15),
+            "num_players": 1,
+            "horizon": 1000,
+            "goal_generator": CroppedGrabcraftGoalGenerator,
+            "goal_generator_config": config,
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                PriorityQueueAgent,
                 {},
             ),
         ],
@@ -85,7 +128,7 @@ def test_crop_generator_in_malmo():
         },
         [
             (
-                LayerBuilderAgent,
+                PriorityQueueAgent,
                 {},
             ),
         ],

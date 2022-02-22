@@ -112,7 +112,7 @@ class MinecraftBlocks(object):
     }
     SOLID_BLOCK_IDS = map_set_through_dict(SOLID_BLOCK_NAMES, NAME2ID)
 
-    def __init__(self, size: Tuple[int, int, int]):
+    def __init__(self, size: WorldSize):
         self.size = size
         self.blocks: NDArray[np.uint8] = np.zeros(self.size, np.uint8)
         self.block_states: NDArray[np.uint8] = np.zeros(self.size, np.uint8)
