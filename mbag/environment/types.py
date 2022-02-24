@@ -9,6 +9,7 @@ BlockLocation = Tuple[int, int, int]
 
 WorldLocation = Tuple[float, float, float]
 
+FacingDirection = Tuple[float, float]  # Degrees horizontally, then vertically
 
 MbagWorldObsArray = np.ndarray
 """
@@ -58,7 +59,7 @@ class MbagAction(object):
         MOVE_NEG_X: "MOVE_NEG_X",
         MOVE_POS_Y: "MOVE_POS_Y",
         MOVE_NEG_Y: "MOVE_NEG_Y",
-        MOVE_POS_Z: "MOVE_POS_X",
+        MOVE_POS_Z: "MOVE_POS_Z",
         MOVE_NEG_Z: "MOVE_NEG_Z",
     }
 

@@ -15,6 +15,7 @@ from .types import (
     MbagInfoDict,
     MbagObs,
     WorldSize,
+    FacingDirection,
     num_world_obs_channels,
 )
 from .goals.goal_generator import GoalGenerator
@@ -117,6 +118,7 @@ class MbagEnv(object):
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
     player_locations: List[WorldLocation]
+    player_directions: List[FacingDirection]
     timestep: int
 
     def __init__(self, config: MbagConfigDict):
@@ -130,6 +132,7 @@ class MbagEnv(object):
             (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
         )
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
+        self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
         # more details.
@@ -258,6 +261,8 @@ class MbagEnv(object):
                     player_index,
                     "tp " + " ".join(map(str, player_location)),
                 )
+                self.player_locations[player_index] = player_location
+
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
@@ -266,6 +271,7 @@ class MbagEnv(object):
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
                 self.malmo_client.send_command(player_index, f"setPitch {pitch}")
+                self.player_directions[player_index] = (yaw, pitch)
 
                 if action.action_type == MbagAction.PLACE_BLOCK:
                     self.malmo_client.send_command(
@@ -304,35 +310,46 @@ class MbagEnv(object):
                 player_location_list = list(self.player_locations[player_index])
 
                 action_mask = {
-                    MbagAction.MOVE_POS_X: [1, 0, 0],
-                    MbagAction.MOVE_NEG_X: [-1, 0, 0],
-                    MbagAction.MOVE_POS_Y: [0, 1, 0],
-                    MbagAction.MOVE_NEG_Y: [0, -1, 0],
-                    MbagAction.MOVE_POS_Z: [0, 0, 1],
-                    MbagAction.MOVE_NEG_Z: [0, 0, -1],
+                    MbagAction.MOVE_POS_X: [[1, 0, 0], "moveeast 1"],
+                    MbagAction.MOVE_NEG_X: [[-1, 0, 0], "movewest 1"],
+                    MbagAction.MOVE_POS_Y: [[0, 1, 0], "jump 1"],
+                    MbagAction.MOVE_NEG_Y: [[0, -1, 0], "tp"],
+                    MbagAction.MOVE_POS_Z: [[0, 0, 1], "movesouth 1"],
+                    MbagAction.MOVE_NEG_Z: [[0, 0, -1], "movenorth 1"],
                 }
                 new_player_location = list(
                     map(
                         add,
-                        action_mask[action.action_type],
+                        action_mask[action.action_type][0],
                         player_location_list,
                     )
                 )
-                # print("Old", player_location_list)
-                # print("Proposed", new_player_location)
+                print("Old", player_location_list)
+                print("Proposed", new_player_location)
                 if self._is_valid_player_space(tuple(new_player_location)):
                     player_location_list = new_player_location
                 else:
                     noop = True
 
-                # print("New", player_location_list)
-                self.player_locations[player_index] = (player_location_list[0], player_location_list[1], player_location_list[2])
+                print("New", player_location_list)
+                self.player_locations[player_index] = (
+                    player_location_list[0],
+                    player_location_list[1],
+                    player_location_list[2],
+                )
 
+                print(action_mask[action.action_type][1])
                 if self.config["malmo"]["use_malmo"]:
-                    self.malmo_client.send_command(
-                        player_index,
-                        "tp " + " ".join(map(str, tuple(player_location_list))),
-                    )
+                    if action.action_type != MbagAction.MOVE_NEG_Y:
+                        self.malmo_client.send_command(
+                            player_index, action_mask[action.action_type][1]
+                        )
+                    else:
+                        self.malmo_client.send_command(
+                            player_index,
+                            "tp " + " ".join(map(str, tuple(player_location_list))),
+                        )
+
                     time.sleep(0.5)
         if noop:
             reward += self.config["rewards"]["noop"]

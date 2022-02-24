@@ -32,7 +32,7 @@ def test_movement():
     assert reward == 0
 
 
-@pytest.mark.xfail(strict=False)
+# @pytest.mark.xfail(strict=False)
 def test_movement_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -55,4 +55,4 @@ def test_movement_in_malmo():
         ],
     )
     reward = evaluator.rollout()
-    assert reward == 0
+    assert reward == -1
