@@ -20,6 +20,9 @@ def test_movement():
                 "use_spectator": False,
                 "video_dir": None,
             },
+            "abilities": {
+                "teleportation": False
+            }
         },
         [
             (
@@ -32,7 +35,7 @@ def test_movement():
     assert reward == 0
 
 
-# @pytest.mark.xfail(strict=False)
+#  @pytest.mark.xfail(strict=False)
 def test_movement_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -46,6 +49,7 @@ def test_movement_in_malmo():
                 "use_spectator": False,
                 "video_dir": None,
             },
+            "abilities": {"teleportation": False, "flying": True},
         },
         [
             (

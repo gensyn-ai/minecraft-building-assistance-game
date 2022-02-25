@@ -159,6 +159,7 @@ class MinecraftBlocks(object):
         block_location: BlockLocation,
         block_id: int = 0,
         player_location: Optional[WorldLocation] = None,
+        update_blocks: bool = True,
     ) -> Optional[Tuple[WorldLocation, WorldLocation]]:
         """
         Try to place or break a block (depending on action_type) at the given
@@ -334,13 +335,14 @@ class MinecraftBlocks(object):
             return None
 
         # Actually break/place the block.
-        if action_type == MbagAction.BREAK_BLOCK:
-            self.blocks[block_location] = MinecraftBlocks.AIR
-            self.block_states[block_location] = 0
-        else:
-            self.blocks[block_location] = block_id
-            self.block_states[block_location] = 0
-        # TODO: add block to inventory?
+        if update_blocks:
+            if action_type == MbagAction.BREAK_BLOCK:
+                self.blocks[block_location] = MinecraftBlocks.AIR
+                self.block_states[block_location] = 0
+            else:
+                self.blocks[block_location] = block_id
+                self.block_states[block_location] = 0
+            # TODO: add block to inventory?
 
         viewpoint, click_location = random.choice(
             cast(Sequence[Tuple[np.ndarray, np.ndarray]], viewpoint_click_candidates)

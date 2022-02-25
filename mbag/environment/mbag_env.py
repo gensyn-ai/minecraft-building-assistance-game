@@ -59,7 +59,7 @@ class RewardsConfigDict(TypedDict):
     """
 
 
-class LimitationsConfigDict(TypedDict):
+class AbilitiesConfigDict(TypedDict):
     teleportation: bool
     """
     Whether the agent can teleport or must move block by block
@@ -90,7 +90,7 @@ class MbagConfigDict(TypedDict, total=False):
     rewards: RewardsConfigDict
     """Configuration options for environment reward."""
 
-    limitations: LimitationsConfigDict
+    abilities: AbilitiesConfigDict
     """Configuration for limits placed on the agent (flying, teleportation, inventory, etc...) """
 
 
@@ -109,7 +109,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "noop": 0,
         "place_wrong": 0,
     },
-    "limitations": {"teleportation": True, "flying": True},
+    "abilities": {"teleportation": True, "flying": True},
 }
 
 
@@ -246,22 +246,32 @@ class MbagEnv(object):
             goal_block = self.goal_blocks[action.block_location]
 
             # Try to place or break block.
-            place_break_result = self.current_blocks.try_break_place(
-                cast(Literal[1, 2], action.action_type),
-                action.block_location,
-                action.block_id,
-            )
+            if self.config["abilities"]["teleportation"]:
+                place_break_result = self.current_blocks.try_break_place(
+                    cast(Literal[1, 2], action.action_type),
+                    action.block_location,
+                    action.block_id,
+                )
+            else:
+                place_break_result = self.current_blocks.try_break_place(
+                    cast(Literal[1, 2], action.action_type),
+                    action.block_location,
+                    action.block_id,
+                    player_location=self.player_locations[player_index],
+                )
 
             if place_break_result is not None:
                 noop = False
+                self.player_locations[player_index] = place_break_result[0]
 
             if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                 player_location, click_location = place_break_result
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, player_location)),
-                )
-                self.player_locations[player_index] = player_location
+
+                if self.config["abilities"]["teleportation"]:
+                    self.malmo_client.send_command(
+                        player_index,
+                        "tp " + " ".join(map(str, player_location)),
+                    )
 
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
@@ -304,7 +314,7 @@ class MbagEnv(object):
             MbagAction.MOVE_POS_Z,
             MbagAction.MOVE_NEG_Z,
         ]:
-            if self.config["limitations"]["teleportation"]:
+            if not self.config["abilities"]["teleportation"]:
                 noop = False
 
                 player_location_list = list(self.player_locations[player_index])
@@ -312,7 +322,7 @@ class MbagEnv(object):
                 action_mask = {
                     MbagAction.MOVE_POS_X: [[1, 0, 0], "moveeast 1"],
                     MbagAction.MOVE_NEG_X: [[-1, 0, 0], "movewest 1"],
-                    MbagAction.MOVE_POS_Y: [[0, 1, 0], "jump 1"],
+                    MbagAction.MOVE_POS_Y: [[0, 1, 0], "tp"],
                     MbagAction.MOVE_NEG_Y: [[0, -1, 0], "tp"],
                     MbagAction.MOVE_POS_Z: [[0, 0, 1], "movesouth 1"],
                     MbagAction.MOVE_NEG_Z: [[0, 0, -1], "movenorth 1"],
@@ -324,25 +334,25 @@ class MbagEnv(object):
                         player_location_list,
                     )
                 )
-                print("Old", player_location_list)
-                print("Proposed", new_player_location)
+                # print("Old", player_location_list)
+                # print("Proposed", new_player_location)
                 if self._is_valid_player_space(tuple(new_player_location)):
                     player_location_list = new_player_location
                 else:
                     noop = True
 
-                print("New", player_location_list)
+                # print("New", player_location_list)
                 self.player_locations[player_index] = (
                     player_location_list[0],
                     player_location_list[1],
                     player_location_list[2],
                 )
 
-                print(action_mask[action.action_type][1])
+                # print(str(action_mask[action.action_type][1]))
                 if self.config["malmo"]["use_malmo"]:
-                    if action.action_type != MbagAction.MOVE_NEG_Y:
+                    if action_mask[action.action_type][1] != "tp":
                         self.malmo_client.send_command(
-                            player_index, action_mask[action.action_type][1]
+                            player_index, str(action_mask[action.action_type][1])
                         )
                     else:
                         self.malmo_client.send_command(
