@@ -68,12 +68,16 @@ class MinecraftBlocks(object):
         "stonebrick",
         "wool",
     ]
+
     NAME2ID: Dict[str, int] = {
         **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
         # Alias names:
         "grass": 2,
+        "auto": 28,
     }
+
     AIR = NAME2ID["air"]
+    AUTO = NAME2ID["auto"]
     BEDROCK = NAME2ID["bedrock"]
     NUM_BLOCKS = len(ID2NAME)
 
@@ -359,6 +363,37 @@ class MinecraftBlocks(object):
         Returns percentage of blocks in volume not taken up by air
         """
         return float((self.blocks != MinecraftBlocks.AIR).astype(float).mean())
+
+    def block_to_nearest_neighbors(self, coords: Tuple[int, int, int]) -> int:
+        """
+        Returns a block that represents the majority of blocks in the 3x3x3
+        space around coords
+        """
+        x, y, z = coords
+        initial_width, initial_height, initial_depth = self.blocks.shape
+        pad_x = max(0, x + 3 - initial_width)
+        pad_y = max(0, y + 3 - initial_height)
+        pad_z = max(0, z + 3 - initial_depth)
+        padded_blocks = np.pad(
+            self.blocks,
+            pad_width=[(0, pad_x), (0, pad_y), (0, pad_z)],
+            mode="constant",
+            constant_values=MinecraftBlocks.AIR,
+        )
+
+        frequencies = np.asarray(
+            np.unique(
+                padded_blocks[x - 1 : x + 2, y - 1 : y + 2, z - 1 : z + 2],
+                return_counts=True,
+            )
+        ).T
+        frequencies = frequencies[np.argsort(frequencies[:, 1])]
+
+        # potential bug? frequencies is sometimes empty list
+        try:
+            return int(frequencies[-1][0])
+        except IndexError:
+            return 0
 
     def fill_from_crop(
         self, initial_struct: "MinecraftBlocks", coords: Tuple[int, int, int]
