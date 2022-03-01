@@ -230,9 +230,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
             "use_limited_block_set"
         ],
         "density_threshold": 0.25,
-        "save_crop_dir": GrabcraftGoalGenerator.default_config[
-            "subset"
-        ],
+        "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
     }
 
     config: CroppedGrabcraftGoalConfig
