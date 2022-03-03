@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import tempfile
 
 import pytest
 from mbag.environment.types import WorldSize
@@ -140,9 +141,16 @@ def test_crop_generator_in_malmo():
 
 
 def test_generate_crop_json():
+    data_dir = tempfile.mkdtemp()
+    os.makedirs(os.path.join(data_dir, "hardcoded_crops"))
+    os.symlink(
+        os.path.abspath("data/grabcraft/train"),
+        os.path.join(data_dir, "train"),
+    )
+
     generator = CroppedGrabcraftGoalGenerator(
         {
-            "data_dir": "data/grabcraft",
+            "data_dir": data_dir,
             "subset": "train",
             "force_single_cc": True,
             "use_limited_block_set": True,
@@ -157,7 +165,7 @@ def test_generate_crop_json():
         )
 
     for fname in glob.glob(
-        os.path.join("data/grabcraft/hardcoded_crops", "*_crop.json")
+        os.path.join(data_dir, "hardcoded_crops", "*_crop.json")
     ):
         with open(fname) as f:
             structure_json = json.load(f)
@@ -173,13 +181,13 @@ def test_generate_crop_json():
             "horizon": 1000,
             "goal_generator": GrabcraftGoalGenerator,
             "goal_generator_config": {
-                "data_dir": "data/grabcraft",
+                "data_dir": data_dir,
                 "subset": "hardcoded_crops",
                 "use_limited_block_set": True,
             },
             "goal_visibility": [True],
             "malmo": {
-                "use_malmo": True,
+                "use_malmo": False,
                 "use_spectator": False,
                 "video_dir": None,
             },
