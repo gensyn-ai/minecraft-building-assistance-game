@@ -50,7 +50,7 @@ class MalmoClient(object):
         <AgentSection mode="Creative">
             <Name>player_{player_index}</Name>
             <AgentStart>
-                <Placement x="{0.5 + player_index}" y="2" z="0.5" yaw="90"/>
+                <Placement x="{0.5 + player_index}" y="2" z="0.5" yaw="270"/>
                 <Inventory>
                     {inventory_items_xml}
                 </Inventory>
