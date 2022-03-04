@@ -36,7 +36,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
     def sacred_config(_log):  # noqa
         # Environment
         goal_generator = "random"
-        train_goals = True  # False for test set
+        goal_subset = "train"
         horizon = 50
         num_players = 1
         height = 5
@@ -52,7 +52,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 ALL_GOAL_GENERATORS[goal_generator],
                 {
                     "data_dir": f"data/{goal_generator}",
-                    "train": train_goals,
+                    "subset": goal_subset,
                 },
             ),
             "goal_visibility": [True] * num_players,
