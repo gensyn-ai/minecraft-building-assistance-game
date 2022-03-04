@@ -73,7 +73,7 @@ class LayerBuilderAgent(MbagAgent):
                 action_type = MbagAction.BREAK_BLOCK
                 block_id = 0
 
-            return action_type, block_location_id, block_id
+            return action_type, block_location_id, int(block_id)
 
     def get_state(self) -> List[np.ndarray]:
         return [np.array([self.current_layer])]
@@ -178,7 +178,7 @@ class PriorityQueueAgent(MbagAgent):
                 np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
 
-            return action_type, block_location_id, block_id
+            return action_type, block_location_id, int(block_id)
 
     def get_state(self) -> List[np.ndarray]:
         return [np.array([self.seeding, self.block_frontier], dtype=object)]
