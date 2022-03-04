@@ -24,62 +24,91 @@ class NoopAgent(MbagAgent):
         action_dist[MbagAction.NOOP] = 1
         return action_dist
 
+
 class HardcodedBuilderAgent(MbagAgent):
     """
     Builds the simple goal generator using a hardcoded predetermined sequence of moves
     """
 
-    current_layer: int
+    current_command: int
 
     def reset(self):
-        self.current_layer = 0
+        self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        (world_obs, _) = obs
+        COMMAND_LIST: list = [
+            (MbagAction.MOVE_NEG_Y, 0, 0),
+            (MbagAction.MOVE_POS_Y, 0, 0),
+            (MbagAction.MOVE_NEG_X, 0, 0),
+            (MbagAction.MOVE_NEG_Z, 0, 0),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (1, 2, 1),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (MbagAction.MOVE_POS_X, 0, 0),
+            (MbagAction.MOVE_POS_X, 0, 0),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (2, 2, 1),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (MbagAction.MOVE_POS_Y, 0, 0),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (0, 2, 1),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (3, 2, 2),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (MbagAction.MOVE_POS_Z, 0, 0),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (2, 2, 2),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (MbagAction.MOVE_POS_Z, 0, 0),
+        ]
+        if self.current_command >= len(COMMAND_LIST):
+            return (MbagAction.NOOP, 0, 0)
 
-        # Check if current layer is done.
-        while self.current_layer < self.env_config["world_size"][1] and np.all(
-            world_obs[:2, :, self.current_layer]
-            == world_obs[2:4, :, self.current_layer]
-        ):
-            self.current_layer += 1
-
-        action_type: MbagActionType
-        if self.current_layer == self.env_config["world_size"][1]:
-            action_type = MbagAction.NOOP
-            return action_type, 0, 0
-        else:
-            layer_blocks = world_obs[0, :, self.current_layer, :]
-            goal_blocks = world_obs[2, :, self.current_layer, :]
-
-            layer_block_location: Tuple[int, int] = tuple(
-                random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
-            )
-            block_location: BlockLocation = (
-                layer_block_location[0],
-                self.current_layer,
-                layer_block_location[1],
-            )
-            block_location_id = int(
-                np.ravel_multi_index(block_location, self.env_config["world_size"])
-            )
-
-            block_id: int
-            if layer_blocks[layer_block_location] == MinecraftBlocks.AIR:
-                action_type = MbagAction.PLACE_BLOCK
-                block_id = goal_blocks[layer_block_location]
-            else:
-                action_type = MbagAction.BREAK_BLOCK
-                block_id = 0
-
-            return action_type, block_location_id, block_id
+        action = COMMAND_LIST[self.current_command]
+        self.current_command += 1
+        return action
 
     def get_state(self) -> List[np.ndarray]:
-        return [np.array([self.current_layer])]
+        return [np.array([self.current_command])]
 
     def set_state(self, state: List[np.ndarray]) -> None:
-        self.current_layer = int(state[0][0])
-
+        self.current_command = int(state[0][0])
 
 
 class MovementAgent(MbagAgent):

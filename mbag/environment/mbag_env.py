@@ -117,7 +117,7 @@ class MbagEnv(object):
 
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
-    player_locations: List[WorldLocation]
+    player_locations: List[BlockLocation]
     player_directions: List[FacingDirection]
     timestep: int
 
@@ -239,6 +239,8 @@ class MbagEnv(object):
 
         noop: bool = True
 
+        print(action_tuple)
+
         if action.action_type == MbagAction.NOOP:
             pass
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
@@ -259,10 +261,12 @@ class MbagEnv(object):
                     action.block_id,
                     player_location=self.player_locations[player_index],
                 )
-
+            print("Tried placing ", action.block_location)
             if place_break_result is not None:
+                print("Place block successful")
                 noop = False
-                self.player_locations[player_index] = place_break_result[0]
+                if self.config["abilities"]["teleportation"]:
+                    self.player_locations[player_index] = tuple(place_break_result[0])
 
             if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                 player_location, click_location = place_break_result
@@ -327,21 +331,24 @@ class MbagEnv(object):
                     MbagAction.MOVE_POS_Z: [[0, 0, 1], "movesouth 1"],
                     MbagAction.MOVE_NEG_Z: [[0, 0, -1], "movenorth 1"],
                 }
-                new_player_location = list(
-                    map(
-                        add,
-                        action_mask[action.action_type][0],
-                        player_location_list,
+                new_player_location = [
+                    int(i)
+                    for i in list(
+                        map(
+                            add,
+                            action_mask[action.action_type][0],
+                            player_location_list,
+                        )
                     )
-                )
-                # print("Old", player_location_list)
-                # print("Proposed", new_player_location)
+                ]
+                print("Old", player_location_list)
+                print("Proposed", new_player_location)
                 if self._is_valid_player_space(tuple(new_player_location)):
                     player_location_list = new_player_location
                 else:
                     noop = True
 
-                # print("New", player_location_list)
+                print("New", player_location_list)
                 self.player_locations[player_index] = (
                     player_location_list[0],
                     player_location_list[1],

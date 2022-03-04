@@ -280,7 +280,7 @@ class MinecraftBlocks(object):
             )
         ]
 
-        player_viewpoints = player_locations.copy()
+        player_viewpoints = player_locations.copy().astype("float64")
         player_viewpoints[:, 1] += 1.6  # Player viewpoint is 1.6 m above feet.
 
         viewpoint_click_candidates: np.ndarray = np.empty(
