@@ -2,6 +2,7 @@
 Code to interface with Project Malmo.
 """
 
+import shutil
 import tarfile
 import tempfile
 from typing import List, Optional, TypedDict, cast
@@ -415,7 +416,7 @@ class MalmoClient(object):
                     break
             assert video_member_name is not None
             record_tar.extract(video_member_name, temp_dir)
-            os.rename(
+            shutil.move(
                 os.path.join(temp_dir, video_member_name),
                 self.record_fname[: -len(".tar.gz")] + ".mp4",
             )
