@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 import gym
+import torch
 from datetime import datetime
 import ray
 from ray.rllib.evaluation.worker_set import WorkerSet
@@ -34,7 +35,11 @@ def sacred_config():
         "evaluation_num_episodes": 1,
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
+        "env_config": {},
+        "num_gpus": 1 if torch.cuda.is_available() else 0,
     }
+
+    record_video = False  # noqa: F841
 
 
 @ex.automain
@@ -44,6 +49,7 @@ def main(
     checkpoint: str,
     experiment_name: str,
     episodes: int,
+    record_video: bool,
     _log,
 ):
     ray.init(
@@ -62,6 +68,18 @@ def main(
             "output": out_dir,
         }
     )
+
+    if record_video:
+        config_updates["env_config"].update(
+            {
+                "malmo": {
+                    "use_malmo": True,
+                    "use_spectator": True,
+                    "video_dir": out_dir,
+                }
+            }
+        )
+        config_updates["evaluation_num_workers"] = 1
 
     trainer = load_trainer(checkpoint, run, config_updates)
     evaluation_workers: Optional[WorkerSet] = trainer.evaluation_workers

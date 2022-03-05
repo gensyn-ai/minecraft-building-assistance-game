@@ -112,6 +112,12 @@ class MbagEnv(object):
         if isinstance(self.config["world_size"], list):
             self.config["world_size"] = tuple(self.config["world_size"])
 
+        if (
+            self.config["malmo"]["video_dir"] is not None
+            and not self.config["malmo"]["use_spectator"]
+        ):
+            raise ValueError("Video recording requires using a spectator")
+
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
             (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
@@ -157,10 +163,6 @@ class MbagEnv(object):
             self.malmo_client.start_mission(
                 self.config, self.current_blocks, self.goal_blocks
             )
-            if self.config["malmo"]["use_spectator"]:
-                logger.warn("use_spectator is not yet implemented")
-            if self.config["malmo"]["video_dir"] is not None:
-                logger.warn("video_dir is not yet implemented")
             time.sleep(1)  # Wait a second for the environment to load.
 
             # Make all players fly.
@@ -207,8 +209,9 @@ class MbagEnv(object):
         dones = [self._done()] * self.config["num_players"]
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
-            for player_index in range(self.config["num_players"]):
-                self.malmo_client.send_command(player_index, "quit")
+            # Wait for a second for the final block to place and then end mission.
+            time.sleep(1)
+            self.malmo_client.end_mission()
 
         return obs, rewards, dones, infos
 
