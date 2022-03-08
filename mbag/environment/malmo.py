@@ -52,9 +52,14 @@ class MalmoClient(object):
             )
         inventory_items_xml = "\n".join(inventory_item_tags)
 
+        if env_config["malmo"]["player_names"] is not None:
+            player_name = env_config["malmo"]["player_names"][player_index]
+        else:
+            player_name = f"player_{player_index}"
+
         return f"""
         <AgentSection mode="Creative">
-            <Name>player_{player_index}</Name>
+            <Name>{player_name}</Name>
             <AgentStart>
                 <Placement x="{0.5 + player_index}" y="2" z="0.5" yaw="270"/>
                 <Inventory>

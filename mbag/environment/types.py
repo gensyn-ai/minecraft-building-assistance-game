@@ -84,3 +84,14 @@ class MbagInfoDict(TypedDict):
     structure. Higher is more similar. This can be used as a truer "reward" than the
     potentially shaped reward given to the agent by the environment.
     """
+
+    own_reward: float
+    """
+    The reward from this step which is due to the current player's direct actions.
+    """
+
+    own_reward_prop: float
+    """
+    The current proportion of this player's reward which is coming from their own
+    direct actions, as opposed to other agents'.
+    """

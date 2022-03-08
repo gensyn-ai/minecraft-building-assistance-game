@@ -171,7 +171,8 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         # some probabilities down to zero.
         block_id_kl[torch.isinf(block_id_kl)] = 0
 
-        return action_type_location_kl + block_id_kl
+        kl = action_type_location_kl + block_id_kl
+        return kl
 
     def _action_type_location_distribution(
         self, mask_logit=-1e8

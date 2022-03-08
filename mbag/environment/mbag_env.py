@@ -3,6 +3,7 @@ from typing_extensions import Literal, TypedDict
 import numpy as np
 from gym import spaces
 import time
+import copy
 import logging
 
 from .blocks import MinecraftBlocks
@@ -25,10 +26,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class MalmoConfigDict(TypedDict):
+class MalmoConfigDict(TypedDict, total=False):
     use_malmo: bool
     """
     Whether to connect to a real Minecraft instance with Project Malmo.
+    """
+
+    player_names: Optional[List[str]]
+    """
+    Optional list of player names.
     """
 
     use_spectator: bool
@@ -43,7 +49,7 @@ class MalmoConfigDict(TypedDict):
 
 
 class RewardsConfigDict(TypedDict):
-    noop: int
+    noop: float
     """
     The reward for doing any action which does nothing. This is usually either zero,
     or negative to discourage noops.
@@ -54,6 +60,19 @@ class RewardsConfigDict(TypedDict):
     The reward for placing a block which is not correct, but in a place where a block
     should go. The negative of this is also given for breaking a block which is not
     correct.
+    """
+
+    own_reward_prop: float
+    """
+    A number from 0 to 1. At 0, it gives the normal reward function which takes into
+    account all players actions. At 1, it gives only reward for actions that the
+    specific player took.
+    """
+
+    own_reward_prop_horizon: Optional[int]
+    """
+    Decay own_reward_prop to 0 over this horizon. This requires calling
+    set_global_timestep on the environment to update the global timestep.
     """
 
 
@@ -90,27 +109,34 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "goal_visibility": [True, False],
     "malmo": {
         "use_malmo": False,
+        "player_names": None,
         "use_spectator": False,
         "video_dir": None,
     },
     "rewards": {
         "noop": 0,
         "place_wrong": 0,
+        "own_reward_prop": 0,
+        "own_reward_prop_horizon": None,
     },
 }
 
 
 class MbagEnv(object):
-
+    config: MbagConfigDict
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
     timestep: int
+    global_timestep: int
 
     def __init__(self, config: MbagConfigDict):
-        self.config = DEFAULT_CONFIG
+        self.config = copy.deepcopy(DEFAULT_CONFIG)
         self.config.update(config)
         if isinstance(self.config["world_size"], list):
             self.config["world_size"] = tuple(self.config["world_size"])
+
+        self.config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
+        self.config["malmo"].update(config.get("malmo", {}))
 
         if (
             self.config["malmo"]["video_dir"] is not None
@@ -150,6 +176,11 @@ class MbagEnv(object):
 
             self.malmo_client = MalmoClient()
 
+        self.global_timestep = 0
+
+    def update_global_timestep(self, global_timestep: int) -> None:
+        self.global_timestep = global_timestep
+
     def reset(self) -> List[MbagObs]:
         self.timestep = 0
 
@@ -186,6 +217,7 @@ class MbagEnv(object):
         ), "Wrong number of actions."
 
         reward: float = 0
+        own_rewards: List[float] = []
         infos: List[MbagInfoDict] = []
 
         for player_index, player_action_tuple in enumerate(action_tuples):
@@ -193,6 +225,7 @@ class MbagEnv(object):
                 player_index, player_action_tuple
             )
             reward += player_reward
+            own_rewards.append(player_reward)
             infos.append(player_info)
 
         self.timestep += 1
@@ -205,7 +238,9 @@ class MbagEnv(object):
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
         ]
-        rewards = [reward] * self.config["num_players"]
+        rewards = [
+            self._get_player_reward(reward, own_reward) for own_reward in own_rewards
+        ]
         dones = [self._done()] * self.config["num_players"]
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
@@ -298,6 +333,8 @@ class MbagEnv(object):
                 self.current_blocks[:],
                 self.goal_blocks[:],
             ).sum(),
+            "own_reward": reward,
+            "own_reward_prop": self._get_own_reward_prop(),
         }
 
         return reward, info
@@ -337,6 +374,19 @@ class MbagEnv(object):
             world_obs[3] = self.goal_blocks.block_states
 
         return (world_obs,)
+
+    def _get_own_reward_prop(self) -> float:
+        own_reward_prop = self.config["rewards"]["own_reward_prop"]
+        own_reward_prop_horizon = self.config["rewards"]["own_reward_prop_horizon"]
+        if own_reward_prop_horizon is not None:
+            own_reward_prop *= max(
+                1 - self.global_timestep / own_reward_prop_horizon, 0
+            )
+        return own_reward_prop
+
+    def _get_player_reward(self, reward: float, own_reward: float) -> float:
+        own_reward_prop = self._get_own_reward_prop()
+        return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
     def _update_state_from_malmo(self):
         malmo_state = self.malmo_client.get_observation(0)

@@ -1,7 +1,6 @@
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.torch_policy import TorchPolicy
-from mbag.environment.blocks import MinecraftBlocks
-from typing import List, Tuple, Type
+from typing import Dict, List, Tuple, Type, cast
 import gym
 import torch
 import numpy as np
@@ -9,8 +8,8 @@ from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import TensorType, TrainerConfigDict
 from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.utils.numpy import convert_to_numpy
 
-# TODO: update to newer RLlib interface
 from ray.rllib.agents.ppo.ppo_torch_policy import PPOTorchPolicy
 from ray.rllib.agents.ppo.appo_torch_policy import AsyncPPOTorchPolicy
 from ray.rllib.agents.impala.vtrace_torch_policy import VTraceTorchPolicy
@@ -133,8 +132,10 @@ def add_supervised_loss_to_policy(
 
             # We only care about place block actions at places where there are blocks in the
             # goal.
-            place_block_mask = (actions[:, 0] == MbagAction.PLACE_BLOCK) & (
-                place_block_ids != MinecraftBlocks.AIR
+            place_block_mask = (actions[:, 0] == MbagAction.PLACE_BLOCK) & ~torch.any(
+                place_block_ids[:, None]
+                == MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[None, :],
+                dim=1,
             )
             if torch.any(place_block_mask):
                 place_block_loss = place_block_loss[place_block_mask]
@@ -146,6 +147,19 @@ def add_supervised_loss_to_policy(
                 model.tower_stats["place_block_loss"] = place_block_loss
 
             return loss
+
+        def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
+            info = super().extra_grad_info(train_batch)
+            try:
+                info["place_block_loss"] = torch.mean(
+                    torch.stack(self.get_tower_stats("place_block_loss"))
+                )
+            except AssertionError:
+                pass
+            return cast(
+                Dict[str, TensorType],
+                convert_to_numpy(info),
+            )
 
     MbagPolicy.__name__ = "Mbag" + policy_class.__name__
     return MbagPolicy

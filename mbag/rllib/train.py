@@ -1,5 +1,6 @@
 from ray.rllib.policy.policy import PolicySpec
 from ray.tune.registry import get_trainable_cls
+from ray.rllib.evaluation import Episode, RolloutWorker
 from typing import Callable, List, Optional
 from typing_extensions import Literal
 from logging import Logger
@@ -44,6 +45,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         depth = 5
         noop_reward = 0
         place_wrong_reward = -1
+        goal_visibility = [True] * num_players
+        own_reward_prop = 0
+        own_reward_prop_horizon: Optional[int] = None
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
@@ -55,10 +59,16 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     "subset": goal_subset,
                 },
             ),
-            "goal_visibility": [True] * num_players,
+            "malmo": {
+                "use_malmo": False,
+                "player_names": None,
+            },
+            "goal_visibility": goal_visibility,
             "rewards": {
                 "noop": noop_reward,
                 "place_wrong": place_wrong_reward,
+                "own_reward_prop": own_reward_prop,
+                "own_reward_prop_horizon": own_reward_prop_horizon,
             },
         }
         env = MbagMultiAgentEnv(**environment_params)
@@ -93,6 +103,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         model: Literal[
             "convolutional", "recurrent_convolutional", "transformer"
         ] = "convolutional"
+        max_seq_len = horizon
         embedding_size = 8
         position_embedding_size = 8
         use_extra_features = True
@@ -105,9 +116,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         num_block_id_layers = 2
         num_heads = 4
         num_unet_layers = 0
+        unet_grow_factor = 2
         model_config = {
             "custom_model": f"mbag_{model}_model",
             "custom_action_dist": "mbag_autoregressive",
+            "max_seq_len": max_seq_len,
             "vf_share_layers": vf_share_layers,
         }
         if model in ["convolutional", "recurrent_convolutional"]:
@@ -121,6 +134,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "hidden_channels": hidden_channels,
                 "num_block_id_layers": num_block_id_layers,
                 "num_unet_layers": num_unet_layers,
+                "unet_grow_factor": unet_grow_factor,
             }
             model_config["custom_model_config"] = conv_config
         elif model == "transformer":
@@ -135,18 +149,30 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             model_config["custom_model_config"] = transformer_config
 
         # Multiagent
+        heuristic: Optional[str] = None
         multiagent_mode: Literal["self_play", "cross_play"] = "self_play"
         policy_ids: List[str]
-        policy_mapping_fn: Callable[[str], str]
+        policy_mapping_fn: Callable[[str, Episode, RolloutWorker], str]
         if multiagent_mode == "self_play":
             policy_ids = ["ppo"]
-            policy_mapping_fn = lambda agent_id: "ppo"  # noqa: E731
+            policy_mapping_fn = (
+                lambda agent_id, episode, worker, **kwargs: "ppo"
+            )  # noqa: E731
         elif multiagent_mode == "cross_play":
             policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
-            policy_mapping_fn = lambda agent_id: agent_id.replace(  # noqa: E731
-                "player_", "ppo_"
-            )
-        policies_to_train = policy_ids
+            if heuristic is not None:
+                policy_ids[0] = heuristic
+
+            def policy_mapping_fn(
+                agent_id: str, episode, worker, policy_ids=policy_ids, **kwargs
+            ):
+                agent_index = int(agent_id[len("player_") :])
+                return policy_ids[agent_index]
+
+        environment_params["malmo"]["player_names"] = policy_ids
+        policies_to_train = [
+            policy_id for policy_id in policy_ids if policy_id.startswith("ppo_")
+        ]
 
         # Logging
         save_freq = 25  # noqa: F841
@@ -154,6 +180,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         experiment_tag = None
         size_str = f"{width}x{height}x{depth}"
         experiment_name_parts = [run, multiagent_mode, size_str, goal_generator]
+        if heuristic is not None:
+            experiment_name_parts.append(heuristic)
         if experiment_tag is not None:
             experiment_name_parts.append(experiment_tag)
         experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
@@ -162,12 +190,22 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         policies: MultiAgentPolicyConfigDict = {}
         for policy_id in policy_ids:
-            policies[policy_id] = PolicySpec(
-                MBAG_POLICIES.get(run),
-                env.observation_space,
-                env.action_space,
-                {"model": model_config},
-            )
+            if policy_id.startswith("ppo"):
+                policies[policy_id] = PolicySpec(
+                    MBAG_POLICIES.get(run),
+                    env.observation_space,
+                    env.action_space,
+                    {"model": model_config},
+                )
+            else:
+                # Heuristic agent policy.
+                mbag_agent = ALL_HEURISTIC_AGENTS[policy_id]({}, environment_params)
+                policies[policy_id] = PolicySpec(
+                    MbagAgentPolicy,
+                    env.observation_space,
+                    env.action_space,
+                    {"mbag_agent": mbag_agent},
+                )
 
         config: TrainerConfigDict = {  # noqa: F841
             "env": "MBAG-v1",
@@ -220,7 +258,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             config["checkpoint_to_load_policies"] = checkpoint_to_load_policies
             if checkpoint_to_load_policies is None:
                 # Distill a heuristic policy.
-                heuristic = "layer_builder"
+                assert heuristic is not None
                 mbag_agent = ALL_HEURISTIC_AGENTS[heuristic]({}, environment_params)
                 config["multiagent"]["policies"][heuristic] = (
                     MbagAgentPolicy,
@@ -233,7 +271,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 ] = lambda policy_id, to_policy_id=policy_ids[0]: to_policy_id
                 config["multiagent"][
                     "policy_mapping_fn"
-                ] = lambda agent_id, to_policy_id=heuristic: to_policy_id
+                ] = (
+                    lambda agent_id, episode, worker, to_policy_id=heuristic, **kwargs: to_policy_id
+                )
             else:
                 checkpoint_to_load_policies_config = load_trainer_config(
                     checkpoint_to_load_policies

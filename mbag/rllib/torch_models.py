@@ -40,6 +40,7 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     """Number of extra layers for the block ID head."""
     num_unet_layers: int
     """Number of layers to include in a UNet3d, if any."""
+    unet_grow_factor: float
 
 
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
@@ -52,6 +53,7 @@ CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "hidden_channels": 32,
     "num_block_id_layers": 1,
     "num_unet_layers": 0,
+    "unet_grow_factor": 2.0,
 }
 
 
@@ -67,6 +69,7 @@ class UNet3d(nn.Module):
         out_channels: int,
         num_layers: int,
         fc_layer: nn.Module = nn.Identity(),
+        grow_factor: float = 2.0,
     ):
         """
         Expects inputs of shape
@@ -88,8 +91,9 @@ class UNet3d(nn.Module):
         for layer_index in range(self.num_layers):
             down_layer = nn.Sequential(
                 nn.Conv3d(
-                    in_channels=self.in_channels * (2**layer_index),
-                    out_channels=self.in_channels * 2 * (2**layer_index),
+                    in_channels=self.in_channels * int(grow_factor**layer_index),
+                    out_channels=self.in_channels
+                    * int(grow_factor ** (layer_index + 1)),
                     kernel_size=3,
                     stride=2,
                     padding=1,
@@ -101,8 +105,10 @@ class UNet3d(nn.Module):
 
             up_layer = nn.Sequential(
                 nn.ConvTranspose3d(
-                    in_channels=self.in_channels * 4 * (2**layer_index),
-                    out_channels=self.in_channels * (2**layer_index),
+                    in_channels=self.in_channels
+                    * 2
+                    * int(grow_factor ** (layer_index + 1)),
+                    out_channels=self.in_channels * int(grow_factor**layer_index),
                     kernel_size=3,
                     stride=2,
                     padding=1,
@@ -116,7 +122,7 @@ class UNet3d(nn.Module):
             layer_size = (layer_size + 1) // 2
 
         self.fc_layer_size = (
-            (layer_size**3) * self.in_channels * (2**self.num_layers)
+            (layer_size**3) * self.in_channels * int(grow_factor**self.num_layers)
         )
 
         # Final 1x1x1 convolution to get the right number of out channels.
@@ -187,6 +193,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.hidden_channels = extra_config["hidden_channels"]
         self.num_block_id_layers = extra_config["num_block_id_layers"]
         self.num_unet_layers = extra_config["num_unet_layers"]
+        self.unet_grow_factor = extra_config["unet_grow_factor"]
 
         self.in_planes = 1 if self.mask_goal else 2  # TODO: update if we add more
         self.in_channels = self.in_planes * self.embedding_size
@@ -259,6 +266,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 self.hidden_channels,
                 self.action_type_space.n + self.hidden_channels,
                 self.num_unet_layers,
+                grow_factor=self.unet_grow_factor,
             )
             backbone_layers.append(self.unet)
         else:

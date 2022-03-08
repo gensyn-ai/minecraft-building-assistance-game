@@ -88,7 +88,8 @@ def main(
     # Remove the action_dist_inputs view requirement since it results in massive
     # (multi-gigabyte) JSON rollout files.
     def remove_action_dist_inputs_view_requirement(policy: Policy, policy_id: PolicyID):
-        del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
+        if SampleBatch.ACTION_DIST_INPUTS in policy.view_requirements:
+            del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
 
     evaluation_workers.foreach_policy(remove_action_dist_inputs_view_requirement)
 
