@@ -42,6 +42,8 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     num_unet_layers: int
     """Number of layers to include in a UNet3d, if any."""
     unet_grow_factor: float
+    fake_state: bool
+    """Whether to add fake state to this model so that it's treated as recurrent."""
 
 
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
@@ -55,6 +57,7 @@ CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "num_block_id_layers": 1,
     "num_unet_layers": 0,
     "unet_grow_factor": 2.0,
+    "fake_state": False,
 }
 
 
@@ -197,6 +200,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.num_block_id_layers = extra_config["num_block_id_layers"]
         self.num_unet_layers = extra_config["num_unet_layers"]
         self.unet_grow_factor = extra_config["unet_grow_factor"]
+        self.fake_state: bool = extra_config["fake_state"]
 
         self.in_planes = 1 if self.mask_goal else 2  # TODO: update if we add more
         self.in_channels = self.in_planes * self.embedding_size
@@ -304,7 +308,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             backbone_out = self.action_backbone(self._embedded_obs)
             self._backbone_out_shape = backbone_out.size()[1:]
             self._logits = backbone_out.flatten(start_dim=1)
-        return self._logits, []
+        return self._logits, state
 
     @property
     def logits(self) -> torch.Tensor:
@@ -319,16 +323,23 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         else:
             return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
 
+    def get_initial_state(self):
+        if self.fake_state:
+            return [np.zeros(1)]
+        else:
+            return super().get_initial_state()
+
 
 ModelCatalog.register_custom_model("mbag_convolutional_model", MbagConvolutionalModel)
 
 
 class MbagRecurrentConvolutionalModelConfig(MbagConvolutionalModelConfig):
-    pass
+    num_value_layers: int
 
 
 RECURRENT_CONV_DEFAULT_CONFIG: MbagRecurrentConvolutionalModelConfig = {
     **CONV_DEFAULT_CONFIG,  # type: ignore
+    "num_value_layers": 1,
 }
 
 
@@ -381,8 +392,8 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
         nn.Module.__init__(self)
         super().__init__(obs_space, action_space, num_outputs, model_config, name)
 
-        extra_config = CONV_DEFAULT_CONFIG
-        extra_config.update(cast(MbagRecurrentConvolutionalModelConfig, kwargs))
+        extra_config = RECURRENT_CONV_DEFAULT_CONFIG
+        extra_config.update(kwargs)  # type: ignore
 
         self.conv_model = MbagConvolutionalModel(
             obs_space,
@@ -401,8 +412,23 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
         unet.set_fc_layer(self.rnn)
 
         if self.model_config["vf_share_layers"]:
+            value_layers: List[nn.Module] = []
+            hidden_channels = extra_config["hidden_channels"]
+            for layer_index in range(extra_config["num_value_layers"]):
+                value_layers.append(
+                    nn.Linear(
+                        self.rnn_hidden_dim if layer_index == 0 else hidden_channels,
+                        hidden_channels,
+                    )
+                )
+                value_layers.append(nn.LeakyReLU())
             self.value_head = nn.Sequential(
-                nn.Linear(self.rnn_hidden_dim, 1, bias=True),
+                *value_layers,
+                nn.Linear(
+                    self.rnn_hidden_dim if len(value_layers) == 0 else hidden_channels,
+                    1,
+                    bias=True,
+                ),
             )
         else:
             warnings.warn(

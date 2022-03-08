@@ -16,7 +16,10 @@ from ray.rllib.utils.typing import (
 from mbag.environment.goals import ALL_GOAL_GENERATORS
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
-from .torch_models import MbagConvolutionalModelConfig, MbagTransformerModelConfig
+from .torch_models import (
+    MbagRecurrentConvolutionalModelConfig,
+    MbagTransformerModelConfig,
+)
 from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
 from .training_utils import (
@@ -121,6 +124,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         num_heads = 4
         num_unet_layers = 0
         unet_grow_factor = 2
+        num_value_layers = 0
         model_config = {
             "custom_model": f"mbag_{model}_model",
             "custom_action_dist": "mbag_autoregressive",
@@ -128,7 +132,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "vf_share_layers": vf_share_layers,
         }
         if model in ["convolutional", "recurrent_convolutional"]:
-            conv_config: MbagConvolutionalModelConfig = {
+            conv_config: MbagRecurrentConvolutionalModelConfig = {
                 "embedding_size": embedding_size,
                 "use_extra_features": use_extra_features,
                 "mask_goal": mask_goal,
@@ -139,6 +143,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "num_block_id_layers": num_block_id_layers,
                 "num_unet_layers": num_unet_layers,
                 "unet_grow_factor": unet_grow_factor,
+                "num_value_layers": num_value_layers,
             }
             model_config["custom_model_config"] = conv_config
         elif model == "transformer":
@@ -311,6 +316,12 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     policies[policy_id] = checkpoint_to_load_policies_config[
                         "multiagent"
                     ]["policies"][policy_id]
+                    prev_model_config = policies[policy_id][3]["model"]
+                    if (
+                        prev_model_config.get("custom_model")
+                        == "mbag_convolutional_model"
+                    ):
+                        prev_model_config["custom_model_config"]["fake_state"] = True
                     distill_policy_id = f"{policy_id}_distilled"
                     policies[distill_policy_id] = (
                         MBAG_POLICIES.get(run),
