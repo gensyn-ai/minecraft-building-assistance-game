@@ -20,7 +20,7 @@ def test_movement():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"teleportation": False},
+            "abilities": {"teleportation": False, "flying": True},
         },
         [
             (
@@ -110,4 +110,4 @@ def test_movement_with_building_in_malmo():
         ],
     )
     reward = evaluator.rollout()
-    assert reward > 0
+    assert reward == 9

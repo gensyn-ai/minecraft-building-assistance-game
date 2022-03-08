@@ -36,7 +36,7 @@ class HardcodedBuilderAgent(MbagAgent):
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        COMMAND_LIST: list = [
+        COMMAND_LIST: List[MbagActionTuple] = [
             (MbagAction.MOVE_NEG_Y, 0, 0),
             (MbagAction.MOVE_POS_Y, 0, 0),
             (MbagAction.MOVE_NEG_X, 0, 0),

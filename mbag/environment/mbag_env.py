@@ -117,7 +117,7 @@ class MbagEnv(object):
 
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
-    player_locations: List[BlockLocation]
+    player_locations: List[WorldLocation]
     player_directions: List[FacingDirection]
     timestep: int
 
@@ -268,7 +268,11 @@ class MbagEnv(object):
                 print("Place block successful")
                 noop = False
                 if self.config["abilities"]["teleportation"]:
-                    self.player_locations[player_index] = tuple(place_break_result[0])
+                    self.player_locations[player_index] = (
+                        place_break_result[0][0],
+                        place_break_result[0][1],
+                        place_break_result[0][2],
+                    )
 
             if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                 player_location, click_location = place_break_result
