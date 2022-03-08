@@ -19,7 +19,11 @@ from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from .torch_models import MbagConvolutionalModelConfig, MbagTransformerModelConfig
 from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
-from .training_utils import build_logger_creator, load_trainer_config
+from .training_utils import (
+    build_logger_creator,
+    load_policies_from_checkpoint,
+    load_trainer_config,
+)
 from .policies import MBAG_POLICIES, MbagAgentPolicy
 from .distillation_prediction import DEFAULT_CONFIG as DISTILLATION_DEFAULT_CONFIG
 
@@ -148,6 +152,15 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             }
             model_config["custom_model_config"] = transformer_config
 
+        # Resume from checkpoint
+        checkpoint_path = None  # noqa: F841
+        checkpoint_to_load_policies = None
+
+        if checkpoint_to_load_policies is not None:
+            checkpoint_to_load_policies_config = load_trainer_config(
+                checkpoint_to_load_policies
+            )
+
         # Multiagent
         heuristic: Optional[str] = None
         multiagent_mode: Literal["self_play", "cross_play"] = "self_play"
@@ -170,27 +183,31 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 return policy_ids[agent_index]
 
         environment_params["malmo"]["player_names"] = policy_ids
-        policies_to_train = [
-            policy_id for policy_id in policy_ids if policy_id.startswith("ppo_")
-        ]
 
-        # Logging
-        save_freq = 25  # noqa: F841
-        log_dir = "data/logs"  # noqa: F841
-        experiment_tag = None
-        size_str = f"{width}x{height}x{depth}"
-        experiment_name_parts = [run, multiagent_mode, size_str, goal_generator]
-        if heuristic is not None:
-            experiment_name_parts.append(heuristic)
-        if experiment_tag is not None:
-            experiment_name_parts.append(experiment_tag)
-        experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
-        checkpoint_path = None  # noqa: F841
-        checkpoint_to_load_policies = None
+        loaded_policy_dict: MultiAgentPolicyConfigDict = {}
+        if multiagent_mode == "cross_play" and checkpoint_to_load_policies is not None:
+            # In the case where we want to train a policy via cross-play with an
+            # existing policy from a checkpoint. The loaded policy does not
+            # get trained.
+
+            loaded_policy_dict = checkpoint_to_load_policies_config["multiagent"][
+                "policies"
+            ]
+            loaded_policy_ids = list(loaded_policy_dict.keys())
+            assert len(loaded_policy_ids) == 1
+            (loaded_policy_id,) = loaded_policy_ids
+            policy_ids[0] = loaded_policy_id
+
+        policies_to_train = []
+        for policy_id in policy_ids:
+            if policy_id.startswith("ppo") and policy_id not in loaded_policy_dict:
+                policies_to_train.append(policy_id)
 
         policies: MultiAgentPolicyConfigDict = {}
         for policy_id in policy_ids:
-            if policy_id.startswith("ppo"):
+            if policy_id in loaded_policy_dict:
+                policies[policy_id] = loaded_policy_dict[policy_id]
+            elif policy_id.startswith("ppo"):
                 policies[policy_id] = PolicySpec(
                     MBAG_POLICIES.get(run),
                     env.observation_space,
@@ -206,6 +223,18 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     env.action_space,
                     {"mbag_agent": mbag_agent},
                 )
+
+        # Logging
+        save_freq = 25  # noqa: F841
+        log_dir = "data/logs"  # noqa: F841
+        experiment_tag = None
+        size_str = f"{width}x{height}x{depth}"
+        experiment_name_parts = [run, multiagent_mode, size_str, goal_generator]
+        if heuristic is not None:
+            experiment_name_parts.append(heuristic)
+        if experiment_tag is not None:
+            experiment_name_parts.append(experiment_tag)
+        experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
 
         config: TrainerConfigDict = {  # noqa: F841
             "env": "MBAG-v1",
@@ -275,9 +304,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     lambda agent_id, episode, worker, to_policy_id=heuristic, **kwargs: to_policy_id
                 )
             else:
-                checkpoint_to_load_policies_config = load_trainer_config(
-                    checkpoint_to_load_policies
-                )
                 # Add a corresponding distilled policy for each policy in the checkpoint.
                 previous_policy_ids = list(policies.keys())
                 policies_to_train.clear()
@@ -302,6 +328,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     del config[key]
 
         del env
+        del loaded_policy_dict
 
 
 make_mbag_sacred_config(ex)
@@ -316,6 +343,7 @@ def main(
     num_training_iters,
     save_freq,
     checkpoint_path: Optional[str],
+    checkpoint_to_load_policies: Optional[str],
     _log: Logger,
 ):
     ray.init(
@@ -331,6 +359,10 @@ def main(
             experiment_name,
         ),
     )
+
+    if checkpoint_to_load_policies is not None:
+        _log.info(f"Initializing policies from {checkpoint_to_load_policies}")
+        load_policies_from_checkpoint(checkpoint_to_load_policies, trainer)
 
     if checkpoint_path is not None:
         _log.info(f"Restoring checkpoint at {checkpoint_path}")
