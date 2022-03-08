@@ -1,7 +1,7 @@
 from ray.rllib.policy.policy import PolicySpec
 from ray.tune.registry import get_trainable_cls
 from ray.rllib.evaluation import Episode, RolloutWorker
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, cast
 from typing_extensions import Literal
 from logging import Logger
 import os
@@ -31,6 +31,7 @@ from .policies import MBAG_POLICIES, MbagAgentPolicy
 from .distillation_prediction import DEFAULT_CONFIG as DISTILLATION_DEFAULT_CONFIG
 
 from sacred import Experiment
+from sacred.config.custom_containers import DogmaticDict
 from sacred import SETTINGS as SACRED_SETTINGS
 
 ex = Experiment("train_mbag")
@@ -161,6 +162,12 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         checkpoint_path = None  # noqa: F841
         checkpoint_to_load_policies = None
 
+        # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
+        load_policies_mapping: Dict[str, str] = {}
+        # Weird shim for sacred
+        for key in cast(DogmaticDict, load_policies_mapping).revelation():
+            load_policies_mapping[key] = load_policies_mapping[key]
+
         if checkpoint_to_load_policies is not None:
             checkpoint_to_load_policies_config = load_trainer_config(
                 checkpoint_to_load_policies
@@ -190,18 +197,14 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         environment_params["malmo"]["player_names"] = policy_ids
 
         loaded_policy_dict: MultiAgentPolicyConfigDict = {}
-        if multiagent_mode == "cross_play" and checkpoint_to_load_policies is not None:
-            # In the case where we want to train a policy via cross-play with an
-            # existing policy from a checkpoint. The loaded policy does not
-            # get trained.
-
-            loaded_policy_dict = checkpoint_to_load_policies_config["multiagent"][
-                "policies"
-            ]
-            loaded_policy_ids = list(loaded_policy_dict.keys())
-            assert len(loaded_policy_ids) == 1
-            (loaded_policy_id,) = loaded_policy_ids
-            policy_ids[0] = loaded_policy_id
+        if checkpoint_to_load_policies is not None:
+            unmapped_loaded_policy_dict = checkpoint_to_load_policies_config[
+                "multiagent"
+            ]["policies"]
+            for old_policy_id, new_policy_id in load_policies_mapping.items():
+                loaded_policy_dict[new_policy_id] = unmapped_loaded_policy_dict[
+                    old_policy_id
+                ]
 
         policies_to_train = []
         for policy_id in policy_ids:
@@ -355,6 +358,7 @@ def main(
     save_freq,
     checkpoint_path: Optional[str],
     checkpoint_to_load_policies: Optional[str],
+    load_policies_mapping: Dict[str, str],
     _log: Logger,
 ):
     ray.init(
@@ -373,7 +377,11 @@ def main(
 
     if checkpoint_to_load_policies is not None:
         _log.info(f"Initializing policies from {checkpoint_to_load_policies}")
-        load_policies_from_checkpoint(checkpoint_to_load_policies, trainer)
+        load_policies_from_checkpoint(
+            checkpoint_to_load_policies,
+            trainer,
+            lambda policy_id: load_policies_mapping[policy_id],
+        )
 
     if checkpoint_path is not None:
         _log.info(f"Restoring checkpoint at {checkpoint_path}")
