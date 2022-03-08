@@ -56,6 +56,8 @@ class MalmoClient(object):
             player_name = env_config["malmo"]["player_names"][player_index]
         else:
             player_name = f"player_{player_index}"
+        # Player names cannot be longer than 16 character in Minecraft.
+        player_name = player_name[:16]
 
         return f"""
         <AgentSection mode="Creative">
