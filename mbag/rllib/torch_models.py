@@ -339,7 +339,7 @@ class MbagRecurrentConvolutionalModelConfig(MbagConvolutionalModelConfig):
 
 RECURRENT_CONV_DEFAULT_CONFIG: MbagRecurrentConvolutionalModelConfig = {
     **CONV_DEFAULT_CONFIG,  # type: ignore
-    "num_value_layers": 1,
+    "num_value_layers": 0,
 }
 
 
