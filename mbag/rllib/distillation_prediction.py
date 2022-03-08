@@ -43,7 +43,7 @@ from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
 from ray.rllib.policy.policy_template import build_policy_class
 from ray.rllib.policy.torch_policy import LearningRateSchedule, TorchPolicy
-from ray.rllib.utils.torch_ops import (
+from ray.rllib.utils.torch_utils import (
     apply_grad_clipping,
     sequence_mask,
 )
@@ -153,7 +153,7 @@ def distillation_loss(
 
     # TODO: is this still an issue?
     # train_batch.dont_check_lens = True
-    logits, state = model.from_batch(train_batch, is_training=True)
+    logits, state = model(train_batch)
     action_dist = dist_class(logits, model)
 
     # RNN case: Mask away 0-padded chunks at end of time axis.

@@ -123,7 +123,11 @@ def add_supervised_loss_to_policy(
                 ),
                 actions[:, 1],
             ]
-            logits, state = model.from_batch(train_batch, is_training=True)
+            if hasattr(model, "logits"):
+                # Don't recompute logits if we don't have to.
+                logits = model.logits  # type: ignore
+            else:
+                logits, state = model(train_batch)
             action_dist = dist_class(logits, model)
             place_block_loss = -action_dist._block_id_distribution(
                 actions[:, 0],

@@ -1,4 +1,5 @@
 from typing import Dict, List, Tuple, cast
+import warnings
 import torch
 import numpy as np
 from torch import nn
@@ -157,6 +158,8 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
     autoregressive action distribution.
     """
 
+    _logits: torch.Tensor
+
     def __init__(
         self,
         obs_space: spaces.Space,
@@ -296,11 +299,16 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         if self.vf_share_layers:
             self._backbone_out = self.backbone(self._embedded_obs)
             self._backbone_out_shape = self._backbone_out.size()[1:]
-            return self._backbone_out.flatten(start_dim=1), []
+            self._logits = self._backbone_out.flatten(start_dim=1)
         else:
             backbone_out = self.action_backbone(self._embedded_obs)
             self._backbone_out_shape = backbone_out.size()[1:]
-            return backbone_out.flatten(start_dim=1), []
+            self._logits = backbone_out.flatten(start_dim=1)
+        return self._logits, []
+
+    @property
+    def logits(self) -> torch.Tensor:
+        return self._logits
 
     def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
         return cast(torch.Tensor, self.block_id_head(head_input))
@@ -326,6 +334,8 @@ RECURRENT_CONV_DEFAULT_CONFIG: MbagRecurrentConvolutionalModelConfig = {
 
 class AddTimeDimRNN(nn.Module):
     _rnn_state: Tuple[torch.Tensor, torch.Tensor]
+    _outputs: torch.Tensor
+    _new_state: List[torch.Tensor]
 
     def __init__(self, rnn: nn.Module):
         super().__init__()
@@ -345,14 +355,20 @@ class AddTimeDimRNN(nn.Module):
             inputs,
             [self._rnn_state[0].unsqueeze(0), self._rnn_state[1].unsqueeze(0)],
         )
+        self._outputs = outputs.reshape(-1, *input_shape)
         self._new_state = [new_state[0].squeeze(0), new_state[1].squeeze(0)]
-        return cast(torch.Tensor, outputs.reshape(-1, *input_shape))
+        return self._outputs
+
+    def get_outputs(self) -> torch.Tensor:
+        return self._outputs
 
     def get_new_state(self):
         return self._new_state
 
 
 class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
+    _logits: torch.Tensor
+
     def __init__(
         self,
         obs_space: spaces.Space,
@@ -384,6 +400,15 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
         self.rnn = AddTimeDimRNN(self.lstm)
         unet.set_fc_layer(self.rnn)
 
+        if self.model_config["vf_share_layers"]:
+            self.value_head = nn.Sequential(
+                nn.Linear(self.rnn_hidden_dim, 1, bias=True),
+            )
+        else:
+            warnings.warn(
+                "without vf_share_layers, the value function will not be recurrent"
+            )
+
     def get_initial_state(self):
         # Place hidden states on same device as model.
         param = next(iter(self.lstm.parameters()))
@@ -394,7 +419,10 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
         return h
 
     def value_function(self):
-        return self.conv_model.value_function()
+        if self.model_config["vf_share_layers"]:
+            return self.value_head(self.rnn.get_outputs()).squeeze(1)
+        else:
+            return self.conv_model.value_function()
 
     def forward(
         self,
@@ -403,10 +431,14 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
         seq_lens: torch.Tensor,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         self.rnn.set_state_seq_lens(state, seq_lens)
-        logits, _ = self.conv_model.forward(input_dict, state, seq_lens)
+        self._logits, _ = self.conv_model.forward(input_dict, state, seq_lens)
         new_state = self.rnn.get_new_state()
 
-        return logits, new_state
+        return self._logits, new_state
+
+    @property
+    def logits(self) -> torch.Tensor:
+        return self._logits
 
     def block_id_model(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.conv_model.block_id_model(inputs)
