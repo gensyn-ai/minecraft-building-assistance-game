@@ -160,7 +160,9 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
-        self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
+        self.player_locations = [
+            (0.5, 2, 0.5) for _ in range(self.config["num_players"])
+        ]
 
         if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(self.config, self.goal_blocks)
@@ -331,16 +333,14 @@ class MbagEnv(object):
                     MbagAction.MOVE_POS_Z: [[0, 0, 1], "movesouth 1"],
                     MbagAction.MOVE_NEG_Z: [[0, 0, -1], "movenorth 1"],
                 }
-                new_player_location = [
-                    int(i)
-                    for i in list(
-                        map(
-                            add,
-                            action_mask[action.action_type][0],
-                            player_location_list,
-                        )
+                new_player_location = list(
+                    map(
+                        add,
+                        action_mask[action.action_type][0],
+                        player_location_list,
                     )
-                ]
+                )
+
                 print("Old", player_location_list)
                 print("Proposed", new_player_location)
                 if self._is_valid_player_space(tuple(new_player_location)):
@@ -380,11 +380,17 @@ class MbagEnv(object):
 
         return reward, info
 
-    def _is_valid_player_space(self, proposed_block):
+    def _is_valid_player_space(self, nearest_block):
+        proposed_block = [
+            int(np.floor(nearest_block[0])),
+            nearest_block[1],
+            int(np.floor(nearest_block[2])),
+        ]
+        # print(proposed_block)
         for i in range(3):
             if (
                 proposed_block[i] < 0
-                or proposed_block[i] > self.config["world_size"][i]
+                or proposed_block[i] >= self.config["world_size"][i]
             ):
                 return False
 

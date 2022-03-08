@@ -63,17 +63,19 @@ class HardcodedBuilderAgent(MbagAgent):
                 ),
                 MinecraftBlocks.NAME2ID["cobblestone"],
             ),
-            (MbagAction.MOVE_POS_Y, 0, 0),
             (
                 MbagAction.PLACE_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (0, 2, 1),
+                        (3, 2, 1),
                         self.env_config["world_size"],
                     )
                 ),
                 MinecraftBlocks.NAME2ID["cobblestone"],
             ),
+            (MbagAction.MOVE_POS_Y, 0, 0),
+            (MbagAction.MOVE_POS_Z, 0, 0),
+            (MbagAction.MOVE_POS_Z, 0, 0),
             (
                 MbagAction.PLACE_BLOCK,
                 int(
@@ -84,7 +86,6 @@ class HardcodedBuilderAgent(MbagAgent):
                 ),
                 MinecraftBlocks.NAME2ID["cobblestone"],
             ),
-            (MbagAction.MOVE_POS_Z, 0, 0),
             (
                 MbagAction.PLACE_BLOCK,
                 int(
@@ -95,7 +96,48 @@ class HardcodedBuilderAgent(MbagAgent):
                 ),
                 MinecraftBlocks.NAME2ID["cobblestone"],
             ),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (1, 2, 2),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
             (MbagAction.MOVE_POS_Z, 0, 0),
+            # (MbagAction.MOVE_NEG_Z, 0, 0),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (3, 2, 3),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (2, 2, 3),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
+            (
+                MbagAction.PLACE_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (1, 2, 3),
+                        self.env_config["world_size"],
+                    )
+                ),
+                MinecraftBlocks.NAME2ID["cobblestone"],
+            ),
         ]
         if self.current_command >= len(COMMAND_LIST):
             return (MbagAction.NOOP, 0, 0)

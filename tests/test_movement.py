@@ -63,7 +63,7 @@ def test_movement_in_malmo():
 def test_movement_with_building():
     evaluator = MbagEvaluator(
         {
-            "world_size": (5, 5, 5),
+            "world_size": (5, 6, 5),
             "num_players": 1,
             "horizon": 30,
             "goal_generator": (BasicGoalGenerator, {}),
@@ -83,14 +83,14 @@ def test_movement_with_building():
         ],
     )
     reward = evaluator.rollout()
-    assert reward > 100
+    assert reward == 9
 
 
 @pytest.mark.xfail(strict=False)
 def test_movement_with_building_in_malmo():
     evaluator = MbagEvaluator(
         {
-            "world_size": (5, 5, 5),
+            "world_size": (5, 6, 5),
             "num_players": 1,
             "horizon": 30,
             "goal_generator": (BasicGoalGenerator, {}),
