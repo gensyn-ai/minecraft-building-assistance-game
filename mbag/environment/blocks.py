@@ -383,7 +383,11 @@ class MinecraftBlocks(object):
 
         padded_blocks = np.pad(
             self.blocks,
-            pad_width=[(pad_x_neg, pad_x_pos), (pad_y_neg, pad_y_pos), (pad_z_neg, pad_z_pos)],
+            pad_width=[
+                (pad_x_neg, pad_x_pos),
+                (pad_y_neg, pad_y_pos),
+                (pad_z_neg, pad_z_pos),
+            ],
             mode="constant",
             constant_values=MinecraftBlocks.AIR,
         )
@@ -393,11 +397,13 @@ class MinecraftBlocks(object):
             np.unique(
                 np.delete(
                     padded_blocks[
-                    real_x - 1: real_x + 2,
-                    real_y - 1: real_y + 2,
-                    real_z - 1: real_z + 2
+                        real_x - 1 : real_x + 2,
+                        real_y - 1 : real_y + 2,
+                        real_z - 1 : real_z + 2,
                     ],
-                    obj=real_x * self.size[1] * self.size[2] + real_y * self.size[1] + real_z
+                    obj=real_x * self.size[1] * self.size[2]
+                    + real_y * self.size[1]
+                    + real_z,
                 ),
                 return_counts=True,
             )

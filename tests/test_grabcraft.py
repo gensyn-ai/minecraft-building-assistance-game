@@ -164,9 +164,7 @@ def test_generate_crop_json():
             structure.size[0] <= 8 and structure.size[1] <= 9 and structure.size[2] <= 8
         )
 
-    for fname in glob.glob(
-        os.path.join(data_dir, "hardcoded_crops", "*_crop.json")
-    ):
+    for fname in glob.glob(os.path.join(data_dir, "hardcoded_crops", "*_crop.json")):
         with open(fname) as f:
             structure_json = json.load(f)
 
