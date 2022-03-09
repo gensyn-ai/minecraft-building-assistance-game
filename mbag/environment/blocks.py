@@ -334,30 +334,47 @@ class MinecraftBlocks(object):
         space around coords
         """
         x, y, z = coords
+        assert x < self.size[0] and y < self.size[1] and z < self.size[2]
+
         initial_width, initial_height, initial_depth = self.blocks.shape
-        pad_x = max(0, x + 3 - initial_width)
-        pad_y = max(0, y + 3 - initial_height)
-        pad_z = max(0, z + 3 - initial_depth)
+        pad_x_pos = max(0, x + 2 - initial_width)
+        pad_y_pos = max(0, y + 2 - initial_height)
+        pad_z_pos = max(0, z + 2 - initial_depth)
+
+        pad_x_neg = max(0, 1 - x)
+        pad_y_neg = max(0, 1 - y)
+        pad_z_neg = max(0, 1 - z)
+
         padded_blocks = np.pad(
             self.blocks,
-            pad_width=[(0, pad_x), (0, pad_y), (0, pad_z)],
+            pad_width=[
+                (pad_x_neg, pad_x_pos),
+                (pad_y_neg, pad_y_pos),
+                (pad_z_neg, pad_z_pos),
+            ],
             mode="constant",
             constant_values=MinecraftBlocks.AIR,
         )
 
+        real_x, real_y, real_z = x + pad_x_neg, y + pad_y_neg, z + pad_z_neg
         frequencies = np.asarray(
             np.unique(
-                padded_blocks[x - 1 : x + 2, y - 1 : y + 2, z - 1 : z + 2],
+                np.delete(
+                    padded_blocks[
+                        real_x - 1 : real_x + 2,
+                        real_y - 1 : real_y + 2,
+                        real_z - 1 : real_z + 2,
+                    ],
+                    obj=real_x * self.size[1] * self.size[2]
+                    + real_y * self.size[1]
+                    + real_z,
+                ),
                 return_counts=True,
             )
         ).T
         frequencies = frequencies[np.argsort(frequencies[:, 1])]
 
-        # potential bug? frequencies is sometimes empty list
-        try:
-            return int(frequencies[-1][0])
-        except IndexError:
-            return 0
+        return int(frequencies[0][0])
 
     def fill_from_crop(
         self, initial_struct: "MinecraftBlocks", coords: Tuple[int, int, int]
