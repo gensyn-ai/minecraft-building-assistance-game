@@ -1,7 +1,7 @@
 from ray.rllib.policy.policy import PolicySpec
 from ray.tune.registry import get_trainable_cls
 from ray.rllib.evaluation import Episode, RolloutWorker
-from typing import Callable, Dict, List, Optional, cast
+from typing import Callable, Dict, List, Optional
 from typing_extensions import Literal
 from logging import Logger
 import os
@@ -164,9 +164,10 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
         load_policies_mapping: Dict[str, str] = {}
-        # Weird shim for sacred
-        for key in cast(DogmaticDict, load_policies_mapping).revelation():
-            load_policies_mapping[key] = load_policies_mapping[key]
+        if isinstance(load_policies_mapping, DogmaticDict):
+            # Weird shim for sacred
+            for key in load_policies_mapping.revelation():
+                load_policies_mapping[key] = load_policies_mapping[key]
 
         if checkpoint_to_load_policies is not None:
             checkpoint_to_load_policies_config = load_trainer_config(
@@ -316,6 +317,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 previous_policy_ids = list(policies.keys())
                 policies_to_train.clear()
                 for policy_id in previous_policy_ids:
+                    load_policies_mapping[policy_id] = policy_id
                     policies[policy_id] = checkpoint_to_load_policies_config[
                         "multiagent"
                     ]["policies"][policy_id]

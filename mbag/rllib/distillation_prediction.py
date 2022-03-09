@@ -40,7 +40,11 @@ from ray.rllib.utils.typing import (
 )
 from ray.util.iter import LocalIterator
 from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
-from ray.rllib.policy.torch_policy import LearningRateSchedule, TorchPolicy
+from ray.rllib.policy.torch_policy import (
+    LearningRateSchedule,
+    EntropyCoeffSchedule,
+    TorchPolicy,
+)
 from ray.rllib.utils.torch_utils import (
     apply_grad_clipping,
     sequence_mask,
@@ -81,6 +85,10 @@ DEFAULT_CONFIG = with_common_config(
         "lr_schedule": None,
         # If specified, clip the global norm of gradients by this amount.
         "grad_clip": None,
+        # Coefficient of the entropy regularizer.
+        "entropy_coeff": 0.0,
+        # Decay schedule for the entropy regularizer.
+        "entropy_coeff_schedule": None,
         # Whether to rollout "complete_episodes" or "truncate_episodes".
         "batch_mode": "truncate_episodes",
         # Which observation filter to apply to the observation.
@@ -109,7 +117,9 @@ def validate_config(config: TrainerConfigDict) -> None:
         raise ValueError("only PyTorch is supported")
 
 
-class DistillationPredictionPolicy(TorchPolicy, LearningRateSchedule):
+class DistillationPredictionPolicy(
+    TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule
+):
     # Cross-entropy during the first epoch of SGD. This is a more reliable metric
     # for prediction performance because the model has not yet been able to train on
     # the data.
@@ -128,6 +138,9 @@ class DistillationPredictionPolicy(TorchPolicy, LearningRateSchedule):
             max_seq_len=config["model"]["max_seq_len"],
         )
 
+        EntropyCoeffSchedule.__init__(
+            self, config["entropy_coeff"], config["entropy_coeff_schedule"]
+        )
         LearningRateSchedule.__init__(self, config["lr"], config["lr_schedule"])
 
         self._initial_cross_entropy = []
@@ -189,12 +202,18 @@ class DistillationPredictionPolicy(TorchPolicy, LearningRateSchedule):
         cross_entropy = -action_dist.logp(train_batch[SampleBatch.ACTIONS])
         mean_cross_entropy = reduce_mean_valid(cross_entropy)
 
-        total_loss = reduce_mean_valid(cross_entropy)
+        curr_entropy = action_dist.entropy()
+        mean_entropy = reduce_mean_valid(curr_entropy)
+
+        total_loss = reduce_mean_valid(
+            cross_entropy - self.entropy_coeff * curr_entropy
+        )
 
         # Store values for stats function in model (tower), such that for
         # multi-GPU, we do not override them during the parallel loss phase.
         model.tower_stats["total_loss"] = total_loss
         model.tower_stats["mean_cross_entropy"] = mean_cross_entropy
+        model.tower_stats["mean_entropy"] = mean_entropy
 
         batches_per_epoch: int = (
             self.config["train_batch_size"] // self.config["sgd_minibatch_size"]
@@ -219,6 +238,10 @@ class DistillationPredictionPolicy(TorchPolicy, LearningRateSchedule):
                     "cross_entropy": torch.mean(
                         torch.stack(self.get_tower_stats("mean_cross_entropy"))
                     ),
+                    "entropy": torch.mean(
+                        torch.stack(self.get_tower_stats("mean_entropy"))
+                    ),
+                    "entropy_coeff": self.entropy_coeff,
                 }
             ),
         )
@@ -230,6 +253,10 @@ class DistillationPredictionPolicy(TorchPolicy, LearningRateSchedule):
             for opt in self._optimizers:
                 for p in opt.param_groups:
                     p["lr"] = self.cur_lr
+        if self._entropy_coeff_schedule is not None:
+            self.entropy_coeff = self._entropy_coeff_schedule.value(
+                global_vars["timestep"]
+            )
 
 
 class MapExperiences:
