@@ -114,8 +114,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         max_seq_len = horizon
         embedding_size = 8
         position_embedding_size = 8
-        use_extra_features = True
         mask_goal = False
+        use_extra_features = not mask_goal
         num_conv_1_layers = 1
         num_layers = 1
         filter_size = 3
