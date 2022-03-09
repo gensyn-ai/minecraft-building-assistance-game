@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 class MalmoObservationDict(TypedDict, total=False):
     world: List[str]
     goal: List[str]
+    XPos: float
+    YPos: float
+    ZPos: float
 
 
 class MalmoClient(object):
@@ -66,6 +69,7 @@ class MalmoClient(object):
                     </Grid>
                 </ObservationFromGrid>
                 <ObservationFromFullInventory />
+                <ObservationFromFullStats />
                 <AbsoluteMovementCommands />
                 <DiscreteMovementCommands>
                     <ModifierList type="deny-list">
@@ -277,6 +281,7 @@ class MalmoClient(object):
         self._safe_wait_for_start(self.agent_hosts)
 
     def send_command(self, player_index: int, command: str):
+        logger.debug(f"player {player_index} command: {command}")
         self.agent_hosts[player_index].sendCommand(command)
 
     def get_observation(self, player_index: int) -> Optional[MalmoObservationDict]:

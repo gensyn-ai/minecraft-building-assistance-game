@@ -160,6 +160,7 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
+        # TODO: players can't be on top of each other at the beginning
         self.player_locations = [
             (0.5, 2, 0.5) for _ in range(self.config["num_players"])
         ]
@@ -179,6 +180,10 @@ class MbagEnv(object):
                     time.sleep(0.1)
                     self.malmo_client.send_command(player_index, "jump 0")
                     time.sleep(0.1)
+                self.malmo_client.send_command(
+                    player_index,
+                    "tp " + " ".join(map(str, self.player_locations[player_index])),
+                )
 
         return [
             self._get_player_obs(player_index)
@@ -349,29 +354,28 @@ class MbagEnv(object):
                 print("Proposed", new_player_location)
                 if self._is_valid_player_space(tuple(new_player_location)):
                     player_location_list = new_player_location
+
+                    self.player_locations[player_index] = (
+                        player_location_list[0],
+                        player_location_list[1],
+                        player_location_list[2],
+                    )
+
+                    # print(str(action_mask[action.action_type][1]))
+                    if self.config["malmo"]["use_malmo"]:
+                        if action_mask[action.action_type][1] != "tp":
+                            self.malmo_client.send_command(
+                                player_index, str(action_mask[action.action_type][1])
+                            )
+                        else:
+                            self.malmo_client.send_command(
+                                player_index,
+                                "tp " + " ".join(map(str, tuple(player_location_list))),
+                            )
                 else:
                     noop = True
 
                 print("New", player_location_list)
-                self.player_locations[player_index] = (
-                    player_location_list[0],
-                    player_location_list[1],
-                    player_location_list[2],
-                )
-
-                # print(str(action_mask[action.action_type][1]))
-                if self.config["malmo"]["use_malmo"]:
-                    if action_mask[action.action_type][1] != "tp":
-                        self.malmo_client.send_command(
-                            player_index, str(action_mask[action.action_type][1])
-                        )
-                    else:
-                        self.malmo_client.send_command(
-                            player_index,
-                            "tp " + " ".join(map(str, tuple(player_location_list))),
-                        )
-
-                    time.sleep(0.5)
         if noop:
             reward += self.config["rewards"]["noop"]
 
@@ -414,6 +418,9 @@ class MbagEnv(object):
                 == MinecraftBlocks.AIR
             ):
                 return False
+
+        # TODO: you should also check another player isn't currently in this
+        # position
 
         return True
 
@@ -492,7 +499,6 @@ class MbagEnv(object):
                 "from Malmo"
             )
 
-        # Make sure inventory is organized as expected.
         for player_index in range(self.config["num_players"]):
             malmo_player_state: Optional[MalmoObservationDict]
             if player_index == 0:
@@ -502,6 +508,7 @@ class MbagEnv(object):
             if malmo_player_state is None:
                 continue
 
+            # Make sure inventory is organized as expected.
             inventory_block_ids = [
                 MinecraftBlocks.NAME2ID[
                     malmo_player_state[f"InventorySlot_{slot}_item"]  # type: ignore
@@ -522,6 +529,26 @@ class MbagEnv(object):
                         player_index, f"swapInventoryItems {block_id} {swap_slot}"
                     )
                     time.sleep(0.1)
+
+            if not self.config["abilities"]["teleportation"]:
+                # Make sure position is as expected.
+                malmo_location = (
+                    malmo_player_state["XPos"],
+                    malmo_player_state["YPos"],
+                    malmo_player_state["ZPos"],
+                )
+                if any(
+                    abs(malmo_coord - stored_coord) > 1e-4
+                    for malmo_coord, stored_coord in zip(
+                        malmo_location, self.player_locations[player_index]
+                    )
+                ):
+                    logger.warning(
+                        f"location discrepancy for player {player_index}: "
+                        f"expected {self.player_locations[player_index]} but received "
+                        f"{malmo_location} from Malmo"
+                    )
+                    self.player_locations[player_index] = malmo_location
 
         self.current_blocks.blocks = malmo_blocks.blocks
 
