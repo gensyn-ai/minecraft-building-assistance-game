@@ -29,6 +29,17 @@ def test_air():
     assert blocks.block_to_nearest_neighbors((1, 1, 1)) == cobble
 
 
+def test_majority():
+    blocks = MinecraftBlocks((3, 3, 3))
+    dirt = MinecraftBlocks.NAME2ID["dirt"]
+    cobble = MinecraftBlocks.NAME2ID["cobblestone"]
+    blocks.blocks[:] = MinecraftBlocks.AIR
+    blocks.blocks[:, 0, :] = dirt
+    blocks.blocks[:, 2, :] = cobble
+    blocks.blocks[2, 1, 1] = cobble
+    assert blocks.block_to_nearest_neighbors((1, 1, 1)) == cobble
+
+
 def test_edges():
     blocks = MinecraftBlocks((3, 3, 3))
     dirt = MinecraftBlocks.NAME2ID["dirt"]
