@@ -63,7 +63,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "goal_generator": (
                 ALL_GOAL_GENERATORS[goal_generator],
                 {
-                    "data_dir": f"data/{goal_generator}",
                     "subset": goal_subset,
                 },
             ),
