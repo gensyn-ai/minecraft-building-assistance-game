@@ -408,9 +408,15 @@ class MinecraftBlocks(object):
                 return_counts=True,
             )
         ).T
-        frequencies = frequencies[np.argsort(frequencies[:, 1])]
 
-        return int(frequencies[0][0])
+        frequencies = frequencies[np.argsort(frequencies[:, 1])]
+        frequencies = frequencies[frequencies[:, 0] != 0]
+        frequencies = frequencies[frequencies[:, 0] != 28]
+
+        if len(frequencies) == 0:
+            return 0
+
+        return int(frequencies[-1][0])
 
     def fill_from_crop(
         self, initial_struct: "MinecraftBlocks", coords: Tuple[int, int, int]
