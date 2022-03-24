@@ -160,9 +160,14 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
-        # TODO: players can't be on top of each other at the beginning
+
         self.player_locations = [
-            (0.5, 2, 0.5) for _ in range(self.config["num_players"])
+            (
+                (i % self.config["world_size"][0]) + 0.5,
+                2,
+                int(i / self.config["world_size"][0]) + 0.5,
+            )
+            for i in range(self.config["num_players"])
         ]
 
         if self.config["malmo"]["use_malmo"]:
@@ -246,7 +251,7 @@ class MbagEnv(object):
 
         noop: bool = True
 
-        print(action_tuple)
+        # print(action_tuple)
 
         if action.action_type == MbagAction.NOOP:
             pass
@@ -254,8 +259,10 @@ class MbagEnv(object):
             prev_block = self.current_blocks[action.block_location]
             goal_block = self.goal_blocks[action.block_location]
 
-            # Try to place or break block.
-            if self.config["abilities"]["teleportation"]:
+            # Try to place or break a block
+            if self._collides_with_players(action.block_location, player_index):
+                place_break_result = None
+            elif self.config["abilities"]["teleportation"]:
                 place_break_result = self.current_blocks.try_break_place(
                     cast(Literal[1, 2], action.action_type),
                     action.block_location,
@@ -268,9 +275,10 @@ class MbagEnv(object):
                     action.block_id,
                     player_location=self.player_locations[player_index],
                 )
-            print("Tried placing ", action.block_location)
+
+            # print("Tried placing ", action.block_location)
             if place_break_result is not None:
-                print("Place block successful")
+                # print("Place block successful")
                 noop = False
                 if self.config["abilities"]["teleportation"]:
                     self.player_locations[player_index] = (
@@ -352,7 +360,9 @@ class MbagEnv(object):
 
                 print("Old", player_location_list)
                 print("Proposed", new_player_location)
-                if self._is_valid_player_space(tuple(new_player_location)):
+                if self._is_valid_player_space(
+                    tuple(new_player_location), player_index
+                ):
                     player_location_list = new_player_location
 
                     self.player_locations[player_index] = (
@@ -388,7 +398,7 @@ class MbagEnv(object):
 
         return reward, info
 
-    def _is_valid_player_space(self, nearest_block):
+    def _is_valid_player_space(self, nearest_block, player_index: int):
         proposed_block = [
             int(np.floor(nearest_block[0])),
             nearest_block[1],
@@ -419,10 +429,23 @@ class MbagEnv(object):
             ):
                 return False
 
-        # TODO: you should also check another player isn't currently in this
-        # position
+        return not self._collides_with_players(proposed_block, player_index)
 
-        return True
+    def _collides_with_players(self, proposed_block, player_id: int):
+        for i in range(len(self.player_locations)):
+
+            if i == player_id:
+                continue
+
+            player = self.player_locations[i]
+            if (
+                proposed_block[0] == player[0] - 0.5
+                and proposed_block[2] == player[2] - 0.5
+                and (proposed_block[1] in (player[1] - 1, player[1], player[1] + 1))
+            ):
+                return True
+
+        return False
 
     def _get_goal_similarity(
         self,
