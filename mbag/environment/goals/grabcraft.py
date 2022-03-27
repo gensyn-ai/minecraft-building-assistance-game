@@ -4,7 +4,6 @@ import json
 import random
 import logging
 import numpy as np
-import sys
 from typing import Dict, List, Optional, Tuple
 
 from typing_extensions import TypedDict, Literal

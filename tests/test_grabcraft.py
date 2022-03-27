@@ -213,6 +213,6 @@ def test_block_error():
     )
 
     while True:
-        structure = generator.generate_goal((8, 9, 8), save_crop=False)
+        generator.generate_goal((8, 9, 8), save_crop=False)
 
     assert True
