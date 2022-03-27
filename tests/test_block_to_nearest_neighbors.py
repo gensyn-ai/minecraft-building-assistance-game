@@ -2,6 +2,7 @@ import numpy as np
 import itertools
 
 from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.goals import RandomGoalGenerator
 
 
 def test_not_same():
@@ -38,6 +39,18 @@ def test_majority():
     blocks.blocks[:, 2, :] = cobble
     blocks.blocks[2, 1, 1] = cobble
     assert blocks.block_to_nearest_neighbors((1, 1, 1)) == cobble
+
+
+def test_large():
+    blocks = RandomGoalGenerator({}).generate_goal((10, 10, 10))
+    blocks.blocks[4:6, 4, 5] = MinecraftBlocks.AUTO
+    blocks.block_to_nearest_neighbors((4, 4, 5))
+
+
+def test_many_auto_blocks():
+    blocks = RandomGoalGenerator({}).generate_goal((10, 10, 10))
+    blocks.blocks[4:7, 4:7, 4:7] = MinecraftBlocks.AUTO
+    blocks.block_to_nearest_neighbors((5, 5, 5))
 
 
 def test_edges():
