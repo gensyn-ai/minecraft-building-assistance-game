@@ -103,28 +103,21 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
     def _get_structure_size(self, structure_json: StructureJson) -> WorldSize:
         max_x, max_y, max_z = 0, 0, 0
-        min_x, min_y, min_z = sys.maxsize, sys.maxsize, sys.maxsize
 
         for y_str, y_layer in structure_json.items():
             y = int(y_str)
             if y > max_y:
                 max_y = y
-            if y < min_y:
-                min_y = y
             for x_str, x_layer in y_layer.items():
                 x = int(x_str)
                 if x > max_x:
                     max_x = x
-                if x < min_x:
-                    min_x = x
                 for z_str, block in x_layer.items():
                     z = int(z_str)
                     if z > max_z:
                         max_z = z
-                    if z < min_z:
-                        min_z = z
 
-        return max_x - min_x + 1, max_y - min_y + 1, max_z - min_z + 1
+        return max_x + 1, max_y + 1, max_z + 1
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         success = False

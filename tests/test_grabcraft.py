@@ -200,3 +200,19 @@ def test_generate_crop_json():
 
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward > 0
+
+
+def test_block_error():
+    generator = CroppedGrabcraftGoalGenerator(
+        {
+            "data_dir": "data/grabcraft",
+            "subset": "train",
+            "force_single_cc": True,
+            "use_limited_block_set": True,
+        }
+    )
+
+    while True:
+        structure = generator.generate_goal((8, 9, 8), save_crop=False)
+
+    assert True

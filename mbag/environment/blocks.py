@@ -401,9 +401,7 @@ class MinecraftBlocks(object):
                         real_y - 1 : real_y + 2,
                         real_z - 1 : real_z + 2,
                     ],
-                    obj=real_x * self.size[1] * self.size[2]
-                    + real_y * self.size[1]
-                    + real_z,
+                    obj=13
                 ),
                 return_counts=True,
             )
