@@ -274,6 +274,8 @@ class MbagEnv(object):
                     action.block_location,
                     action.block_id,
                     player_location=self.player_locations[player_index],
+                    other_player_locations=self.player_locations[:player_index]
+                    + self.player_locations[player_index + 1 :],
                 )
 
             # print("Tried placing ", action.block_location)
