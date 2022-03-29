@@ -36,7 +36,7 @@ class HardcodedBuilderAgent(MbagAgent):
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        COMMAND_LIST: List[MbagActionTuple] = [
+        command_list: List[MbagActionTuple] = [
             (MbagAction.MOVE_NEG_Y, 0, 0),
             (MbagAction.MOVE_POS_Y, 0, 0),
             (MbagAction.MOVE_NEG_X, 0, 0),
@@ -139,10 +139,10 @@ class HardcodedBuilderAgent(MbagAgent):
                 MinecraftBlocks.NAME2ID["cobblestone"],
             ),
         ]
-        if self.current_command >= len(COMMAND_LIST):
+        if self.current_command >= len(command_list):
             return (MbagAction.NOOP, 0, 0)
 
-        action = COMMAND_LIST[self.current_command]
+        action = command_list[self.current_command]
         self.current_command += 1
         return action
 
