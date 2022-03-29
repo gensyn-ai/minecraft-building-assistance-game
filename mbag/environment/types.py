@@ -20,9 +20,14 @@ different information about the world. The channels are
  1: current block states
  2: goal blocks
  3: goal block states
- 4: player positions
+ 4: player locations
 """
 
+CURRENT_BLOCKS = 0
+CURRENT_BLOCK_STATES = 1
+GOAL_BLOCKS = 2
+GOAL_BLOCK_STATES = 3
+PLAYER_LOCATIONS = 4
 num_world_obs_channels = 5
 
 MbagObs = Tuple[MbagWorldObsArray]

@@ -44,6 +44,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         depth = 5
         noop_reward = 0
         place_wrong_reward = -1
+        teleportation = True
+        flying = True
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
@@ -59,6 +61,10 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "rewards": {
                 "noop": noop_reward,
                 "place_wrong": place_wrong_reward,
+            },
+            "abilities": {
+                "teleportation": teleportation,
+                "flying": flying,
             },
         }
         env = MbagMultiAgentEnv(**environment_params)
