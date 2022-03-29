@@ -1,7 +1,12 @@
 import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import MovementAgent, HardcodedBuilderAgent
+from mbag.agents.heuristic_agents import (
+    LayerBuilderAgent,
+    MovementAgent,
+    HardcodedBuilderAgent,
+    NoopAgent,
+)
 from mbag.environment.goals.simple import (
     BasicGoalGenerator,
 )
@@ -29,8 +34,8 @@ def test_movement():
             ),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 0
 
 
 @pytest.mark.xfail(strict=False)
@@ -56,8 +61,8 @@ def test_movement_in_malmo():
             ),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == -1
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == -1
 
 
 def test_movement_with_building():
@@ -82,8 +87,8 @@ def test_movement_with_building():
             )
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == 9
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 9
 
 
 @pytest.mark.xfail(strict=False)
@@ -109,5 +114,37 @@ def test_movement_with_building_in_malmo():
             ),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward == 9
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 9
+
+
+def test_obstructing_agents():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 5, 5),
+            "num_players": 10,
+            "horizon": 50,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True for _ in range(10)],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"flying": True, "teleportation": False},
+        },
+        [
+            (LayerBuilderAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward < 18

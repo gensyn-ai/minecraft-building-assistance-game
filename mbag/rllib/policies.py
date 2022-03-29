@@ -11,10 +11,10 @@ from ray.rllib.utils.typing import TensorType, TrainerConfigDict
 from ray.rllib.models.modelv2 import ModelV2, restore_original_dimensions
 
 # TODO: update to newer RLlib interface
-from ray.rllib.agents.ppo.ppo_torch_policy import (  # type: ignore
+from ray.rllib.agents.ppo.ppo_torch_policy import (
     PPOTorchPolicy,
-    ppo_surrogate_loss,
-    kl_and_loss_stats as ppo_stats,
+    # ppo_surrogate_loss,
+    # kl_and_loss_stats as ppo_stats,
 )
 from ray.rllib.agents.ppo.appo_torch_policy import (
     AsyncPPOTorchPolicy,
@@ -87,7 +87,7 @@ class MbagAgentPolicy(Policy):
             for action_part in range(3)
         )
         state_arrays = [
-            np.array([new_state[state_part] for new_state in new_states], dtype=float)
+            np.array([new_state[state_part] for new_state in new_states])
             for state_part in range(len(state_batches))
         ]
         return action_arrays, state_arrays, {}
@@ -103,7 +103,7 @@ class MbagAgentPolicy(Policy):
 
 
 def add_supervised_loss_to_policy(
-    PolicyClass: Type[TorchPolicy],
+    policy_class: Type[TorchPolicy],
     name: str,
     loss_fn: Callable[
         [Policy, ModelV2, Type[TorchDistributionWrapper], SampleBatch], TensorType
@@ -174,19 +174,20 @@ def add_supervised_loss_to_policy(
             stats["place_block_loss"] = policy._place_block_loss  # type: ignore
         return stats
 
-    return PolicyClass.with_updates(  # type: ignore
+    return policy_class.with_updates(  # type: ignore
         name=name,
         loss_fn=loss_with_supervision,
         stats_fn=supervision_stats,
     )
 
 
-MbagPPOTorchPolicy = add_supervised_loss_to_policy(
-    PPOTorchPolicy,
-    name="MbagPPOTorchPolicy",
-    loss_fn=ppo_surrogate_loss,
-    stats_fn=ppo_stats,
-)
+MbagPPOTorchPolicy = PPOTorchPolicy
+# add_supervised_loss_to_policy(
+#     PPOTorchPolicy,
+#     name="MbagPPOTorchPolicy",
+#     loss_fn=ppo_surrogate_loss,
+#     stats_fn=ppo_stats,
+# )
 
 MbagAPPOTorchPolicy = add_supervised_loss_to_policy(
     AsyncPPOTorchPolicy,

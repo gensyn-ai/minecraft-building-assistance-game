@@ -1,6 +1,7 @@
-from typing import List, Optional, TYPE_CHECKING, Sequence, Tuple, Type, cast
+from typing import List, Optional, TYPE_CHECKING, Tuple, Type, Union, Sequence, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
+import copy
 from gym import spaces
 import time
 import logging
@@ -9,6 +10,7 @@ from operator import add
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
+    MbagWorldObsArray,
     WorldLocation,
     MbagAction,
     MbagActionTuple,
@@ -18,6 +20,7 @@ from .types import (
     FacingDirection,
     num_world_obs_channels,
 )
+from .goals import ALL_GOAL_GENERATORS
 from .goals.goal_generator import GoalGenerator
 from .goals.simple import RandomGoalGenerator
 
@@ -76,7 +79,11 @@ class MbagConfigDict(TypedDict, total=False):
     horizon: int
     world_size: WorldSize
 
-    goal_generator: Tuple[Type[GoalGenerator], dict]
+    # TODO: deprecate tuple version of this
+    goal_generator: Union[
+        Tuple[Union[Type[GoalGenerator], str], dict], Type[GoalGenerator], str
+    ]
+    goal_generator_config: dict
 
     goal_visibility: List[bool]
     """
@@ -98,7 +105,8 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
     "horizon": 50,
     "world_size": (5, 5, 5),
-    "goal_generator": (RandomGoalGenerator, {}),
+    "goal_generator": RandomGoalGenerator,
+    "goal_generator_config": {},
     "goal_visibility": [True, False],
     "malmo": {
         "use_malmo": False,
@@ -114,7 +122,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
 
 
 class MbagEnv(object):
-
+    config: MbagConfigDict
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
     player_locations: List[WorldLocation]
@@ -122,7 +130,7 @@ class MbagEnv(object):
     timestep: int
 
     def __init__(self, config: MbagConfigDict):
-        self.config = DEFAULT_CONFIG
+        self.config = copy.deepcopy(DEFAULT_CONFIG)
         self.config.update(config)
         if isinstance(self.config["world_size"], list):
             self.config["world_size"] = tuple(self.config["world_size"])
@@ -144,8 +152,20 @@ class MbagEnv(object):
             )
         )
 
-        GoalGeneratorClass, goal_generator_config = self.config["goal_generator"]
-        self.goal_generator = GoalGeneratorClass(goal_generator_config)
+        if isinstance(self.config["goal_generator"], (tuple, list)):
+            goal_generator, goal_generator_config = self.config["goal_generator"]
+        else:
+            goal_generator = self.config["goal_generator"]
+            goal_generator_config = {}
+        goal_generator_config.update(self.config["goal_generator_config"])
+        if isinstance(goal_generator, str):
+            goal_generator_class = ALL_GOAL_GENERATORS[goal_generator]
+        else:
+            goal_generator_class = goal_generator
+        self.goal_generator = goal_generator_class(goal_generator_config)
+
+        if not self.config["abilities"]["flying"]:
+            raise NotImplementedError("lack of flying ability is not yet implemented")
 
         if self.config["malmo"]["use_malmo"]:
             from .malmo import MalmoClient
@@ -171,7 +191,9 @@ class MbagEnv(object):
         ]
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_client.start_mission(self.config, self.goal_blocks)
+            self.malmo_client.start_mission(
+                self.config, self.current_blocks, self.goal_blocks
+            )
             if self.config["malmo"]["use_spectator"]:
                 logger.warn("use_spectator is not yet implemented")
             if self.config["malmo"]["video_dir"] is not None:
@@ -232,7 +254,7 @@ class MbagEnv(object):
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
-        # Generate a goal with buffer of at least 1 on the sides and 2 on the bottom.
+        # Generate a goal with buffer of at least 1 on the sides and bottom.
         world_size = self.config["world_size"]
         small_goal = self.goal_generator.generate_goal(
             (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
@@ -251,8 +273,6 @@ class MbagEnv(object):
 
         noop: bool = True
 
-        # print(action_tuple)
-
         if action.action_type == MbagAction.NOOP:
             pass
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
@@ -260,23 +280,24 @@ class MbagEnv(object):
             goal_block = self.goal_blocks[action.block_location]
 
             # Try to place or break a block
-            if self._collides_with_players(action.block_location, player_index):
-                place_break_result = None
-            elif self.config["abilities"]["teleportation"]:
+            if self.config["abilities"]["teleportation"]:
                 place_break_result = self.current_blocks.try_break_place(
                     cast(Literal[1, 2], action.action_type),
                     action.block_location,
                     action.block_id,
                 )
             else:
-                place_break_result = self.current_blocks.try_break_place(
-                    cast(Literal[1, 2], action.action_type),
-                    action.block_location,
-                    action.block_id,
-                    player_location=self.player_locations[player_index],
-                    other_player_locations=self.player_locations[:player_index]
-                    + self.player_locations[player_index + 1 :],
-                )
+                if self._collides_with_players(action.block_location, player_index):
+                    place_break_result = None
+                else:
+                    place_break_result = self.current_blocks.try_break_place(
+                        cast(Literal[1, 2], action.action_type),
+                        action.block_location,
+                        action.block_id,
+                        player_location=self.player_locations[player_index],
+                        other_player_locations=self.player_locations[:player_index]
+                        + self.player_locations[player_index + 1 :],
+                    )
 
             # print("Tried placing ", action.block_location)
             if place_break_result is not None:
@@ -483,9 +504,32 @@ class MbagEnv(object):
             world_obs[2] = self.goal_blocks.blocks
             world_obs[3] = self.goal_blocks.block_states
 
-        player_position = self.player_locations[player_index]
+        # Add locations to the observation if the locations are actually meaningful
+        # (i.e., if players do not have teleportation abilities).
+        if not self.config["abilities"]["teleportation"]:
+            # Current player location is marked with 1 in the observation.
+            self._add_player_location_to_world_obs(
+                world_obs, self.player_locations[player_index], 1
+            )
+            # Now other player locations are marked starting with 2.
+            for other_player_index, other_player_location in enumerate(
+                self.player_locations[:player_index]
+                + self.player_locations[player_index + 1 :]
+            ):
+                self._add_player_location_to_world_obs(
+                    world_obs, other_player_location, other_player_index + 2
+                )
 
-        return (world_obs, player_position)
+        return (world_obs,)
+
+    def _add_player_location_to_world_obs(
+        self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
+    ):
+        x, y_feet, z = player_location
+        x, y_feet, z = int(x), int(y_feet), int(z)
+        for y in [y_feet, y_feet + 1]:
+            assert world_obs[4, x, y, z] == 0, "players are overlapping"
+            world_obs[4, x, y, z] = marker
 
     def _update_state_from_malmo(self):
         malmo_state = self.malmo_client.get_observation(0)

@@ -20,13 +20,13 @@ from .rllib_env import MbagMultiAgentEnv
 from .callbacks import MbagCallbacks
 from .training_utils import build_logger_creator, load_trainer_config
 from .policies import MBAG_POLICIES, MbagAgentPolicy
-from .distillation_prediction import DEFAULT_CONFIG as distillation_default_config
+from .distillation_prediction import DEFAULT_CONFIG as DISTILLATION_DEFAULT_CONFIG
 
 from sacred import Experiment
-from sacred import SETTINGS as sacred_settings
+from sacred import SETTINGS as SACRED_SETTINGS
 
 ex = Experiment("train_mbag")
-sacred_settings.CONFIG.READ_ONLY_CONFIG = False
+SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -258,7 +258,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 ] = lambda policy_id: f"{policy_id}_distilled"
             # Remove extra config parameters.
             for key in list(config.keys()):
-                if key not in distillation_default_config:
+                if key not in DISTILLATION_DEFAULT_CONFIG:
                     del config[key]
 
         del env
@@ -283,8 +283,8 @@ def main(
         include_dashboard=False,
     )
 
-    TrainerClass = get_trainable_cls(run)
-    trainer = TrainerClass(
+    trainer_class = get_trainable_cls(run)
+    trainer = trainer_class(
         config,
         logger_creator=build_logger_creator(
             log_dir,

@@ -1,4 +1,6 @@
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
+
+import cc3d
 from numpy.typing import NDArray
 import numpy as np
 import random
@@ -65,12 +67,16 @@ class MinecraftBlocks(object):
         "stonebrick",
         "wool",
     ]
+
     NAME2ID: Dict[str, int] = {
         **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
         # Alias names:
         "grass": 2,
+        "auto": 28,
     }
+
     AIR = NAME2ID["air"]
+    AUTO = NAME2ID["auto"]
     BEDROCK = NAME2ID["bedrock"]
     NUM_BLOCKS = len(ID2NAME)
 
@@ -109,7 +115,7 @@ class MinecraftBlocks(object):
     }
     SOLID_BLOCK_IDS = map_set_through_dict(SOLID_BLOCK_NAMES, NAME2ID)
 
-    def __init__(self, size: Tuple[int, int, int]):
+    def __init__(self, size: WorldSize):
         self.size = size
         self.blocks: NDArray[np.uint8] = np.zeros(self.size, np.uint8)
         self.block_states: NDArray[np.uint8] = np.zeros(self.size, np.uint8)
@@ -369,6 +375,98 @@ class MinecraftBlocks(object):
             cast(WorldLocation, tuple(click_location)),
         )
 
+    def density(self) -> float:
+        """
+        Returns percentage of blocks in volume not taken up by air
+        """
+        return float((self.blocks != MinecraftBlocks.AIR).astype(float).mean())
+
+    def block_to_nearest_neighbors(self, coords: Tuple[int, int, int]) -> int:
+        """
+        Returns a block that represents the majority of blocks in the 3x3x3
+        space around coords
+        """
+        x, y, z = coords
+        assert x < self.size[0] and y < self.size[1] and z < self.size[2]
+
+        initial_width, initial_height, initial_depth = self.blocks.shape
+        pad_x_pos = max(0, x + 2 - initial_width)
+        pad_y_pos = max(0, y + 2 - initial_height)
+        pad_z_pos = max(0, z + 2 - initial_depth)
+
+        pad_x_neg = max(0, 1 - x)
+        pad_y_neg = max(0, 1 - y)
+        pad_z_neg = max(0, 1 - z)
+
+        padded_blocks = np.pad(
+            self.blocks,
+            pad_width=[
+                (pad_x_neg, pad_x_pos),
+                (pad_y_neg, pad_y_pos),
+                (pad_z_neg, pad_z_pos),
+            ],
+            mode="constant",
+            constant_values=MinecraftBlocks.AIR,
+        )
+
+        real_x, real_y, real_z = x + pad_x_neg, y + pad_y_neg, z + pad_z_neg
+        frequencies = np.asarray(
+            np.unique(
+                np.delete(
+                    padded_blocks[
+                        real_x - 1 : real_x + 2,
+                        real_y - 1 : real_y + 2,
+                        real_z - 1 : real_z + 2,
+                    ],
+                    obj=real_x * self.size[1] * self.size[2]
+                    + real_y * self.size[1]
+                    + real_z,
+                ),
+                return_counts=True,
+            )
+        ).T
+        frequencies = frequencies[np.argsort(frequencies[:, 1])]
+
+        return int(frequencies[0][0])
+
+    def fill_from_crop(
+        self, initial_struct: "MinecraftBlocks", coords: Tuple[int, int, int]
+    ) -> None:
+        """
+        Crops section from initial_struct the size of the current structure.
+        Fills out-of-bounds areas with air.
+        """
+
+        x, y, z = coords
+        width, height, depth = self.blocks.shape
+        initial_width, initial_height, initial_depth = initial_struct.blocks.shape
+
+        pad_x = max(0, x + width - initial_width)
+        pad_y = max(0, y + height - initial_height)
+        pad_z = max(0, z + depth - initial_depth)
+        padded_blocks = np.pad(
+            initial_struct.blocks,
+            pad_width=[(0, pad_x), (0, pad_y), (0, pad_z)],
+            mode="constant",
+            constant_values=MinecraftBlocks.AIR,
+        )
+
+        self.blocks[:] = padded_blocks[
+            x : x + width,
+            y : y + height,
+            z : z + depth,
+        ]
+
+    def is_single_cc(self) -> bool:
+        structure_mask = self.blocks != MinecraftBlocks.AIR
+        structure_mask_ccs = cc3d.connected_components(structure_mask, connectivity=6)
+        ground_ccs: Set[int] = set(structure_mask_ccs[:, 0, :].reshape(-1).tolist())
+        if np.any(~structure_mask[:, 0, :]):
+            ground_ccs.remove(0)
+        return bool(
+            np.all(structure_mask == np.isin(structure_mask_ccs, list(ground_ccs)))
+        )
+
     @classmethod
     def from_malmo_grid(
         cls, size: WorldSize, block_names: List[str]
@@ -377,5 +475,5 @@ class MinecraftBlocks(object):
         # logger.info(block_names[:800])
         block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
         blocks = MinecraftBlocks(size)
-        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
+        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids
         return blocks

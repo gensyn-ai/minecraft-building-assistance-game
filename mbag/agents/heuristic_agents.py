@@ -3,9 +3,9 @@ A collection of agents following simple heuristics.
 """
 
 from typing import Dict, List, Tuple, Type
-from queue import PriorityQueue
 import numpy as np
 import random
+import heapq
 
 from ..environment.types import (
     BlockLocation,
@@ -181,7 +181,7 @@ class LayerBuilderAgent(MbagAgent):
         self.current_layer = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        (world_obs, _) = obs
+        (world_obs,) = obs
 
         # Check if current layer is done.
         while self.current_layer < self.env_config["world_size"][1] and np.all(
@@ -218,7 +218,7 @@ class LayerBuilderAgent(MbagAgent):
                 action_type = MbagAction.BREAK_BLOCK
                 block_id = 0
 
-            return action_type, block_location_id, block_id
+            return action_type, block_location_id, int(block_id)
 
     def get_state(self) -> List[np.ndarray]:
         return [np.array([self.current_layer])]
@@ -235,40 +235,38 @@ class PriorityQueueAgent(MbagAgent):
     """
 
     seeding: bool  # Whether blocks have been placed yet
-    blockFrontier: PriorityQueue  # PQ to store blocks and their layers
+    block_frontier: list  # PQ to store blocks and their layers
 
     def reset(self):
-        self.blockFrontier = PriorityQueue()
+        self.block_frontier = []
         self.seeding = False
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        (world_obs, _) = obs
+        (world_obs,) = obs
 
-        # Check if we need to seed the PQ with a random initial block from the base layer
+        # Check if we need to seed the PQ with all placeable blocks from the initial goal state
         if not self.seeding:
             self.seeding = True
 
-            layer = 0
-            while layer < self.env_config["world_size"][1] and np.all(
-                world_obs[:2, :, layer] == world_obs[2:4, :, layer]
-            ):
-                layer += 1
+            for layer in range(3):
+                goal_blocks = world_obs[2, :, layer, :]
+                layer_blocks = world_obs[0, :, layer, :]
+                for layer_block_location in np.argwhere(layer_blocks != goal_blocks):
+                    heapq.heappush(
+                        self.block_frontier, (layer, tuple(layer_block_location))
+                    )
 
-            goal_blocks = world_obs[2, :, layer, :]
-            layer_blocks = world_obs[0, :, layer, :]
-            layer_block_location: Tuple[int, int] = tuple(
-                random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
-            )
-            self.blockFrontier.put((0, layer_block_location))
-
-        print(self.blockFrontier)
         action_type: MbagActionType
-        if self.blockFrontier.empty():
+        # If there is nothing in the priority queue, run a noop
+        if len(self.block_frontier) == 0:
             action_type = MbagAction.NOOP
             return action_type, 0, 0
         else:
-            layer, location = self.blockFrontier.get()
 
+            # Pop the lowest block location off of the priority queue
+            layer, location = heapq.heappop(self.block_frontier)
+
+            # Iterate over blocks adjacent to the current block
             axes = [(0, 0, 1), (0, 0, -1), (0, 1, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0)]
             for direction in axes:
                 x = location[0] + direction[0]
@@ -285,14 +283,22 @@ class PriorityQueueAgent(MbagAgent):
                 ):
                     continue
 
+                # Add the block location to the queue if
+                # Either the goal block is different from the actual block
+                # Or the world block is not air (means we need to explore it further)
                 goal_block = world_obs[2, x, y, z]
                 actual_block = world_obs[0, x, y, z]
-                if (
-                    goal_block != actual_block
-                    and not (y, (x, z)) in self.blockFrontier.queue
-                ):
-                    self.blockFrontier.put((y, (x, z)))
+                if (goal_block != actual_block) and not (
+                    y,
+                    (x, z),
+                ) in self.block_frontier:
+                    heapq.heappush(self.block_frontier, (y, (x, z)))
 
+            # Decide if we are making a change or simply exploring the terrain
+            # if (world_obs[0, location[0], layer, location[1]] == world_obs[2, location[0], layer, location[1]]):
+            #     action_type = MbagAction.NOOP
+            #     block_id = 0
+            # Decide whether a block needs to be placed or removed
             if world_obs[0, location[0], layer, location[1]] == MinecraftBlocks.AIR:
                 action_type = MbagAction.PLACE_BLOCK
                 block_id = world_obs[2, location[0], layer, location[1]]
@@ -300,6 +306,14 @@ class PriorityQueueAgent(MbagAgent):
                 action_type = MbagAction.BREAK_BLOCK
                 block_id = 0
 
+                # If the goal block is not air, we need to process it again in the heap
+                if (
+                    not world_obs[2, location[0], layer, location[1]]
+                    == MinecraftBlocks.AIR
+                ):
+                    heapq.heappush(self.block_frontier, (layer, location))
+
+            # Encode and return action
             block_location: BlockLocation = (
                 location[0],
                 layer,
@@ -309,14 +323,14 @@ class PriorityQueueAgent(MbagAgent):
                 np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
 
-            return action_type, block_location_id, block_id
+            return action_type, block_location_id, int(block_id)
 
     def get_state(self) -> List[np.ndarray]:
-        return [np.array([self.seeding]), np.array([self.blockFrontier])]
+        return [np.array([self.seeding, self.block_frontier], dtype=object)]
 
     def set_state(self, state: List[np.ndarray]) -> None:
         self.seeding = bool(state[0][0])
-        self.blockFrontier = state[1][0]
+        self.block_frontier = list(map(tuple, state[0][1]))
 
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {

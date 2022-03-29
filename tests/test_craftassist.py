@@ -1,7 +1,7 @@
 import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import LayerBuilderAgent
+from mbag.agents.heuristic_agents import PriorityQueueAgent
 from mbag.environment.goals import CraftAssistGoalGenerator
 
 
@@ -27,13 +27,13 @@ def test_goal_generator():
         },
         [
             (
-                LayerBuilderAgent,
+                PriorityQueueAgent,
                 {},
             )
         ],
     )
-    reward = evaluator.rollout()
-    assert reward > 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
 
 
 @pytest.mark.xfail(strict=False)
@@ -59,10 +59,10 @@ def test_goal_generator_in_malmo():
         },
         [
             (
-                LayerBuilderAgent,
+                PriorityQueueAgent,
                 {},
             ),
         ],
     )
-    reward = evaluator.rollout()
-    assert reward > 0
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
