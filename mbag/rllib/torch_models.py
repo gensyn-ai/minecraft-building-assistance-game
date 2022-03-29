@@ -11,6 +11,7 @@ from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 
 from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, PLAYER_LOCATIONS
 
 
 class MbagModel(ABC, TorchModelV2):
@@ -202,13 +203,20 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.unet_grow_factor = extra_config["unet_grow_factor"]
         self.fake_state: bool = extra_config["fake_state"]
 
-        self.in_planes = 1 if self.mask_goal else 2  # TODO: update if we add more
+        # We have in-planes for current blocks, player locations, and
+        # goal blocks if mask_goal is False.
+        self.in_planes = 2 if self.mask_goal else 3  # TODO: update if we add more
         self.in_channels = self.in_planes * self.embedding_size
         if self.use_extra_features:
             self.in_channels += 1
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
+            embedding_dim=self.embedding_size,
+        )
+        self.player_id_embedding = nn.Embedding(
+            # Assume there are no more than 16 players, could be an issue down the line?
+            num_embeddings=16,
             embedding_dim=self.embedding_size,
         )
 
@@ -285,11 +293,17 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
 
         # TODO: embed other block info?
         self._world_obs = self._world_obs.long()
-        embedded_blocks = self.block_id_embedding(self._world_obs[:, 0])
+        embedded_blocks = self.block_id_embedding(self._world_obs[:, CURRENT_BLOCKS])
         embedded_obs_pieces = [embedded_blocks]
         if not self.mask_goal:
-            embedded_goal_blocks = self.block_id_embedding(self._world_obs[:, 2])
+            embedded_goal_blocks = self.block_id_embedding(
+                self._world_obs[:, GOAL_BLOCKS]
+            )
             embedded_obs_pieces.append(embedded_goal_blocks)
+        embedded_player_locations = self.player_id_embedding(
+            self._world_obs[:, PLAYER_LOCATIONS]
+        )
+        embedded_obs_pieces.append(embedded_player_locations)
         if self.use_extra_features:
             # Feature for if goal block is the same as the current block at each
             # location.

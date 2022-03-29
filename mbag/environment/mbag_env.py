@@ -5,15 +5,19 @@ from gym import spaces
 import time
 import copy
 import logging
+from operator import add
 
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
+    MbagWorldObsArray,
+    WorldLocation,
     MbagAction,
     MbagActionTuple,
     MbagInfoDict,
     MbagObs,
     WorldSize,
+    FacingDirection,
     num_world_obs_channels,
 )
 from .goals import ALL_GOAL_GENERATORS
@@ -76,6 +80,18 @@ class RewardsConfigDict(TypedDict):
     """
 
 
+class AbilitiesConfigDict(TypedDict):
+    teleportation: bool
+    """
+    Whether the agent can teleport or must move block by block
+    """
+
+    flying: bool
+    """
+    Whether the agent can fly or if the agent must be standing on a block at all times
+    """
+
+
 class MbagConfigDict(TypedDict, total=False):
     num_players: int
     horizon: int
@@ -99,6 +115,9 @@ class MbagConfigDict(TypedDict, total=False):
     rewards: RewardsConfigDict
     """Configuration options for environment reward."""
 
+    abilities: AbilitiesConfigDict
+    """Configuration for limits placed on the agent (flying, teleportation, inventory, etc...) """
+
 
 DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
@@ -119,6 +138,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "own_reward_prop": 0,
         "own_reward_prop_horizon": None,
     },
+    "abilities": {"teleportation": True, "flying": True},
 }
 
 
@@ -126,6 +146,8 @@ class MbagEnv(object):
     config: MbagConfigDict
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
+    player_locations: List[WorldLocation]
+    player_directions: List[FacingDirection]
     timestep: int
     global_timestep: int
 
@@ -148,6 +170,8 @@ class MbagEnv(object):
         self.observation_space = spaces.Tuple(
             (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
         )
+        self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
+        self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
         # more details.
@@ -171,6 +195,9 @@ class MbagEnv(object):
             goal_generator_class = goal_generator
         self.goal_generator = goal_generator_class(goal_generator_config)
 
+        if not self.config["abilities"]["flying"]:
+            raise NotImplementedError("lack of flying ability is not yet implemented")
+
         if self.config["malmo"]["use_malmo"]:
             from .malmo import MalmoClient
 
@@ -190,6 +217,15 @@ class MbagEnv(object):
 
         self.goal_blocks = self._generate_goal()
 
+        self.player_locations = [
+            (
+                (i % self.config["world_size"][0]) + 0.5,
+                2,
+                int(i / self.config["world_size"][0]) + 0.5,
+            )
+            for i in range(self.config["num_players"])
+        ]
+
         if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(
                 self.config, self.current_blocks, self.goal_blocks
@@ -203,6 +239,10 @@ class MbagEnv(object):
                     time.sleep(0.1)
                     self.malmo_client.send_command(player_index, "jump 0")
                     time.sleep(0.1)
+                self.malmo_client.send_command(
+                    player_index,
+                    "tp " + " ".join(map(str, self.player_locations[player_index])),
+                )
 
         return [
             self._get_player_obs(player_index)
@@ -276,22 +316,44 @@ class MbagEnv(object):
             prev_block = self.current_blocks[action.block_location]
             goal_block = self.goal_blocks[action.block_location]
 
-            # Try to place or break block.
-            place_break_result = self.current_blocks.try_break_place(
-                cast(Literal[1, 2], action.action_type),
-                action.block_location,
-                action.block_id,
-            )
+            # Try to place or break a block
+            if self.config["abilities"]["teleportation"]:
+                place_break_result = self.current_blocks.try_break_place(
+                    cast(Literal[1, 2], action.action_type),
+                    action.block_location,
+                    action.block_id,
+                )
+            else:
+                if self._collides_with_players(action.block_location, player_index):
+                    place_break_result = None
+                else:
+                    place_break_result = self.current_blocks.try_break_place(
+                        cast(Literal[1, 2], action.action_type),
+                        action.block_location,
+                        action.block_id,
+                        player_location=self.player_locations[player_index],
+                        other_player_locations=self.player_locations[:player_index]
+                        + self.player_locations[player_index + 1 :],
+                    )
 
             if place_break_result is not None:
                 noop = False
+                if self.config["abilities"]["teleportation"]:
+                    self.player_locations[player_index] = (
+                        place_break_result[0][0],
+                        place_break_result[0][1],
+                        place_break_result[0][2],
+                    )
 
             if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                 player_location, click_location = place_break_result
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, player_location)),
-                )
+
+                if self.config["abilities"]["teleportation"]:
+                    self.malmo_client.send_command(
+                        player_index,
+                        "tp " + " ".join(map(str, player_location)),
+                    )
+
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
@@ -300,6 +362,7 @@ class MbagEnv(object):
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
                 self.malmo_client.send_command(player_index, f"setPitch {pitch}")
+                self.player_directions[player_index] = (yaw, pitch)
 
                 if action.action_type == MbagAction.PLACE_BLOCK:
                     self.malmo_client.send_command(
@@ -324,7 +387,58 @@ class MbagEnv(object):
                 new_block, goal_block, partial_credit=True
             )
             reward = new_goal_similarity - prev_goal_similarity
+        elif action.action_type in [
+            MbagAction.MOVE_POS_X,
+            MbagAction.MOVE_NEG_X,
+            MbagAction.MOVE_POS_Y,
+            MbagAction.MOVE_NEG_Y,
+            MbagAction.MOVE_POS_Z,
+            MbagAction.MOVE_NEG_Z,
+        ]:
+            if not self.config["abilities"]["teleportation"]:
+                noop = False
 
+                player_location_list = list(self.player_locations[player_index])
+
+                action_mask = {
+                    MbagAction.MOVE_POS_X: [[1, 0, 0], "moveeast 1"],
+                    MbagAction.MOVE_NEG_X: [[-1, 0, 0], "movewest 1"],
+                    MbagAction.MOVE_POS_Y: [[0, 1, 0], "tp"],
+                    MbagAction.MOVE_NEG_Y: [[0, -1, 0], "tp"],
+                    MbagAction.MOVE_POS_Z: [[0, 0, 1], "movesouth 1"],
+                    MbagAction.MOVE_NEG_Z: [[0, 0, -1], "movenorth 1"],
+                }
+                new_player_location = list(
+                    map(
+                        add,
+                        action_mask[action.action_type][0],
+                        player_location_list,
+                    )
+                )
+
+                if self._is_valid_player_space(
+                    tuple(new_player_location), player_index
+                ):
+                    player_location_list = new_player_location
+
+                    self.player_locations[player_index] = (
+                        player_location_list[0],
+                        player_location_list[1],
+                        player_location_list[2],
+                    )
+
+                    if self.config["malmo"]["use_malmo"]:
+                        if action_mask[action.action_type][1] != "tp":
+                            self.malmo_client.send_command(
+                                player_index, str(action_mask[action.action_type][1])
+                            )
+                        else:
+                            self.malmo_client.send_command(
+                                player_index,
+                                "tp " + " ".join(map(str, tuple(player_location_list))),
+                            )
+                else:
+                    noop = True
         if noop:
             reward += self.config["rewards"]["noop"]
 
@@ -338,6 +452,54 @@ class MbagEnv(object):
         }
 
         return reward, info
+
+    def _is_valid_player_space(self, nearest_block, player_index: int):
+        proposed_block = [
+            int(np.floor(nearest_block[0])),
+            nearest_block[1],
+            int(np.floor(nearest_block[2])),
+        ]
+        for i in range(3):
+            if (
+                proposed_block[i] < 0
+                or proposed_block[i] >= self.config["world_size"][i]
+            ):
+                return False
+
+        if (
+            not self.current_blocks.blocks[
+                proposed_block[0], proposed_block[1], proposed_block[2]
+            ]
+            == MinecraftBlocks.AIR
+        ):
+            return False
+
+        if proposed_block[1] < self.config["world_size"][1] - 1:
+            if (
+                not self.current_blocks.blocks[
+                    proposed_block[0], proposed_block[1] + 1, proposed_block[2]
+                ]
+                == MinecraftBlocks.AIR
+            ):
+                return False
+
+        return not self._collides_with_players(proposed_block, player_index)
+
+    def _collides_with_players(self, proposed_block, player_id: int):
+        for i in range(len(self.player_locations)):
+
+            if i == player_id:
+                continue
+
+            player = self.player_locations[i]
+            if (
+                proposed_block[0] == player[0] - 0.5
+                and proposed_block[2] == player[2] - 0.5
+                and (proposed_block[1] in (player[1] - 1, player[1], player[1] + 1))
+            ):
+                return True
+
+        return False
 
     def _get_goal_similarity(
         self,
@@ -373,7 +535,36 @@ class MbagEnv(object):
             world_obs[2] = self.goal_blocks.blocks
             world_obs[3] = self.goal_blocks.block_states
 
+        # Add locations to the observation if the locations are actually meaningful
+        # (i.e., if players do not have teleportation abilities).
+        if not self.config["abilities"]["teleportation"]:
+            # Current player location is marked with 1 in the observation.
+            self._add_player_location_to_world_obs(
+                world_obs, self.player_locations[player_index], 1
+            )
+            # Now other player locations are marked starting with 2.
+            for other_player_index, other_player_location in enumerate(
+                self.player_locations[:player_index]
+                + self.player_locations[player_index + 1 :]
+            ):
+                self._add_player_location_to_world_obs(
+                    world_obs, other_player_location, other_player_index + 2
+                )
+
         return (world_obs,)
+
+    def _add_player_location_to_world_obs(
+        self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
+    ):
+        x, y_feet, z = player_location
+        x, y_feet, z = int(x), int(y_feet), int(z)
+        for y in (
+            [y_feet, y_feet + 1]
+            if y_feet + 1 < self.config["world_size"][1]
+            else [y_feet]
+        ):
+            assert world_obs[4, x, y, z] == 0, "players are overlapping"
+            world_obs[4, x, y, z] = marker
 
     def _get_own_reward_prop(self) -> float:
         own_reward_prop = self.config["rewards"]["own_reward_prop"]
@@ -425,7 +616,6 @@ class MbagEnv(object):
                 "from Malmo"
             )
 
-        # Make sure inventory is organized as expected.
         for player_index in range(self.config["num_players"]):
             malmo_player_state: Optional[MalmoObservationDict]
             if player_index == 0:
@@ -435,6 +625,7 @@ class MbagEnv(object):
             if malmo_player_state is None:
                 continue
 
+            # Make sure inventory is organized as expected.
             inventory_block_ids = [
                 MinecraftBlocks.NAME2ID[
                     malmo_player_state[f"InventorySlot_{slot}_item"]  # type: ignore
@@ -455,6 +646,26 @@ class MbagEnv(object):
                         player_index, f"swapInventoryItems {block_id} {swap_slot}"
                     )
                     time.sleep(0.1)
+
+            if not self.config["abilities"]["teleportation"]:
+                # Make sure position is as expected.
+                malmo_location = (
+                    malmo_player_state["XPos"],
+                    malmo_player_state["YPos"],
+                    malmo_player_state["ZPos"],
+                )
+                if any(
+                    abs(malmo_coord - stored_coord) > 1e-4
+                    for malmo_coord, stored_coord in zip(
+                        malmo_location, self.player_locations[player_index]
+                    )
+                ):
+                    logger.warning(
+                        f"location discrepancy for player {player_index}: "
+                        f"expected {self.player_locations[player_index]} but received "
+                        f"{malmo_location} from Malmo"
+                    )
+                    self.player_locations[player_index] = malmo_location
 
         self.current_blocks.blocks = malmo_blocks.blocks
 

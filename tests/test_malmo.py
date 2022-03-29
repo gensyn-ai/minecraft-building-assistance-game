@@ -3,7 +3,7 @@ import tempfile
 import os
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import LayerBuilderAgent
+from mbag.agents.heuristic_agents import LayerBuilderAgent, NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 
 
@@ -24,6 +24,30 @@ def test_malmo():
         },
         [
             (LayerBuilderAgent, {}),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
+
+
+@pytest.mark.xfail(strict=False)
+def test_two_agents_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 5, 5),
+            "num_players": 2,
+            "horizon": 50,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True, True],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (LayerBuilderAgent, {}),
+            (NoopAgent, {}),
         ],
     )
     episode_info = evaluator.rollout()

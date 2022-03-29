@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 class MalmoObservationDict(TypedDict, total=False):
     world: List[str]
     goal: List[str]
+    XPos: float
+    YPos: float
+    ZPos: float
 
 
 class MalmoClient(object):
@@ -80,6 +83,7 @@ class MalmoClient(object):
                     </Grid>
                 </ObservationFromGrid>
                 <ObservationFromFullInventory />
+                <ObservationFromFullStats />
                 <AbsoluteMovementCommands />
                 <DiscreteMovementCommands>
                     <ModifierList type="deny-list">
