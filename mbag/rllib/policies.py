@@ -159,7 +159,7 @@ def add_supervised_loss_to_policy(
                     torch.stack(self.get_tower_stats("place_block_loss"))
                 )
             except AssertionError:
-                pass
+                info["place_block_loss"] = torch.nan
             return cast(
                 Dict[str, TensorType],
                 convert_to_numpy(info),

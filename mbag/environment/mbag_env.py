@@ -558,7 +558,11 @@ class MbagEnv(object):
     ):
         x, y_feet, z = player_location
         x, y_feet, z = int(x), int(y_feet), int(z)
-        for y in [y_feet, y_feet + 1]:
+        for y in (
+            [y_feet, y_feet + 1]
+            if y_feet + 1 < self.config["world_size"][1]
+            else [y_feet]
+        ):
             assert world_obs[4, x, y, z] == 0, "players are overlapping"
             world_obs[4, x, y, z] = marker
 
