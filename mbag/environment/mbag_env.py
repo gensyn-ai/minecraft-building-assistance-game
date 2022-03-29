@@ -299,9 +299,7 @@ class MbagEnv(object):
                         + self.player_locations[player_index + 1 :],
                     )
 
-            # print("Tried placing ", action.block_location)
             if place_break_result is not None:
-                # print("Place block successful")
                 noop = False
                 if self.config["abilities"]["teleportation"]:
                     self.player_locations[player_index] = (
@@ -381,8 +379,6 @@ class MbagEnv(object):
                     )
                 )
 
-                print("Old", player_location_list)
-                print("Proposed", new_player_location)
                 if self._is_valid_player_space(
                     tuple(new_player_location), player_index
                 ):
@@ -394,7 +390,6 @@ class MbagEnv(object):
                         player_location_list[2],
                     )
 
-                    # print(str(action_mask[action.action_type][1]))
                     if self.config["malmo"]["use_malmo"]:
                         if action_mask[action.action_type][1] != "tp":
                             self.malmo_client.send_command(
@@ -407,8 +402,6 @@ class MbagEnv(object):
                             )
                 else:
                     noop = True
-
-                print("New", player_location_list)
         if noop:
             reward += self.config["rewards"]["noop"]
 
@@ -427,7 +420,6 @@ class MbagEnv(object):
             nearest_block[1],
             int(np.floor(nearest_block[2])),
         ]
-        # print(proposed_block)
         for i in range(3):
             if (
                 proposed_block[i] < 0
