@@ -273,7 +273,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
     def generate_goal(
         self, size: WorldSize, save_crop: bool = False
     ) -> MinecraftBlocks:
-        structure, crop, location = self._generate_crop(size)
+        structure_id, crop, location = self._generate_crop(size)
 
         # Randomly place structure within world.
         goal = GoalGenerator.randomly_place_structure(crop, size)
@@ -286,7 +286,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         ]
 
         if save_crop:
-            self.save_crop_as_json(structure, crop.size, location)
+            self.save_crop_as_json(structure_id, crop.size, location)
 
         return goal
 
