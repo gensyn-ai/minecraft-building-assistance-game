@@ -1,15 +1,25 @@
-from typing import List, Optional, TYPE_CHECKING, Tuple, Type, Union, Sequence, cast
+from typing import (
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Tuple,
+    Type,
+    Union,
+    Sequence,
+    cast,
+)
 from typing_extensions import Literal, TypedDict
 import numpy as np
 from gym import spaces
 import time
 import copy
 import logging
-from operator import add
 
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
+    MbagActionType,
     MbagWorldObsArray,
     WorldLocation,
     MbagAction,
@@ -398,34 +408,27 @@ class MbagEnv(object):
             if not self.config["abilities"]["teleportation"]:
                 noop = False
 
-                player_location_list = list(self.player_locations[player_index])
+                player_location = self.player_locations[player_index]
 
-                action_mask = {
-                    MbagAction.MOVE_POS_X: [[1, 0, 0], "moveeast 1"],
-                    MbagAction.MOVE_NEG_X: [[-1, 0, 0], "movewest 1"],
-                    MbagAction.MOVE_POS_Y: [[0, 1, 0], "tp"],
-                    MbagAction.MOVE_NEG_Y: [[0, -1, 0], "tp"],
-                    MbagAction.MOVE_POS_Z: [[0, 0, 1], "movesouth 1"],
-                    MbagAction.MOVE_NEG_Z: [[0, 0, -1], "movenorth 1"],
+                action_mask: Dict[MbagActionType, Tuple[WorldLocation, str]] = {
+                    MbagAction.MOVE_POS_X: ((1, 0, 0), "moveeast 1"),
+                    MbagAction.MOVE_NEG_X: ((-1, 0, 0), "movewest 1"),
+                    MbagAction.MOVE_POS_Y: ((0, 1, 0), "tp"),
+                    MbagAction.MOVE_NEG_Y: ((0, -1, 0), "tp"),
+                    MbagAction.MOVE_POS_Z: ((0, 0, 1), "movesouth 1"),
+                    MbagAction.MOVE_NEG_Z: ((0, 0, -1), "movenorth 1"),
                 }
-                new_player_location = list(
-                    map(
-                        add,
-                        action_mask[action.action_type][0],
-                        player_location_list,
-                    )
+                dx, dy, dz = action_mask[action.action_type][0]
+                new_player_location: WorldLocation = (
+                    player_location[0] + dx,
+                    player_location[1] + dy,
+                    player_location[2] + dz,
                 )
 
-                if self._is_valid_player_space(
-                    tuple(new_player_location), player_index
-                ):
-                    player_location_list = new_player_location
+                if self._is_valid_player_space(new_player_location, player_index):
+                    player_location = new_player_location
 
-                    self.player_locations[player_index] = (
-                        player_location_list[0],
-                        player_location_list[1],
-                        player_location_list[2],
-                    )
+                    self.player_locations[player_index] = player_location
 
                     if self.config["malmo"]["use_malmo"]:
                         if action_mask[action.action_type][1] != "tp":
@@ -435,7 +438,7 @@ class MbagEnv(object):
                         else:
                             self.malmo_client.send_command(
                                 player_index,
-                                "tp " + " ".join(map(str, tuple(player_location_list))),
+                                "tp " + " ".join(map(str, player_location)),
                             )
                 else:
                     noop = True
@@ -453,12 +456,12 @@ class MbagEnv(object):
 
         return reward, info
 
-    def _is_valid_player_space(self, nearest_block, player_index: int):
-        proposed_block = [
-            int(np.floor(nearest_block[0])),
-            nearest_block[1],
-            int(np.floor(nearest_block[2])),
-        ]
+    def _is_valid_player_space(self, player_location: WorldLocation, player_index: int):
+        proposed_block: BlockLocation = (
+            int(player_location[0]),
+            int(player_location[1]),
+            int(player_location[2]),
+        )
         for i in range(3):
             if (
                 proposed_block[i] < 0
@@ -466,12 +469,7 @@ class MbagEnv(object):
             ):
                 return False
 
-        if (
-            not self.current_blocks.blocks[
-                proposed_block[0], proposed_block[1], proposed_block[2]
-            ]
-            == MinecraftBlocks.AIR
-        ):
+        if not self.current_blocks.blocks[proposed_block] == MinecraftBlocks.AIR:
             return False
 
         if proposed_block[1] < self.config["world_size"][1] - 1:
