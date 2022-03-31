@@ -433,7 +433,7 @@ class MbagEnv(object):
                     if self.config["malmo"]["use_malmo"]:
                         if action_mask[action.action_type][1] != "tp":
                             self.malmo_client.send_command(
-                                player_index, str(action_mask[action.action_type][1])
+                                player_index, action_mask[action.action_type][1]
                             )
                         else:
                             self.malmo_client.send_command(
@@ -458,9 +458,9 @@ class MbagEnv(object):
 
     def _is_valid_player_space(self, player_location: WorldLocation, player_index: int):
         proposed_block: BlockLocation = (
-            int(player_location[0]),
-            int(player_location[1]),
-            int(player_location[2]),
+            int(np.floor(player_location[0])),
+            int(np.floor(player_location[1])),
+            int(np.floor(player_location[2])),
         )
         for i in range(3):
             if (
@@ -555,7 +555,7 @@ class MbagEnv(object):
         self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
     ):
         x, y_feet, z = player_location
-        x, y_feet, z = int(x), int(y_feet), int(z)
+        x, y_feet, z = int(np.floor(x)), int(np.floor(y_feet)), int(np.floor(z))
         for y in (
             [y_feet, y_feet + 1]
             if y_feet + 1 < self.config["world_size"][1]
