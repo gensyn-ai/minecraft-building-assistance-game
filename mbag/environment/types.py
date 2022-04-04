@@ -32,6 +32,15 @@ num_world_obs_channels = 5
 
 MbagObs = Tuple[MbagWorldObsArray]
 
+INVENTORY_SPACE = 36
+MbagInventory = np.ndarray
+"""
+Player inventory will be stored as 2d numpy array.
+Inventory slots are stored from 0 to 35 inclusive
+First dimension is which inventory slot is being accessed
+Second dimension is 0 for block id, 1 for block count
+"""
+
 
 MbagActionType = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8]
 MbagActionTuple = Tuple[MbagActionType, int, int]

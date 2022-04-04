@@ -18,8 +18,10 @@ import logging
 
 from .blocks import MinecraftBlocks
 from .types import (
+    INVENTORY_SPACE,
     BlockLocation,
     MbagActionType,
+    MbagInventory,
     MbagWorldObsArray,
     WorldLocation,
     MbagAction,
@@ -101,6 +103,12 @@ class AbilitiesConfigDict(TypedDict):
     Whether the agent can fly or if the agent must be standing on a block at all times
     """
 
+    inf_blocks: bool
+    """
+    True - agent has infinite blocks to build with
+    False - agent must manage resources and inventory
+    """
+
 
 class MbagConfigDict(TypedDict, total=False):
     num_players: int
@@ -148,7 +156,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "own_reward_prop": 0,
         "own_reward_prop_horizon": None,
     },
-    "abilities": {"teleportation": True, "flying": True},
+    "abilities": {"teleportation": True, "flying": True, "inf_blocks": True},
 }
 
 
@@ -158,6 +166,7 @@ class MbagEnv(object):
     goal_blocks: MinecraftBlocks
     player_locations: List[WorldLocation]
     player_directions: List[FacingDirection]
+    player_inventories: List[MbagInventory]
     timestep: int
     global_timestep: int
 
@@ -182,6 +191,10 @@ class MbagEnv(object):
         )
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
+        self.player_inventories = [
+            np.zeros((INVENTORY_SPACE, 2)) for _ in range(self.config["num_players"])
+        ]
+
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
         # more details.
@@ -628,7 +641,7 @@ class MbagEnv(object):
                 MinecraftBlocks.NAME2ID[
                     malmo_player_state[f"InventorySlot_{slot}_item"]  # type: ignore
                 ]
-                for slot in range(36)
+                for slot in range(INVENTORY_SPACE)
             ]
             for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
                 if inventory_block_ids[block_id] != block_id:
