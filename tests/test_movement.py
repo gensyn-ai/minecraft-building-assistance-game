@@ -4,8 +4,10 @@ from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
     LayerBuilderAgent,
     MovementAgent,
-    HardcodedBuilderAgent,
     NoopAgent,
+)
+from mbag.agents.hardcoded_agents import (
+    HardcodedBuilderAgent,
 )
 from mbag.environment.goals.simple import (
     BasicGoalGenerator,

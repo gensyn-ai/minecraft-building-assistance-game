@@ -167,6 +167,7 @@ class MbagEnv(object):
     player_locations: List[WorldLocation]
     player_directions: List[FacingDirection]
     player_inventories: List[MbagInventory]
+    player_selected_hotbars: List[int]
     timestep: int
     global_timestep: int
 
@@ -192,8 +193,9 @@ class MbagEnv(object):
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
-            np.zeros((INVENTORY_SPACE, 2)) for _ in range(self.config["num_players"])
+            np.zeros((2, INVENTORY_SPACE)) for _ in range(self.config["num_players"])
         ]
+        self.player_selected_hotbars = [0 for _ in range(self.config["num_players"])]
 
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
@@ -410,51 +412,66 @@ class MbagEnv(object):
                 new_block, goal_block, partial_credit=True
             )
             reward = new_goal_similarity - prev_goal_similarity
-        elif action.action_type in [
-            MbagAction.MOVE_POS_X,
-            MbagAction.MOVE_NEG_X,
-            MbagAction.MOVE_POS_Y,
-            MbagAction.MOVE_NEG_Y,
-            MbagAction.MOVE_POS_Z,
-            MbagAction.MOVE_NEG_Z,
-        ]:
-            if not self.config["abilities"]["teleportation"]:
-                noop = False
+        elif (
+            action.action_type
+            in [
+                MbagAction.MOVE_POS_X,
+                MbagAction.MOVE_NEG_X,
+                MbagAction.MOVE_POS_Y,
+                MbagAction.MOVE_NEG_Y,
+                MbagAction.MOVE_POS_Z,
+                MbagAction.MOVE_NEG_Z,
+            ]
+            and not self.config["abilities"]["teleportation"]
+        ):
+            noop = False
 
-                player_location = self.player_locations[player_index]
+            player_location = self.player_locations[player_index]
 
-                action_mask: Dict[MbagActionType, Tuple[WorldLocation, str]] = {
-                    MbagAction.MOVE_POS_X: ((1, 0, 0), "moveeast 1"),
-                    MbagAction.MOVE_NEG_X: ((-1, 0, 0), "movewest 1"),
-                    MbagAction.MOVE_POS_Y: ((0, 1, 0), "tp"),
-                    MbagAction.MOVE_NEG_Y: ((0, -1, 0), "tp"),
-                    MbagAction.MOVE_POS_Z: ((0, 0, 1), "movesouth 1"),
-                    MbagAction.MOVE_NEG_Z: ((0, 0, -1), "movenorth 1"),
-                }
-                dx, dy, dz = action_mask[action.action_type][0]
-                new_player_location: WorldLocation = (
-                    player_location[0] + dx,
-                    player_location[1] + dy,
-                    player_location[2] + dz,
-                )
+            action_mask: Dict[MbagActionType, Tuple[WorldLocation, str]] = {
+                MbagAction.MOVE_POS_X: ((1, 0, 0), "moveeast 1"),
+                MbagAction.MOVE_NEG_X: ((-1, 0, 0), "movewest 1"),
+                MbagAction.MOVE_POS_Y: ((0, 1, 0), "tp"),
+                MbagAction.MOVE_NEG_Y: ((0, -1, 0), "tp"),
+                MbagAction.MOVE_POS_Z: ((0, 0, 1), "movesouth 1"),
+                MbagAction.MOVE_NEG_Z: ((0, 0, -1), "movenorth 1"),
+            }
+            dx, dy, dz = action_mask[action.action_type][0]
+            new_player_location: WorldLocation = (
+                player_location[0] + dx,
+                player_location[1] + dy,
+                player_location[2] + dz,
+            )
 
-                if self._is_valid_player_space(new_player_location, player_index):
-                    player_location = new_player_location
+            if self._is_valid_player_space(new_player_location, player_index):
+                player_location = new_player_location
 
-                    self.player_locations[player_index] = player_location
+                self.player_locations[player_index] = player_location
 
-                    if self.config["malmo"]["use_malmo"]:
-                        if action_mask[action.action_type][1] != "tp":
-                            self.malmo_client.send_command(
-                                player_index, action_mask[action.action_type][1]
-                            )
-                        else:
-                            self.malmo_client.send_command(
-                                player_index,
-                                "tp " + " ".join(map(str, player_location)),
-                            )
-                else:
-                    noop = True
+                if self.config["malmo"]["use_malmo"]:
+                    if action_mask[action.action_type][1] != "tp":
+                        self.malmo_client.send_command(
+                            player_index, action_mask[action.action_type][1]
+                        )
+                    else:
+                        self.malmo_client.send_command(
+                            player_index,
+                            "tp " + " ".join(map(str, player_location)),
+                        )
+            else:
+                noop = True
+        elif (
+            action.action_type == MbagAction.REQUEST_BLOCK
+            and not self.config["abilities"]["inf_blocks"]
+        ):
+            noop = False
+
+            # TODO: Check if player is standing at the right location
+
+            # TODO: Check for illegal blocks
+
+            noop = self.try_give_player_block(action.block_id, player_index)
+
         if noop:
             reward += self.config["rewards"]["noop"]
 
@@ -468,6 +485,65 @@ class MbagEnv(object):
         }
 
         return reward, info
+
+    def try_give_player_block(self, block_id: int, player_index: int):
+        """
+        Attempts to give player_index one block of block_id
+        Returns a boolean whether the give was successful
+        """
+        selected_slot = -1
+
+        # Find an appropriate slot
+        player_inventory = self.player_inventories[player_index]
+        matching_inventory_slots = np.where(
+            (player_inventory[0] == block_id)
+            & (player_inventory[1] < 64)
+            & (player_inventory[1] > 0)
+        )
+        if matching_inventory_slots.size > 0:
+            selected_slot = matching_inventory_slots[0]
+
+        empty_inventory_slots = np.where(player_inventory[1] == 0)
+        if empty_inventory_slots.size > 0:
+            selected_slot = empty_inventory_slots[0]
+
+        if selected_slot == -1:
+            return False
+
+        # Give the inventory item
+        player_inventory[0][selected_slot] = block_id
+        player_inventory[1][selected_slot] += 1
+
+        # TODO: Malmo integration
+        return True
+
+    def try_take_player_block(self, block_id: int, player_index: int):
+        """
+        Attempts to take from player_index one block of block_id
+        Returns the inventory slot that was decremented, or -1 on a failure.
+
+        Not sure how this is gonna work yet
+        """
+        selected_slot = -1
+
+        # Find an appropriate slot
+        player_inventory = self.player_inventories[player_index]
+        matching_inventory_slots = np.where(
+            (player_inventory[0] == block_id) & (player_inventory[1] > 0)
+        )
+        if matching_inventory_slots.size > 0:
+            selected_slot = matching_inventory_slots[0]
+
+        if selected_slot == -1:
+            return False
+
+        # Decrement the inventory item
+        player_inventory[1][selected_slot] -= 1
+        if player_inventory[1][selected_slot] == 0:
+            player_inventory[0][selected_slot] = MinecraftBlocks.AIR
+
+        # TODO: Malmo Integration
+        return True
 
     def _is_valid_player_space(self, player_location: WorldLocation, player_index: int):
         proposed_block: BlockLocation = (
@@ -636,6 +712,7 @@ class MbagEnv(object):
             if malmo_player_state is None:
                 continue
 
+            # TODO: sync this up with the current inventory system
             # Make sure inventory is organized as expected.
             inventory_block_ids = [
                 MinecraftBlocks.NAME2ID[
