@@ -103,7 +103,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
     def _get_structure_bounds(
         self, structure_json: StructureJson
-    ) -> Tuple[int, int, int, int, int, int]:
+    ) -> Tuple[WorldSize, WorldSize]:
         max_x, max_y, max_z = 0, 0, 0
         min_x, min_y, min_z = sys.maxsize, sys.maxsize, sys.maxsize
 
@@ -126,10 +126,10 @@ class GrabcraftGoalGenerator(GoalGenerator):
                     if z < min_z:
                         min_z = z
 
-        return min_x, max_x, min_y, max_y, min_z, max_z
+        return (min_x, min_y, min_z), (max_x, max_y, max_z)
 
     def _get_structure_size(self, structure_json: StructureJson) -> WorldSize:
-        min_x, max_x, min_y, max_y, min_z, max_z = self._get_structure_bounds(
+        (min_x, min_y, min_z), (max_x, max_y, max_z) = self._get_structure_bounds(
             structure_json
         )
         return max_x - min_x + 1, max_y - min_y + 1, max_z - min_z + 1
@@ -175,8 +175,8 @@ class GrabcraftGoalGenerator(GoalGenerator):
         ) as structure_file:
             structure_json: StructureJson = json.load(structure_file)
 
-        bounds = self._get_structure_bounds(structure_json)
-        structure_size = (bounds[1] + 1, bounds[3] + 1, bounds[5] + 1)
+        _, (max_x, max_y, max_z) = self._get_structure_bounds(structure_json)
+        structure_size = (max_x + 1, max_y + 1, max_z + 1)
         structure = MinecraftBlocks(structure_size)
         structure.blocks[:] = MinecraftBlocks.AIR
         structure.block_states[:] = 0
