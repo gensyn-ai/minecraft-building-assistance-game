@@ -340,68 +340,88 @@ class MbagEnv(object):
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             prev_block = self.current_blocks[action.block_location]
             goal_block = self.goal_blocks[action.block_location]
+            inventory_slot = 0
 
-            # Try to place or break a block
-            if self.config["abilities"]["teleportation"]:
-                place_break_result = self.current_blocks.try_break_place(
-                    cast(Literal[1, 2], action.action_type),
-                    action.block_location,
-                    action.block_id,
+            if (
+                not self.config["abilities"]["inf_blocks"]
+                and action.action_type == MbagAction.PLACE_BLOCK
+            ):
+                inventory_slot = self.try_take_player_block(
+                    action.block_id, player_index
                 )
+
+            # print(inventory_slot)
+            if inventory_slot < 0:
+                noop = True
             else:
-                if self._collides_with_players(action.block_location, player_index):
-                    place_break_result = None
-                else:
+                # Try to place or break a block
+                if self.config["abilities"]["teleportation"]:
                     place_break_result = self.current_blocks.try_break_place(
                         cast(Literal[1, 2], action.action_type),
                         action.block_location,
                         action.block_id,
-                        player_location=self.player_locations[player_index],
-                        other_player_locations=self.player_locations[:player_index]
-                        + self.player_locations[player_index + 1 :],
-                    )
-
-            if place_break_result is not None:
-                noop = False
-                if self.config["abilities"]["teleportation"]:
-                    self.player_locations[player_index] = (
-                        place_break_result[0][0],
-                        place_break_result[0][1],
-                        place_break_result[0][2],
-                    )
-
-            if place_break_result is not None and self.config["malmo"]["use_malmo"]:
-                player_location, click_location = place_break_result
-
-                if self.config["abilities"]["teleportation"]:
-                    self.malmo_client.send_command(
-                        player_index,
-                        "tp " + " ".join(map(str, player_location)),
-                    )
-
-                viewpoint = np.array(player_location)
-                viewpoint[1] += 1.6
-                delta = np.array(click_location) - viewpoint
-                delta /= np.sqrt((delta**2).sum())
-                yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
-                pitch = np.rad2deg(-np.arcsin(delta[1]))
-                self.malmo_client.send_command(player_index, f"setYaw {yaw}")
-                self.malmo_client.send_command(player_index, f"setPitch {pitch}")
-                self.player_directions[player_index] = (yaw, pitch)
-
-                if action.action_type == MbagAction.PLACE_BLOCK:
-                    self.malmo_client.send_command(
-                        player_index, f"swapInventoryItems 0 {action.block_id}"
-                    )
-                    time.sleep(0.1)  # Give time to swap item to hand and teleport.
-                    self.malmo_client.send_command(player_index, "use 1")
-                    time.sleep(0.1)  # Give time to place block.
-                    self.malmo_client.send_command(
-                        player_index, f"swapInventoryItems 0 {action.block_id}"
                     )
                 else:
-                    time.sleep(0.1)  # Give time to teleport.
-                    self.malmo_client.send_command(player_index, "attack 1")
+                    if self._collides_with_players(action.block_location, player_index):
+                        place_break_result = None
+                    else:
+                        place_break_result = self.current_blocks.try_break_place(
+                            cast(Literal[1, 2], action.action_type),
+                            action.block_location,
+                            action.block_id,
+                            player_location=self.player_locations[player_index],
+                            other_player_locations=self.player_locations[:player_index]
+                            + self.player_locations[player_index + 1 :],
+                        )
+
+                if place_break_result is not None:
+                    noop = False
+                    if self.config["abilities"]["teleportation"]:
+                        self.player_locations[player_index] = (
+                            place_break_result[0][0],
+                            place_break_result[0][1],
+                            place_break_result[0][2],
+                        )
+
+                if (
+                    place_break_result is not None
+                    and not self.config["abilities"]["inf_blocks"]
+                    and action.action_type == MbagAction.BREAK_BLOCK
+                ):
+                    self.try_give_player_block(prev_block, player_index)
+
+                if place_break_result is not None and self.config["malmo"]["use_malmo"]:
+                    player_location, click_location = place_break_result
+
+                    if self.config["abilities"]["teleportation"]:
+                        self.malmo_client.send_command(
+                            player_index,
+                            "tp " + " ".join(map(str, player_location)),
+                        )
+
+                    viewpoint = np.array(player_location)
+                    viewpoint[1] += 1.6
+                    delta = np.array(click_location) - viewpoint
+                    delta /= np.sqrt((delta**2).sum())
+                    yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
+                    pitch = np.rad2deg(-np.arcsin(delta[1]))
+                    self.malmo_client.send_command(player_index, f"setYaw {yaw}")
+                    self.malmo_client.send_command(player_index, f"setPitch {pitch}")
+                    self.player_directions[player_index] = (yaw, pitch)
+
+                    if action.action_type == MbagAction.PLACE_BLOCK:
+                        self.malmo_client.send_command(
+                            player_index, f"swapInventoryItems 0 {action.block_id}"
+                        )
+                        time.sleep(0.1)  # Give time to swap item to hand and teleport.
+                        self.malmo_client.send_command(player_index, "use 1")
+                        time.sleep(0.1)  # Give time to place block.
+                        self.malmo_client.send_command(
+                            player_index, f"swapInventoryItems 0 {action.block_id}"
+                        )
+                    else:
+                        time.sleep(0.1)  # Give time to teleport.
+                        self.malmo_client.send_command(player_index, "attack 1")
 
             # Calculate reward based on progress towards goal.
             new_block = self.current_blocks[action.block_location]
@@ -499,13 +519,14 @@ class MbagEnv(object):
             (player_inventory[0] == block_id)
             & (player_inventory[1] < 64)
             & (player_inventory[1] > 0)
-        )
+        )[0]
+
         if matching_inventory_slots.size > 0:
             selected_slot = matching_inventory_slots[0]
-
-        empty_inventory_slots = np.where(player_inventory[1] == 0)
-        if empty_inventory_slots.size > 0:
-            selected_slot = empty_inventory_slots[0]
+        else:
+            empty_inventory_slots = np.where(player_inventory[1] == 0)[0]
+            if empty_inventory_slots.size > 0:
+                selected_slot = empty_inventory_slots[0]
 
         if selected_slot == -1:
             return False
@@ -513,6 +534,9 @@ class MbagEnv(object):
         # Give the inventory item
         player_inventory[0][selected_slot] = block_id
         player_inventory[1][selected_slot] += 1
+
+        # print("Give")
+        # print(player_inventory)
 
         # TODO: Malmo integration
         return True
@@ -528,22 +552,26 @@ class MbagEnv(object):
 
         # Find an appropriate slot
         player_inventory = self.player_inventories[player_index]
+
         matching_inventory_slots = np.where(
             (player_inventory[0] == block_id) & (player_inventory[1] > 0)
-        )
+        )[0]
         if matching_inventory_slots.size > 0:
             selected_slot = matching_inventory_slots[0]
-
-        if selected_slot == -1:
-            return False
+        else:
+            return -1
 
         # Decrement the inventory item
         player_inventory[1][selected_slot] -= 1
         if player_inventory[1][selected_slot] == 0:
             player_inventory[0][selected_slot] = MinecraftBlocks.AIR
 
+        # print("Take")
+        # print(player_inventory)
+
         # TODO: Malmo Integration
-        return True
+
+        return selected_slot
 
     def _is_valid_player_space(self, player_location: WorldLocation, player_index: int):
         proposed_block: BlockLocation = (

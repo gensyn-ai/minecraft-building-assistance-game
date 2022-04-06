@@ -1,47 +1,77 @@
-from typing import List
-from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction, WorldLocation
+import pytest
+import numpy as np
+import logging
+from numpy.testing import assert_array_equal
+
+from mbag.environment.goals.grabcraft import GrabcraftGoalGenerator
+from mbag.environment.mbag_env import MbagConfigDict
+from mbag.evaluation.evaluator import MbagEvaluator
+from mbag.agents.hardcoded_agents import (
+    HardcodedResourceAgent,
+)
+from mbag.environment.goals.simple import (
+    BasicGoalGenerator,
+)
+
+logger = logging.getLogger(__name__)
 
 
-def test_place_break_through_player():
+def test_inventory():
     """
-    Make sure we can't place/break blocks through another player.
+    Make sure the inventory agent can place blocks
     """
 
-    blocks = MinecraftBlocks((3, 3, 3))
-    dirt = MinecraftBlocks.NAME2ID["dirt"]
-    blocks.blocks[:, 0, :] = dirt
-    player_location: WorldLocation = (0.5, 1, 1.5)
-    assert (
-        blocks.try_break_place(
-            MbagAction.PLACE_BLOCK,
-            (2, 1, 1),
-            dirt,
-            player_location=player_location,
-            update_blocks=False,
-        )
-        is not None
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 6, 5),
+            "num_players": 1,
+            "horizon": 20,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (
+                HardcodedResourceAgent,
+                {},
+            ),
+        ],
     )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 3
 
-    other_player_locations: List[WorldLocation] = [(1.5, 1, 1.5)]
-    assert (
-        blocks.try_break_place(
-            MbagAction.PLACE_BLOCK,
-            (2, 1, 1),
-            dirt,
-            player_location=player_location,
-            other_player_locations=other_player_locations,
-            update_blocks=False,
-        )
-        is None
+
+@pytest.mark.xfail(strict=False)
+def test_inventory_in_malmo():
+    """
+    Make sure the inventory agent can place blocks
+    """
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 6, 5),
+            "num_players": 1,
+            "horizon": 20,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (
+                HardcodedResourceAgent,
+                {},
+            ),
+        ],
     )
-    assert (
-        blocks.try_break_place(
-            MbagAction.BREAK_BLOCK,
-            (2, 0, 1),
-            player_location=player_location,
-            other_player_locations=other_player_locations,
-            update_blocks=False,
-        )
-        is None
-    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 3

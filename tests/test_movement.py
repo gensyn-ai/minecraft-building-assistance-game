@@ -27,7 +27,7 @@ def test_movement():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"teleportation": False, "flying": True},
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": True},
         },
         [
             (
@@ -54,7 +54,7 @@ def test_movement_in_malmo():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"teleportation": False, "flying": True},
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": True},
         },
         [
             (
@@ -80,7 +80,7 @@ def test_movement_with_building():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"teleportation": False, "flying": True},
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": True},
         },
         [
             (
@@ -107,7 +107,7 @@ def test_movement_with_building_in_malmo():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"teleportation": False, "flying": True},
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": True},
         },
         [
             (
@@ -133,7 +133,7 @@ def test_obstructing_agents():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"flying": True, "teleportation": False},
+            "abilities": {"flying": True, "teleportation": False, "inf_blocks": True},
         },
         [
             (LayerBuilderAgent, {}),
