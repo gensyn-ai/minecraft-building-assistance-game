@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import sys
 from typing import Dict, List, Optional, Tuple
-
+from collections import defaultdict
 from typing_extensions import TypedDict, Literal
 
 from ..blocks import MinecraftBlocks
@@ -70,12 +70,36 @@ class GrabcraftGoalGenerator(GoalGenerator):
         self._load_block_map()
         self._load_metadata()
 
+    def _get_generic_block_name(self, grabcraft_block_name: str) -> str:
+        """
+        Remove any specific GrabCraft paranthetical
+        (e.g., (Facing West, Closed, Lower)) from a block name.
+        """
+
+        if "(" in grabcraft_block_name:
+            return grabcraft_block_name[: grabcraft_block_name.index("(")].rstrip()
+        else:
+            return grabcraft_block_name
+
     def _load_block_map(self):
         block_map_fname = os.path.join(
             os.path.dirname(__file__), "grabcraft_block_map.json"
         )
         with open(block_map_fname, "r") as block_map_file:
             self.block_map = json.load(block_map_file)
+
+        # Add entries for generic block names (without variance parantheticals
+        # afterwards) if all variants map to the same block type.
+        generic_block_groups: Dict[str, List[str]] = defaultdict(list)
+        for block_name in self.block_map:
+            generic_block_groups[self._get_generic_block_name(block_name)].append(
+                block_name
+            )
+        for generic_block_name, block_names in generic_block_groups.items():
+            block_types = {self.block_map[block_name][0] for block_name in block_names}
+            if len(block_types) == 1:
+                (block_type,) = block_types
+                self.block_map[generic_block_name] = (block_type, None)
 
         if self.config["use_limited_block_set"]:
             limited_block_map_fname = os.path.join(
@@ -169,6 +193,20 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
         return goal
 
+    def _map_grabcraft_block_name(
+        self, grabcraft_block_name: str
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        block_variant = self.block_map.get(grabcraft_block_name)
+        if block_variant is None:
+            # Try the block without the parentheses, which usually just provide
+            # variant information.
+            # TODO: remove this if we start caring about variants
+            block_variant = self.block_map.get(
+                self._get_generic_block_name(grabcraft_block_name)
+            )
+
+        return block_variant
+
     def _get_structure(self, structure_id: str) -> Optional[MinecraftBlocks]:
         with open(
             os.path.join(self.data_dir, f"{structure_id}.json"), "r"
@@ -186,7 +224,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
                 x = int(x_str)
                 for z_str, block in x_layer.items():
                     z = int(z_str)
-                    block_variant = self.block_map.get(block["name"])
+                    block_variant = self._map_grabcraft_block_name(block["name"])
                     if block_variant is None:
                         logger.warning(f"no map entry for \"{block['name']}\"")
                         structure.blocks[
