@@ -9,6 +9,7 @@ from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.hardcoded_agents import (
     HardcodedResourceAgent,
 )
+from mbag.agents.heuristic_agents import NoopAgent
 from mbag.environment.goals.simple import (
     BasicGoalGenerator,
 )
@@ -75,3 +76,64 @@ def test_inventory_in_malmo():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward == 3
+
+
+def test_pallette():
+    """
+    Make sure the inventory agent can place blocks
+    """
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (10, 10, 10),
+            "num_players": 1,
+            "horizon": 10,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (
+                NoopAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 0
+
+
+@pytest.mark.xfail(strict=False)
+def test_pallette_in_malmo():
+    """
+    Make sure the inventory agent can place blocks
+    """
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (10, 10, 10),
+            "num_players": 1,
+            "horizon": 10,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (
+                NoopAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 0

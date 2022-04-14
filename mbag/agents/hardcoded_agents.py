@@ -154,9 +154,36 @@ class HardcodedResourceAgent(MbagAgent):
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         command_list: List[MbagActionTuple] = [
-            (MbagAction.REQUEST_BLOCK, 0, MinecraftBlocks.NAME2ID["cobblestone"]),
-            (MbagAction.REQUEST_BLOCK, 0, MinecraftBlocks.NAME2ID["cobblestone"]),
-            (MbagAction.REQUEST_BLOCK, 0, MinecraftBlocks.NAME2ID["cobblestone"]),
+            (
+                MbagAction.BREAK_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (1, 2, 0),
+                        self.env_config["world_size"],
+                    )
+                ),
+                0,
+            ),
+            (
+                MbagAction.BREAK_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (1, 2, 0),
+                        self.env_config["world_size"],
+                    )
+                ),
+                0,
+            ),
+            (
+                MbagAction.BREAK_BLOCK,
+                int(
+                    np.ravel_multi_index(
+                        (1, 2, 0),
+                        self.env_config["world_size"],
+                    )
+                ),
+                0,
+            ),
             (MbagAction.MOVE_NEG_Y, 0, 0),
             (MbagAction.MOVE_POS_Y, 0, 0),
             (MbagAction.MOVE_NEG_X, 0, 0),

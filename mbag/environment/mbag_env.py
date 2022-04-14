@@ -155,6 +155,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "place_wrong": 0,
         "own_reward_prop": 0,
         "own_reward_prop_horizon": None,
+        "get_resources": 0,
     },
     "abilities": {"teleportation": True, "flying": True, "inf_blocks": True},
 }
@@ -168,6 +169,7 @@ class MbagEnv(object):
     player_directions: List[FacingDirection]
     player_inventories: List[MbagInventory]
     player_selected_hotbars: List[int]
+    pallette_blocks: List[WorldLocation]
     timestep: int
     global_timestep: int
 
@@ -190,6 +192,7 @@ class MbagEnv(object):
         self.observation_space = spaces.Tuple(
             (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
         )
+        self.pallette_blocks = []
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
@@ -241,6 +244,8 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
         self.goal_blocks = self._generate_goal()
+        if not self.config["abilities"]["inf_blocks"]:
+            self.current_blocks = self._generate_pallette()
 
         self.player_locations = [
             (
@@ -327,6 +332,18 @@ class MbagEnv(object):
         goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
         return goal
 
+    def _generate_pallette(self) -> MinecraftBlocks:
+        # Generate a pallette of mineable blocks on the x axis.
+        pallette = self.current_blocks.copy()
+        for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
+            if index >= self.world_obs_shape[0]:
+                break
+            pallette.blocks[index, 2, 0] = block
+            pallette.block_states[index, 2, 0] = 0
+            self.pallette_blocks.append((index, 2, 0))
+
+        return pallette
+
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple
     ) -> Tuple[float, MbagInfoDict]:
@@ -341,6 +358,7 @@ class MbagEnv(object):
             prev_block = self.current_blocks[action.block_location]
             goal_block = self.goal_blocks[action.block_location]
             inventory_slot = 0
+            # print(self.player_inventories[player_index])
 
             if (
                 not self.config["abilities"]["inf_blocks"]
@@ -373,6 +391,7 @@ class MbagEnv(object):
                             other_player_locations=self.player_locations[:player_index]
                             + self.player_locations[player_index + 1 :],
                         )
+                        # print("Could not break / place")
 
                 if place_break_result is not None:
                     noop = False
@@ -383,12 +402,23 @@ class MbagEnv(object):
                             place_break_result[0][2],
                         )
 
+                # print(place_break_result)
                 if (
                     place_break_result is not None
                     and not self.config["abilities"]["inf_blocks"]
                     and action.action_type == MbagAction.BREAK_BLOCK
                 ):
-                    self.try_give_player_block(prev_block, player_index)
+                    # print("Trying to give block")
+                    self.try_give_player_block(prev_block[0], player_index)
+
+                    # If the player broke a block in the block pallette, put it back
+                    if action.block_location in self.pallette_blocks:
+                        self.current_blocks.blocks[action.block_location] = prev_block[
+                            0
+                        ]
+                        self.current_blocks.block_states[
+                            action.block_location
+                        ] = prev_block[1]
 
                 if place_break_result is not None and self.config["malmo"]["use_malmo"]:
                     player_location, click_location = place_break_result
@@ -419,19 +449,31 @@ class MbagEnv(object):
                         self.malmo_client.send_command(
                             player_index, f"swapInventoryItems 0 {action.block_id}"
                         )
+
+                        # TODO: Remove block from inventory
                     else:
                         time.sleep(0.1)  # Give time to teleport.
                         self.malmo_client.send_command(player_index, "attack 1")
 
+                        # TODO: Add block to inventory
+                        # TODO: Put back block if it was a pallette block
+
             # Calculate reward based on progress towards goal.
-            new_block = self.current_blocks[action.block_location]
-            prev_goal_similarity = self._get_goal_similarity(
-                prev_block, goal_block, partial_credit=True
-            )
-            new_goal_similarity = self._get_goal_similarity(
-                new_block, goal_block, partial_credit=True
-            )
-            reward = new_goal_similarity - prev_goal_similarity
+            if (
+                action.action_type == MbagAction.BREAK_BLOCK
+                and action.block_location in self.pallette_blocks
+            ):
+                reward = self.config["rewards"]["get_resources"]
+                # print("Getting block")
+            else:
+                new_block = self.current_blocks[action.block_location]
+                prev_goal_similarity = self._get_goal_similarity(
+                    prev_block, goal_block, partial_credit=True
+                )
+                new_goal_similarity = self._get_goal_similarity(
+                    new_block, goal_block, partial_credit=True
+                )
+                reward = new_goal_similarity - prev_goal_similarity
         elif (
             action.action_type
             in [
