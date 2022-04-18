@@ -144,7 +144,7 @@ class HardcodedBuilderAgent(MbagAgent):
 
 class HardcodedResourceAgent(MbagAgent):
     """
-    Requests resources, then tries to build the simple goal generator
+    Gets resources, then tries to build the simple goal generator
     """
 
     current_command: int
@@ -154,11 +154,13 @@ class HardcodedResourceAgent(MbagAgent):
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         command_list: List[MbagActionTuple] = [
+            (MbagAction.MOVE_POS_X, 0, 0),
+            (MbagAction.MOVE_POS_Z, 0, 0),
             (
                 MbagAction.BREAK_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (1, 2, 0),
+                        (3, 2, 2),
                         self.env_config["world_size"],
                     )
                 ),
@@ -168,7 +170,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.BREAK_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (1, 2, 0),
+                        (3, 2, 2),
                         self.env_config["world_size"],
                     )
                 ),
@@ -178,7 +180,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.BREAK_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (1, 2, 0),
+                        (3, 2, 2),
                         self.env_config["world_size"],
                     )
                 ),
@@ -214,7 +216,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.PLACE_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (3, 2, 1),
+                        (1, 2, 3),
                         self.env_config["world_size"],
                     )
                 ),
@@ -227,7 +229,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.PLACE_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (3, 2, 2),
+                        (2, 2, 2),
                         self.env_config["world_size"],
                     )
                 ),
@@ -237,7 +239,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.PLACE_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (2, 2, 2),
+                        (2, 2, 3),
                         self.env_config["world_size"],
                     )
                 ),
