@@ -7,9 +7,7 @@ from mbag.agents.heuristic_agents import (
     HardcodedBuilderAgent,
     NoopAgent,
 )
-from mbag.environment.goals.simple import (
-    BasicGoalGenerator,
-)
+from mbag.environment.goals.simple import BasicGoalGenerator
 
 
 def test_movement():
