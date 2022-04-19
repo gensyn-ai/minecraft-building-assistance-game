@@ -128,8 +128,10 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         hidden_size = hidden_channels
         num_block_id_layers = 2
         num_heads = 4
+        use_resnet = False
         num_unet_layers = 0
         unet_grow_factor = 2
+        unet_use_bn = False
         num_value_layers = 0
         model_config = {
             "custom_model": f"mbag_{model}_model",
@@ -144,11 +146,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "mask_goal": mask_goal,
                 "num_conv_1_layers": num_conv_1_layers,
                 "num_layers": num_layers,
+                "use_resnet": use_resnet,
                 "filter_size": filter_size,
                 "hidden_channels": hidden_channels,
                 "num_block_id_layers": num_block_id_layers,
                 "num_unet_layers": num_unet_layers,
                 "unet_grow_factor": unet_grow_factor,
+                "unet_use_bn": unet_use_bn,
                 "num_value_layers": num_value_layers,
             }
             model_config["custom_model_config"] = conv_config
@@ -263,6 +267,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "num_gpus": num_gpus,
             "input": input,
             "input_evaluation": [],
+            "actions_in_input_normalized": input != "sampler",
             "lr": lr,
             "train_batch_size": train_batch_size,
             "sgd_minibatch_size": sgd_minibatch_size,
@@ -330,6 +335,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     if (
                         prev_model_config.get("custom_model")
                         == "mbag_convolutional_model"
+                        and model_config.get("custom_model")
+                        != "mbag_convolutional_model"
                     ):
                         prev_model_config["custom_model_config"]["fake_state"] = True
                     distill_policy_id = f"{policy_id}_distilled"

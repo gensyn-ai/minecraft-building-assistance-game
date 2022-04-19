@@ -36,6 +36,7 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     num_conv_1_layers: int
     """Number of 1x1x1 convolutions before the main backbone."""
     num_layers: int
+    use_resnet: bool
     filter_size: int
     hidden_channels: int
     num_block_id_layers: int
@@ -43,6 +44,7 @@ class MbagConvolutionalModelConfig(TypedDict, total=False):
     num_unet_layers: int
     """Number of layers to include in a UNet3d, if any."""
     unet_grow_factor: float
+    unet_use_bn: bool
     fake_state: bool
     """Whether to add fake state to this model so that it's treated as recurrent."""
 
@@ -53,13 +55,61 @@ CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
     "mask_goal": False,
     "num_conv_1_layers": 0,
     "num_layers": 3,
+    "use_resnet": False,
     "filter_size": 3,
     "hidden_channels": 32,
     "num_block_id_layers": 1,
     "num_unet_layers": 0,
     "unet_grow_factor": 2.0,
+    "unet_use_bn": False,
     "fake_state": False,
 }
+
+
+class ResidualBlock(nn.Module):
+    """
+    Implements a residual network block with two 3D convolutions, batch norm,
+    and ReLU.
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        filter_size: int = 3,
+        use_bn: bool = True,
+        use_skip_connection: bool = True,
+    ):
+        super().__init__()
+
+        self.conv1 = nn.Conv3d(
+            in_channels=channels,
+            out_channels=channels,
+            kernel_size=filter_size,
+            stride=1,
+            padding=(filter_size - 1) // 2,
+        )
+        self.bn1 = nn.BatchNorm3d(channels) if use_bn else nn.Identity()
+        self.relu1 = nn.ReLU()
+
+        self.conv2 = nn.Conv3d(
+            in_channels=channels,
+            out_channels=channels,
+            kernel_size=filter_size,
+            stride=1,
+            padding=(filter_size - 1) // 2,
+        )
+        self.bn2 = nn.BatchNorm3d(channels) if use_bn else nn.Identity()
+        self.relu2 = nn.ReLU()
+
+        self.use_skip_connection = use_skip_connection
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out: torch.Tensor = self.relu1(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        if self.use_skip_connection:
+            out = out + x
+        out = self.relu2(out)
+        return out
 
 
 class UNet3d(nn.Module):
@@ -75,6 +125,7 @@ class UNet3d(nn.Module):
         num_layers: int,
         fc_layer: nn.Module = nn.Identity(),
         grow_factor: float = 2.0,
+        use_bn: bool = False,
     ):
         """
         Expects inputs of shape
@@ -94,31 +145,36 @@ class UNet3d(nn.Module):
         self.up_layers: List[nn.Module] = []
         layer_size = self.size
         for layer_index in range(self.num_layers):
+            down_in_channels = self.in_channels * int(grow_factor**layer_index)
+            down_out_channels = self.in_channels * int(grow_factor ** (layer_index + 1))
             down_layer = nn.Sequential(
                 nn.Conv3d(
-                    in_channels=self.in_channels * int(grow_factor**layer_index),
-                    out_channels=self.in_channels
-                    * int(grow_factor ** (layer_index + 1)),
+                    in_channels=down_in_channels,
+                    out_channels=down_out_channels,
                     kernel_size=3,
                     stride=2,
                     padding=1,
                 ),
+                *([nn.BatchNorm3d(down_out_channels)] if use_bn else []),
                 nn.LeakyReLU(),
             )
             self.down_layers.append(down_layer)
             self.add_module(f"down_{layer_index}", down_layer)
 
+            up_in_channels = (
+                self.in_channels * 2 * int(grow_factor ** (layer_index + 1))
+            )
+            up_out_channels = self.in_channels * int(grow_factor**layer_index)
             up_layer = nn.Sequential(
                 nn.ConvTranspose3d(
-                    in_channels=self.in_channels
-                    * 2
-                    * int(grow_factor ** (layer_index + 1)),
-                    out_channels=self.in_channels * int(grow_factor**layer_index),
+                    in_channels=up_in_channels,
+                    out_channels=up_out_channels,
                     kernel_size=3,
                     stride=2,
                     padding=1,
                     output_padding=1 if layer_size % 2 == 0 else 0,
                 ),
+                *([nn.BatchNorm3d(up_out_channels)] if use_bn else []),
                 nn.LeakyReLU(),
             )
             self.up_layers.append(up_layer)
@@ -196,11 +252,13 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.mask_goal = extra_config["mask_goal"]
         self.num_conv_1_layers = extra_config["num_conv_1_layers"]
         self.num_layers = extra_config["num_layers"]
+        self.use_resnet = extra_config["use_resnet"]
         self.filter_size = extra_config["filter_size"]
         self.hidden_channels = extra_config["hidden_channels"]
         self.num_block_id_layers = extra_config["num_block_id_layers"]
         self.num_unet_layers = extra_config["num_unet_layers"]
         self.unet_grow_factor = extra_config["unet_grow_factor"]
+        self.unet_use_bn = extra_config["unet_use_bn"]
         self.fake_state: bool = extra_config["fake_state"]
 
         # We have in-planes for current blocks, player locations, and
@@ -250,7 +308,9 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
 
     def _construct_backbone(self, include_unet=False):
         backbone_layers: List[nn.Module] = []
-        for layer_index in range(self.num_conv_1_layers + self.num_layers):
+        layer_index = 0
+        num_layers = self.num_conv_1_layers + self.num_layers
+        while layer_index < num_layers:
             if layer_index < self.num_conv_1_layers:
                 filter_size = 1
             else:
@@ -265,16 +325,27 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 out_channels = self.action_type_space.n + self.hidden_channels
             else:
                 out_channels = self.hidden_channels
-            backbone_layers.append(
-                nn.Conv3d(
-                    in_channels=in_channels,
-                    out_channels=out_channels,
-                    kernel_size=filter_size,
-                    stride=1,
-                    padding=(filter_size - 1) // 2,
+
+            if (
+                self.use_resnet
+                and in_channels == self.hidden_channels
+                and out_channels == self.hidden_channels
+                and layer_index + 2 < num_layers
+            ):
+                backbone_layers.append(ResidualBlock(channels=self.hidden_channels))
+                layer_index += 2
+            else:
+                backbone_layers.append(
+                    nn.Conv3d(
+                        in_channels=in_channels,
+                        out_channels=out_channels,
+                        kernel_size=filter_size,
+                        stride=1,
+                        padding=(filter_size - 1) // 2,
+                    )
                 )
-            )
-            backbone_layers.append(nn.LeakyReLU())
+                backbone_layers.append(nn.LeakyReLU())
+                layer_index += 1
         if include_unet and self.num_unet_layers > 0:
             self.unet = UNet3d(
                 self.world_obs_space.shape[1],
@@ -282,6 +353,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
                 self.action_type_space.n + self.hidden_channels,
                 self.num_unet_layers,
                 grow_factor=self.unet_grow_factor,
+                use_bn=self.unet_use_bn,
             )
             backbone_layers.append(self.unet)
         else:
