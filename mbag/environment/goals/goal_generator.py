@@ -30,6 +30,7 @@ class GoalGenerator(ABC):
                 break
             goal_with_pallette.blocks[size[0] - 1, 1, index] = block
             goal_with_pallette.block_states[size[0] - 1, 1, index] = 0
+        goal_with_pallette.blocks[size[0] - 1, 0, :] = MinecraftBlocks.NAME2ID["dirt"]
         return goal_with_pallette
 
     @abstractmethod

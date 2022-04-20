@@ -48,36 +48,36 @@ def test_inventory():
     assert episode_info.cumulative_reward == 3
 
 
-# @pytest.mark.xfail(strict=False)
-# def test_inventory_in_malmo():
-#     """
-#     Make sure the inventory agent can place blocks
-#     """
+@pytest.mark.xfail(strict=False)
+def test_inventory_in_malmo():
+    """
+    Make sure the inventory agent can place blocks
+    """
 
-#     evaluator = MbagEvaluator(
-#         {
-#             "world_size": (5, 6, 5),
-#             "num_players": 1,
-#             "horizon": 20,
-#             "goal_generator": (BasicGoalGenerator, {}),
-#             "goal_visibility": [True],
-#             "goal_generator_config": {"pallette": True},
-#             "malmo": {
-#                 "use_malmo": False,
-#                 "use_spectator": False,
-#                 "video_dir": None,
-#             },
-#             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
-#         },
-#         [
-#             (
-#                 HardcodedResourceAgent,
-#                 {},
-#             ),
-#         ],
-#     )
-#     episode_info = evaluator.rollout()
-#     assert episode_info.cumulative_reward == 3
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 6, 5),
+            "num_players": 1,
+            "horizon": 20,
+            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_visibility": [True],
+            "goal_generator_config": {"pallette": True},
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (
+                HardcodedResourceAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 3
 
 
 def test_pallette():
