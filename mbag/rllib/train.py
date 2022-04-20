@@ -55,6 +55,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         place_wrong_reward = -1
         teleportation = True
         flying = True
+        inf_blocks = True
         goal_visibility = [True] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
@@ -82,6 +83,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "abilities": {
                 "teleportation": teleportation,
                 "flying": flying,
+                "inf_blocks": inf_blocks,
             },
         }
         env = MbagMultiAgentEnv(**environment_params)

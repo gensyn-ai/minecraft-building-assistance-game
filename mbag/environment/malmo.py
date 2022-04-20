@@ -42,29 +42,31 @@ class MalmoClient(object):
         self.client_pool_size = 0
         self.record_fname = None
 
-    def _get_agent_section_xml(self, player_index: int, env_config: MbagConfigDict):
-        width, height, depth = env_config["world_size"]
-
-        inventory_item_tags: List[str] = []
-        for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
-            block_name = MinecraftBlocks.ID2NAME[block_id]
-            inventory_item_tags.append(
-                f"""
-                <InventoryItem slot="{block_id}" type="{block_name}" />
-                """
-            )
-        inventory_items_xml = "\n".join(inventory_item_tags)
-
+    def get_player_name(self, player_index: int, env_config: MbagConfigDict) -> str:
         if env_config["malmo"]["player_names"] is not None:
             player_name = env_config["malmo"]["player_names"][player_index]
         else:
             player_name = f"player_{player_index}"
         # Player names cannot be longer than 16 character in Minecraft.
-        player_name = player_name[:16]
+        return player_name[:16]
+
+    def _get_agent_section_xml(self, player_index: int, env_config: MbagConfigDict):
+        width, height, depth = env_config["world_size"]
+
+        inventory_item_tags: List[str] = []
+        if env_config["abilities"]["inf_blocks"]:
+            for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                block_name = MinecraftBlocks.ID2NAME[block_id]
+                inventory_item_tags.append(
+                    f"""
+                    <InventoryItem slot="{block_id}" type="{block_name}" />
+                    """
+                )
+        inventory_items_xml = "\n".join(inventory_item_tags)
 
         return f"""
         <AgentSection mode="Creative">
-            <Name>{player_name}</Name>
+            <Name>{self.get_player_name(player_index, env_config)}</Name>
             <AgentStart>
                 <Placement x="{0.5 + player_index}" y="2" z="0.5" yaw="270"/>
                 <Inventory>
@@ -96,6 +98,7 @@ class MalmoClient(object):
                         <command>jump</command>
                     </ModifierList>
                 </HumanLevelCommands>
+                <ChatCommands />
                 <MissionQuitCommands />
             </AgentHandlers>
         </AgentSection>
