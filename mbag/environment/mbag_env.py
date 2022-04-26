@@ -31,6 +31,7 @@ from .types import (
     MbagObs,
     WorldSize,
     FacingDirection,
+    InventoryRepresentation,
     num_world_obs_channels,
 )
 from .goals import ALL_GOAL_GENERATORS
@@ -330,13 +331,30 @@ class MbagEnv(object):
     def _generate_goal(self) -> MinecraftBlocks:
         # Generate a goal with buffer of at least 1 on the sides and bottom.
         world_size = self.config["world_size"]
-        small_goal = self.goal_generator.generate_goal_scene(
-            (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
-        )
+
+        goal_size = (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
+        if not self.config["abilities"]["inf_blocks"]:
+            goal_size = (world_size[0] - 3, world_size[1] - 1, world_size[2] - 2)
+            self.palette_x = world_size[0] - 1
+
+        small_goal = self.goal_generator.generate_goal(goal_size)
 
         goal = self.current_blocks.copy()
-        goal.blocks[1:-1, 1:, 1:-1] = small_goal.blocks
-        goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
+
+        if self.config["abilities"]["inf_blocks"]:
+            goal.blocks[1:-1, 1:, 1:-1] = small_goal.blocks
+            goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
+        else:
+            goal.blocks[1:-2, 1:, 1:-1] = small_goal.blocks
+            goal.block_states[1:-2, 1:, 1:-1] = small_goal.block_states
+
+            for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
+                if index >= world_size[2]:
+                    break
+                goal.blocks[self.palette_x, 2, index] = block
+                goal.block_states[self.palette_x, 2, index] = 0
+
+        # print(goal.blocks)
         return goal
 
     def _copy_palette_from_goal(self):
@@ -382,7 +400,6 @@ class MbagEnv(object):
                     action.block_id, player_index, False
                 )
 
-            # print(inventory_slot)
             if inventory_slot < 0:
                 noop = True
             else:
@@ -482,6 +499,9 @@ class MbagEnv(object):
                             # Give the block to the player. It looks like Malmo
                             # automatically gives broken blocks to the player
                             # so we pass give_in_malmo=False.
+
+                            # Not necessarily. In Minecraft broken block entities have random momentum so
+                            # sometimes the block will not be given to the player.
                             self.try_give_player_block(
                                 int(prev_block[0]), player_index, give_in_malmo=False
                             )
@@ -591,7 +611,7 @@ class MbagEnv(object):
 
     def try_give_player_block(
         self, block_id: int, player_index: int, give_in_malmo: bool = True
-    ):
+    ) -> bool:
         """
         Attempts to give player_index one block of block_id
         Returns a boolean whether the give was successful
@@ -632,7 +652,22 @@ class MbagEnv(object):
 
         return True
 
-    def try_take_player_block(self, block_id: int, player_index: int, take: bool):
+    def simplify_inventory(self, player_index: int) -> InventoryRepresentation:
+        """
+        Simplifies the inventory of the player_index player
+        """
+        player_inventory = self.player_inventories[player_index]
+        inventory_simplified: InventoryRepresentation = np.zeros(
+            10, dtype=int
+        )  # 10 total blocks
+        for i in range(player_inventory.shape[0]):
+            inventory_simplified[player_inventory[i][0]] += player_inventory[i][1]
+
+        return inventory_simplified
+
+    def try_take_player_block(
+        self, block_id: int, player_index: int, take: bool
+    ) -> int:
         """
         Attempts to take from player_index one block of block_id
         Returns the inventory slot that was decremented, or -1 on a failure.
@@ -670,7 +705,9 @@ class MbagEnv(object):
 
         return selected_slot
 
-    def _is_valid_player_space(self, player_location: WorldLocation, player_index: int):
+    def _is_valid_player_space(
+        self, player_location: WorldLocation, player_index: int
+    ) -> bool:
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
             int(np.floor(player_location[1])),
@@ -697,7 +734,7 @@ class MbagEnv(object):
 
         return not self._collides_with_players(proposed_block, player_index)
 
-    def _collides_with_players(self, proposed_block, player_id: int):
+    def _collides_with_players(self, proposed_block, player_id: int) -> bool:
         for i in range(len(self.player_locations)):
 
             if i == player_id:
@@ -763,7 +800,7 @@ class MbagEnv(object):
                     world_obs, other_player_location, other_player_index + 2
                 )
 
-        return (world_obs,)
+        return (world_obs, self.simplify_inventory(player_index))
 
     def _add_player_location_to_world_obs(
         self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int

@@ -53,7 +53,7 @@ class LayerBuilderAgent(MbagAgent):
         self.current_layer = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        (world_obs,) = obs
+        (world_obs, _) = obs
 
         # Check if current layer is done.
         while self.current_layer < self.env_config["world_size"][1] and np.all(
@@ -114,7 +114,7 @@ class PriorityQueueAgent(MbagAgent):
         self.seeding = False
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        (world_obs,) = obs
+        (world_obs, _) = obs
 
         # Check if we need to seed the PQ with all placeable blocks from the initial goal state
         if not self.seeding:

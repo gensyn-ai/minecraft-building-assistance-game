@@ -82,7 +82,7 @@ def test_inventory_in_malmo():
 
 def test_pallette():
     """
-    Make sure the inventory agent can place blocks
+    Make sure the block pallette generates
     """
 
     evaluator = MbagEvaluator(
@@ -91,7 +91,6 @@ def test_pallette():
             "num_players": 1,
             "horizon": 10,
             "goal_generator": (BasicGoalGenerator, {}),
-            "goal_generator_config": {"pallette": True},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -114,7 +113,7 @@ def test_pallette():
 @pytest.mark.xfail(strict=False)
 def test_pallette_in_malmo():
     """
-    Make sure the inventory agent can place blocks
+    Make sure the block pallette generates
     """
 
     evaluator = MbagEvaluator(
@@ -124,7 +123,6 @@ def test_pallette_in_malmo():
             "horizon": 10,
             "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
-            "goal_generator_config": {"pallette": True},
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

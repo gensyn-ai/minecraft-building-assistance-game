@@ -14,25 +14,6 @@ class GoalGenerator(ABC):
         self.config = dict(self.default_config)
         self.config.update(config)
 
-    def generate_goal_scene(self, size: WorldSize) -> MinecraftBlocks:
-
-        if not self.config["pallette"]:
-            return self.generate_goal(size)
-
-        print("Hello")
-        goal = self.generate_goal((size[0] - 1, size[1], size[2]))
-        goal_with_pallette = MinecraftBlocks(size)
-        goal_with_pallette.block_states[: size[0] - 1] = goal.block_states
-        goal_with_pallette.blocks[: size[0] - 1] = goal.blocks
-
-        for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
-            if index >= size[2]:
-                break
-            goal_with_pallette.blocks[size[0] - 1, 1, index] = block
-            goal_with_pallette.block_states[size[0] - 1, 1, index] = 0
-        goal_with_pallette.blocks[size[0] - 1, 0, :] = MinecraftBlocks.NAME2ID["dirt"]
-        return goal_with_pallette
-
     @abstractmethod
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         ...

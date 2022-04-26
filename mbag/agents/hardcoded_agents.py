@@ -160,7 +160,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.BREAK_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (3, 2, 2),
+                        (4, 2, 1),
                         self.env_config["world_size"],
                     )
                 ),
@@ -170,7 +170,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.BREAK_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (3, 2, 2),
+                        (4, 2, 1),
                         self.env_config["world_size"],
                     )
                 ),
@@ -180,7 +180,7 @@ class HardcodedResourceAgent(MbagAgent):
                 MbagAction.BREAK_BLOCK,
                 int(
                     np.ravel_multi_index(
-                        (3, 2, 2),
+                        (4, 2, 1),
                         self.env_config["world_size"],
                     )
                 ),
