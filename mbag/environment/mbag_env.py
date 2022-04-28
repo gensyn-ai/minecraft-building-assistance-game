@@ -31,7 +31,7 @@ from .types import (
     MbagObs,
     WorldSize,
     FacingDirection,
-    InventoryRepresentation,
+    MbagInventoryObs,
     num_world_obs_channels,
 )
 from .goals import ALL_GOAL_GENERATORS
@@ -652,12 +652,12 @@ class MbagEnv(object):
 
         return True
 
-    def simplify_inventory(self, player_index: int) -> InventoryRepresentation:
+    def simplify_inventory(self, player_index: int) -> MbagInventoryObs:
         """
         Simplifies the inventory of the player_index player
         """
         player_inventory = self.player_inventories[player_index]
-        inventory_simplified: InventoryRepresentation = np.zeros(
+        inventory_simplified: MbagInventoryObs = np.zeros(
             10, dtype=int
         )  # 10 total blocks
         for i in range(player_inventory.shape[0]):

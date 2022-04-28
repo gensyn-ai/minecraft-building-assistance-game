@@ -9,7 +9,7 @@ BlockLocation = Tuple[int, int, int]
 
 WorldLocation = Tuple[float, float, float]
 
-InventoryRepresentation = np.ndarray
+MbagInventoryObs = np.ndarray
 """
 1D array mapping block ids with number held in inventory.
 """
@@ -35,7 +35,7 @@ GOAL_BLOCK_STATES = 3
 PLAYER_LOCATIONS = 4
 num_world_obs_channels = 5
 
-MbagObs = Tuple[MbagWorldObsArray, InventoryRepresentation]
+MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs]
 
 INVENTORY_SPACE = 36
 MbagInventory = np.ndarray
