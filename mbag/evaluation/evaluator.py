@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Tuple, Type
 
-import numpy as np
-
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.mbag_env import MbagEnv, MbagConfigDict
 from mbag.environment.types import MbagObs

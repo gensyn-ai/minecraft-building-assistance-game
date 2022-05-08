@@ -91,7 +91,7 @@ class MbagAction(object):
 
     # Which actions require which attributes:
     BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, GIVE_BLOCK]
-    BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK]
+    BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK, GIVE_BLOCK]
 
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
         self.action_type, block_location_index, self.block_id = action_tuple
