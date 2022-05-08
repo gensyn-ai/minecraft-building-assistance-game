@@ -5,6 +5,7 @@ import numpy as np
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.mbag_env import MbagEnv, MbagConfigDict
+from mbag.environment.types import MbagObs
 
 
 MbagAgentConfig = Tuple[Type[MbagAgent], dict]
@@ -14,7 +15,7 @@ MbagAgentConfig = Tuple[Type[MbagAgent], dict]
 class EpisodeInfo:
     cumulative_reward: float
     length: int
-    last_obs: List[Tuple[np.ndarray]]
+    last_obs: List[MbagObs]
 
 
 class MbagEvaluator(object):

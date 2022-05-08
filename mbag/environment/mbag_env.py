@@ -93,6 +93,12 @@ class RewardsConfigDict(TypedDict):
     set_global_timestep on the environment to update the global timestep.
     """
 
+    get_resources: float
+    """
+    A number from 0 to 1. The reward for getting a resource by mining the pallette.
+    Not sure if strictly necessary.
+    """
+
 
 class AbilitiesConfigDict(TypedDict):
     teleportation: bool
@@ -581,22 +587,12 @@ class MbagEnv(object):
                         )
             else:
                 noop = True
-        elif (
-            action.action_type == MbagAction.REQUEST_BLOCK
-            and not self.config["abilities"]["inf_blocks"]
-        ):
-            noop = False
-
-            # TODO: Check if player is standing at the right location
-
-            # TODO: Check for illegal blocks
-
-            noop = self.try_give_player_block(action.block_id, player_index)
 
         if noop:
             reward += self.config["rewards"]["noop"]
 
-        self._copy_palette_from_goal()
+        if not self.config["abilities"]["inf_blocks"]:
+            self._copy_palette_from_goal()
 
         info: MbagInfoDict = {
             "goal_similarity": self._get_goal_similarity(
@@ -671,8 +667,6 @@ class MbagEnv(object):
         """
         Attempts to take from player_index one block of block_id
         Returns the inventory slot that was decremented, or -1 on a failure.
-
-        Not sure how this is gonna work yet
         """
         selected_slot = -1
 
@@ -698,7 +692,7 @@ class MbagEnv(object):
                     player_index, self.config
                 )
                 block_name = MinecraftBlocks.ID2NAME[block_id]
-                # if player_inventory[selected_slot, 1] == 0:
+
                 self.malmo_client.send_command(
                     player_index, f"chat /clear {player_name} {block_name} 0 1"
                 )

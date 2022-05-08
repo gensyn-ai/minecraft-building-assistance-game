@@ -7,7 +7,7 @@ from ..blocks import MinecraftBlocks
 
 
 class GoalGenerator(ABC):
-    default_config: Any = {"pallette": False}
+    default_config: Any = {}
     config: Any
 
     def __init__(self, config: dict):

@@ -1,10 +1,6 @@
 import pytest
-import numpy as np
 import logging
-from numpy.testing import assert_array_equal
 
-from mbag.environment.goals.grabcraft import GrabcraftGoalGenerator
-from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.hardcoded_agents import (
     HardcodedResourceAgent,

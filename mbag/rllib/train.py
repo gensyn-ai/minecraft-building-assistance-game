@@ -52,6 +52,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         width = 5
         depth = 5
         noop_reward = 0
+        get_resources = 0
         place_wrong_reward = -1
         teleportation = True
         flying = True
@@ -79,6 +80,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "place_wrong": place_wrong_reward,
                 "own_reward_prop": own_reward_prop,
                 "own_reward_prop_horizon": own_reward_prop_horizon,
+                "get_resources": get_resources,
             },
             "abilities": {
                 "teleportation": teleportation,

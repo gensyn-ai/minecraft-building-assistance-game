@@ -122,7 +122,7 @@ def test_pq_agent_grabcraft():
             * num_players,
         )
         episode_info = evaluator.rollout()
-        (last_obs,) = episode_info.last_obs[0]
+        (last_obs, _) = episode_info.last_obs[0]
         if not np.all(last_obs[0] == last_obs[2]):
             for layer in range(12):
                 if not np.all(last_obs[0, :, layer] == last_obs[2, :, layer]):

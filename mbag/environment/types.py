@@ -47,7 +47,7 @@ Second dimension is 0 for block id, 1 for block count
 """
 
 
-MbagActionType = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8]
+MbagActionType = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 MbagActionTuple = Tuple[MbagActionType, int, int]
 """
 An action tuple (action_type, block_location, block_id).
@@ -69,9 +69,9 @@ class MbagAction(object):
     MOVE_NEG_Y: MbagActionType = 6
     MOVE_POS_Z: MbagActionType = 7
     MOVE_NEG_Z: MbagActionType = 8
-    REQUEST_BLOCK: MbagActionType = 9
+    GIVE_BLOCK: MbagActionType = 9
 
-    NUM_ACTION_TYPES = 9
+    NUM_ACTION_TYPES = 10
     ACTION_TYPE_NAMES = {
         NOOP: "NOOP",
         PLACE_BLOCK: "PLACE_BLOCK",
@@ -82,7 +82,7 @@ class MbagAction(object):
         MOVE_NEG_Y: "MOVE_NEG_Y",
         MOVE_POS_Z: "MOVE_POS_Z",
         MOVE_NEG_Z: "MOVE_NEG_Z",
-        REQUEST_BLOCK: "REQUEST_BLOCK",
+        GIVE_BLOCK: "GIVE_BLOCK",
     }
 
     action_type: MbagActionType
@@ -90,7 +90,7 @@ class MbagAction(object):
     block_id: int
 
     # Which actions require which attributes:
-    BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, REQUEST_BLOCK]
+    BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, GIVE_BLOCK]
     BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK]
 
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):

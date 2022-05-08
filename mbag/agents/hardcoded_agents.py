@@ -1,12 +1,8 @@
-from typing import Dict, List, Tuple, Type
+from typing import List
 import numpy as np
-import random
-import heapq
 
 from ..environment.types import (
-    BlockLocation,
     MbagActionTuple,
-    MbagActionType,
     MbagObs,
     MbagAction,
 )

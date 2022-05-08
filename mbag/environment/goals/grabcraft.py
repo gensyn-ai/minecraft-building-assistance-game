@@ -56,7 +56,6 @@ class GrabcraftGoalGenerator(GoalGenerator):
         "subset": "train",
         "force_single_cc": False,
         "use_limited_block_set": True,
-        "pallette": False,
     }
 
     config: GrabcraftGoalConfig
@@ -232,7 +231,6 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         ],
         "density_threshold": 0.25,
         "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
-        "pallette": "false",
     }
 
     config: CroppedGrabcraftGoalConfig
