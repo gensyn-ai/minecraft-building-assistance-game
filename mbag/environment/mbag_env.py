@@ -434,7 +434,7 @@ class MbagEnv(object):
             action.action_type == MbagAction.GIVE_BLOCK
             and not self.config["abilities"]["inf_blocks"]
         ):
-            noop = not self.handle_give_block(
+            noop = 0 == self.handle_give_block(
                 player_index, action.block_id, action.block_location
             )
 
@@ -618,24 +618,32 @@ class MbagEnv(object):
         return True
 
     def handle_give_block(
-        self, player_index: int, block_id: int, player_location: WorldLocation
+        self, player_index: int, block_id: int, player_location_temp: WorldLocation
     ) -> bool:
         """
-        Handles giving a block to a player. Returns whether the action was successful or not
+        Handles giving a block to a player. Returns how many blocks were given
         """
 
         player_given = -1
+        player_location = (
+            player_location_temp[0] + 0.5,
+            player_location_temp[1],
+            player_location_temp[2] + 0.5,
+        )
+        print(self.player_locations)
+        print(player_location)
 
         # Check if player can reach the location specified
         current_location = self.player_locations[player_index]
-        if player_location not in (
-            current_location + (1, 0, 0),
-            current_location + (0, 0, 1),
-            current_location + (-1, 0, 0),
-            current_location + (0, 0, -1),
-        ):
+        if player_location not in [
+            (current_location[0] + 1, current_location[1], current_location[2]),
+            (current_location[0] - 1, current_location[1], current_location[2]),
+            (current_location[0], current_location[1], current_location[2] + 1),
+            (current_location[0], current_location[1], current_location[2] - 1),
+        ]:
             return False
 
+        print("Finding player index")
         # Find player index at the location specified
         try:
             player_given = self.player_locations.index(player_location)
@@ -643,21 +651,22 @@ class MbagEnv(object):
             return False
 
         BLOCKS_GIVEN = 5
+        print("Giving the blocks")
 
+        print(self.player_inventories[player_index])
         # Give the blocks
-        for _ in range(BLOCKS_GIVEN):
+        for i in range(BLOCKS_GIVEN):
             success = False
-            inventory_taken = self.try_take_player_block(
-                block_id, player_index, self.config["malmo"]["use_malmo"]
-            )
+            inventory_taken = self.try_take_player_block(block_id, player_index, True)
             if inventory_taken >= 0:
-                success = self.try_give_player_block(
-                    block_id, player_given, self.config["malmo"]["use_malmo"]
-                )
+                success = self.try_give_player_block(block_id, player_given, True)
 
             if not success:
-                return False
-        return True
+                return i
+        print("Successfully gave block to player")
+        print(self.player_inventories[player_index])
+
+        return BLOCKS_GIVEN
 
     def try_give_player_block(
         self, block_id: int, player_index: int, give_in_malmo: bool = True
