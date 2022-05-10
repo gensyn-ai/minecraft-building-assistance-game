@@ -59,6 +59,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         flying = True
         inf_blocks = True
         goal_visibility = [True] * num_players
+        timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
         environment_params: MbagConfigDict = {
@@ -76,6 +77,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "player_names": None,
             },
             "goal_visibility": goal_visibility,
+            "timestep_skip": timestep_skip,
             "rewards": {
                 "noop": noop_reward,
                 "action": action_reward,
