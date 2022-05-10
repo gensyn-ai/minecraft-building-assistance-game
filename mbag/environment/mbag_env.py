@@ -360,7 +360,7 @@ class MbagEnv(object):
                 goal.blocks[self.palette_x, 2, index] = block
                 goal.block_states[self.palette_x, 2, index] = 0
 
-        # print(goal.blocks)
+        # logger.debug(goal.blocks)
         return goal
 
     def _copy_palette_from_goal(self):
@@ -395,7 +395,7 @@ class MbagEnv(object):
             pass
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             prev_block = self.current_blocks[action.block_location]
-            noop = not self.handle_place_break(player_index, action)
+            noop = not self._handle_place_break(player_index, action)
 
             # Calculate reward based on progress towards goal.
             if (
@@ -406,7 +406,7 @@ class MbagEnv(object):
                 # might be worth adding a test to make sure the reward only comes
                 # through if they did
                 reward = self.config["rewards"]["get_resources"]
-                # print("Getting block")
+                # logger.debug("Getting block")
             else:
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
@@ -429,12 +429,12 @@ class MbagEnv(object):
             ]
             and not self.config["abilities"]["teleportation"]
         ):
-            noop = not self.handle_move(player_index, action.action_type)
+            noop = not self._handle_move(player_index, action.action_type)
         elif (
             action.action_type == MbagAction.GIVE_BLOCK
             and not self.config["abilities"]["inf_blocks"]
         ):
-            noop = 0 == self.handle_give_block(
+            noop = 0 == self._handle_give_block(
                 player_index, action.block_id, action.block_location
             )
 
@@ -455,7 +455,7 @@ class MbagEnv(object):
 
         return reward, info
 
-    def handle_place_break(self, player_index: int, action: MbagAction) -> bool:
+    def _handle_place_break(self, player_index: int, action: MbagAction) -> bool:
         prev_block = self.current_blocks[action.block_location]
         inventory_slot = 0
 
@@ -463,7 +463,7 @@ class MbagEnv(object):
             not self.config["abilities"]["inf_blocks"]
             and action.action_type == MbagAction.PLACE_BLOCK
         ):
-            inventory_slot = self.try_take_player_block(
+            inventory_slot = self._try_take_player_block(
                 action.block_id, player_index, False
             )
 
@@ -565,17 +565,18 @@ class MbagEnv(object):
 
                 # Not necessarily. In Minecraft broken block entities have random momentum so
                 # sometimes the block will not be given to the player.
-                self.try_give_player_block(
+                self._try_give_player_block(
                     int(prev_block[0]), player_index, give_in_malmo=False
                 )
             else:
                 # Take block from player
                 assert (
-                    self.try_take_player_block(action.block_id, player_index, True) >= 0
+                    self._try_take_player_block(action.block_id, player_index, True)
+                    >= 0
                 )
         return True
 
-    def handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
+    def _handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
         """
         Handle a move action.
         Returns whether the action was successful or not
@@ -617,58 +618,60 @@ class MbagEnv(object):
 
         return True
 
-    def handle_give_block(
-        self, player_index: int, block_id: int, player_location_temp: WorldLocation
-    ) -> bool:
+    BLOCKS_TO_GIVE = 5
+    """The number of blocks given in a GIVE_BLOCK action."""
+
+    def _handle_give_block(
+        self, giver_player_index: int, block_id: int, receiver_location: WorldLocation
+    ) -> int:
         """
-        Handles giving a block to a player. Returns how many blocks were given
+        Handles giving blocks to a player. Returns how many blocks were given.
         """
 
-        player_given = -1
-        player_location = (
-            player_location_temp[0] + 0.5,
-            player_location_temp[1],
-            player_location_temp[2] + 0.5,
+        receiver_player_location = (
+            receiver_location[0] + 0.5,
+            receiver_location[1],
+            receiver_location[2] + 0.5,
         )
-        print(self.player_locations)
-        print(player_location)
+        logger.debug(self.player_locations)
+        logger.debug(receiver_player_location)
 
-        # Check if player can reach the location specified
-        current_location = self.player_locations[player_index]
-        if player_location not in [
-            (current_location[0] + 1, current_location[1], current_location[2]),
-            (current_location[0] - 1, current_location[1], current_location[2]),
-            (current_location[0], current_location[1], current_location[2] + 1),
-            (current_location[0], current_location[1], current_location[2] - 1),
-        ]:
-            return False
+        # Check if player can reach the location specified (has to be within one block
+        # in all directions).
+        gx, gy, gz = self.player_locations[giver_player_index]
+        rx, ry, rz = receiver_player_location
+        if abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1:
+            return 0
 
-        print("Finding player index")
+        logger.debug("Finding player index")
         # Find player index at the location specified
         try:
-            player_given = self.player_locations.index(player_location)
+            receiver_player_index = self.player_locations.index(
+                receiver_player_location
+            )
         except ValueError:
-            return False
+            return 0
 
-        BLOCKS_GIVEN = 5
-        print("Giving the blocks")
-
-        print(self.player_inventories[player_index])
+        logger.debug(self.player_inventories[giver_player_index])
         # Give the blocks
-        for i in range(BLOCKS_GIVEN):
+        for block_index in range(self.BLOCKS_TO_GIVE):
             success = False
-            inventory_taken = self.try_take_player_block(block_id, player_index, True)
+            inventory_taken = self._try_take_player_block(
+                block_id, giver_player_index, True
+            )
             if inventory_taken >= 0:
-                success = self.try_give_player_block(block_id, player_given, True)
+                success = self._try_give_player_block(
+                    block_id, receiver_player_index, True
+                )
 
             if not success:
-                return i
-        print("Successfully gave block to player")
-        print(self.player_inventories[player_index])
+                return block_index
+        logger.debug("Successfully gave block to player")
+        logger.debug(self.player_inventories[giver_player_index])
 
-        return BLOCKS_GIVEN
+        return self.BLOCKS_TO_GIVE
 
-    def try_give_player_block(
+    def _try_give_player_block(
         self, block_id: int, player_index: int, give_in_malmo: bool = True
     ) -> bool:
         """
@@ -708,20 +711,21 @@ class MbagEnv(object):
 
         return True
 
-    def simplify_inventory(self, player_index: int) -> MbagInventoryObs:
+    def _get_inventory_obs(self, player_index: int) -> MbagInventoryObs:
         """
-        Simplifies the inventory of the player_index player
+        Gets the array representation of the given player's inventory.
         """
+
         player_inventory = self.player_inventories[player_index]
-        inventory_simplified: MbagInventoryObs = np.zeros(
+        inventory_obs: MbagInventoryObs = np.zeros(
             MinecraftBlocks.NUM_BLOCKS, dtype=int
         )  # 10 total blocks
         for i in range(player_inventory.shape[0]):
-            inventory_simplified[player_inventory[i][0]] += player_inventory[i][1]
+            inventory_obs[player_inventory[i][0]] += player_inventory[i][1]
 
-        return inventory_simplified
+        return inventory_obs
 
-    def try_take_player_block(
+    def _try_take_player_block(
         self, block_id: int, player_index: int, take: bool
     ) -> int:
         """
@@ -854,7 +858,7 @@ class MbagEnv(object):
                     world_obs, other_player_location, other_player_index + 2
                 )
 
-        return (world_obs, self.simplify_inventory(player_index))
+        return (world_obs, self._get_inventory_obs(player_index))
 
     def _add_player_location_to_world_obs(
         self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
