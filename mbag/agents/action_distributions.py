@@ -2,7 +2,7 @@ import numpy as np
 from scipy import ndimage
 
 from mbag.environment.mbag_env import MbagConfigDict
-from mbag.environment.types import MbagAction, MbagObs, CURRENT_BLOCKS
+from mbag.environment.types import MbagAction, MbagObs, CURRENT_BLOCKS, PLAYER_LOCATIONS
 from mbag.environment.blocks import MinecraftBlocks
 
 
@@ -72,7 +72,16 @@ class MbagActionDistribution(object):
             (world_obs[:, CURRENT_BLOCKS] != MinecraftBlocks.AIR) | ~next_to_solid
         ] = False
 
-        # Next, we can only give blocks
+        # Next, we can only break blocks in locations with solid blocks
+        invalid_blocks = np.logical_or(
+            world_obs[:, CURRENT_BLOCKS, :, :, :] == MinecraftBlocks.AIR,
+            world_obs[:, CURRENT_BLOCKS, :, :, :] == MinecraftBlocks.BEDROCK,
+        )
+        mask[:, MbagAction.BREAK_BLOCK][invalid_blocks] = False
+
+        # Next, we can only give blocks to locations with players in them
+        print(world_obs[:, PLAYER_LOCATIONS])
+
         return mask
 
     @staticmethod
@@ -104,22 +113,19 @@ class MbagActionDistribution(object):
 
         # Some actions are unique to a location
         unique[:, MbagAction.PLACE_BLOCK] = np.arange(
-            2 * action_type * batch_size * width * height * depth,
-            3 * action_type * batch_size * width * height * depth,
+            2 * batch_size * width * height * depth,
+            3 * batch_size * width * height * depth,
         ).reshape(batch_size, 1, width, height, depth)
 
         unique[:, MbagAction.BREAK_BLOCK] = np.arange(
-            3 * action_type * batch_size * width * height * depth,
-            4 * action_type * batch_size * width * height * depth,
+            3 * batch_size * width * height * depth,
+            4 * batch_size * width * height * depth,
         ).reshape(batch_size, 1, width, height, depth)
 
         unique[:, MbagAction.GIVE_BLOCK] = np.arange(
-            4 * action_type * batch_size * width * height * depth,
-            5 * action_type * batch_size * width * height * depth,
+            4 * batch_size * width * height * depth,
+            5 * batch_size * width * height * depth,
         ).reshape(batch_size, 1, width, height, depth)
-
-        unique_flat = unique.reshape((batch_size, -1))
-        unique_flat[:] = np.arange(unique_flat.shape[1], dtype=unique.dtype)[None] + 1
 
         unique[~mask] = 0
 
