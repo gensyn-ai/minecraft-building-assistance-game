@@ -19,7 +19,6 @@ import logging
 
 from .blocks import MinecraftBlocks
 from .types import (
-    INVENTORY_SPACE,
     BlockLocation,
     MbagActionType,
     MbagInventory,
@@ -95,7 +94,7 @@ class RewardsConfigDict(TypedDict):
 
     get_resources: float
     """
-    A number from 0 to 1. The reward for getting a resource by mining the pallette.
+    A number from 0 to 1. The reward for getting a resource by mining the palette.
     Not sure if strictly necessary.
     """
 
@@ -181,6 +180,15 @@ class MbagEnv(object):
     timestep: int
     global_timestep: int
 
+    BLOCKS_TO_GIVE = 5
+    """The number of blocks given in a GIVE_BLOCK action."""
+
+    INVENTORY_NUM_SLOTS = 36
+    """The number of stacks of items a player can carry."""
+
+    STACK_SIZE = 64
+    """The maximum number of blocks a player can carry in a stack."""
+
     def __init__(self, config: MbagConfigDict):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
         self.config.update(config)
@@ -198,13 +206,21 @@ class MbagEnv(object):
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
-            (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
+            (
+                spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),
+                spaces.Box(
+                    0,
+                    self.INVENTORY_NUM_SLOTS * self.STACK_SIZE,
+                    (MinecraftBlocks.NUM_BLOCKS,),
+                    dtype=int,
+                ),
+            )
         )
         self.palette_x = self.config["world_size"][0] - 2
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
-            np.zeros((INVENTORY_SPACE, 2), dtype=np.int32)
+            np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
             for _ in range(self.config["num_players"])
         ]
         self.player_selected_hotbars = [0 for _ in range(self.config["num_players"])]
@@ -618,9 +634,6 @@ class MbagEnv(object):
 
         return True
 
-    BLOCKS_TO_GIVE = 5
-    """The number of blocks given in a GIVE_BLOCK action."""
-
     def _handle_give_block(
         self, giver_player_index: int, block_id: int, receiver_location: WorldLocation
     ) -> int:
@@ -684,7 +697,7 @@ class MbagEnv(object):
         player_inventory = self.player_inventories[player_index]
         matching_inventory_slots = np.where(
             (player_inventory[:, 0] == block_id)
-            & (player_inventory[:, 1] < 64)
+            & (player_inventory[:, 1] < self.STACK_SIZE)
             & (player_inventory[:, 1] > 0)
         )[0]
 
@@ -940,7 +953,7 @@ class MbagEnv(object):
                         ],
                         malmo_player_state[f"InventorySlot_{slot}_size"],  # type: ignore
                     ]
-                    for slot in range(INVENTORY_SPACE)
+                    for slot in range(self.INVENTORY_NUM_SLOTS)
                 ]
             )
             if self.config["abilities"]["inf_blocks"]:

@@ -37,7 +37,6 @@ num_world_obs_channels = 5
 
 MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs]
 
-INVENTORY_SPACE = 36
 MbagInventory = np.ndarray
 """
 Player inventory will be stored as 2d numpy array.
