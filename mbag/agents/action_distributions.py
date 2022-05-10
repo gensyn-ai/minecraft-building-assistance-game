@@ -36,6 +36,8 @@ class MbagActionDistribution(object):
         """
 
         world_obs, inventory_obs = obs
+        print(inventory_obs.shape)
+        print(world_obs.shape)
         batch_size, _, width, height, depth = world_obs.shape
 
         mask = np.ones(
@@ -70,6 +72,7 @@ class MbagActionDistribution(object):
             (world_obs[:, CURRENT_BLOCKS] != MinecraftBlocks.AIR) | ~next_to_solid
         ] = False
 
+        # Next, we can only give blocks
         return mask
 
     @staticmethod
@@ -86,12 +89,35 @@ class MbagActionDistribution(object):
         """
 
         world_obs, inventory_obs = obs
-        batch_size = world_obs.shape[0]
+        batch_size, _, width, height, depth = world_obs.shape
 
         mask = MbagActionDistribution.get_action_type_location_mask(config, obs)
         unique = np.zeros(mask.shape, dtype=np.int32)
 
         # TODO: which actions are actually unique?
+
+        # Most actions are the same accross all locations
+        for action_type in range(MbagAction.NUM_ACTION_TYPES):
+            unique[:, action_type] = np.arange(
+                action_type * batch_size, (action_type + 1) * batch_size
+            )
+
+        # Some actions are unique to a location
+        unique[:, MbagAction.PLACE_BLOCK] = np.arange(
+            2 * action_type * batch_size * width * height * depth,
+            3 * action_type * batch_size * width * height * depth,
+        ).reshape(batch_size, 1, width, height, depth)
+
+        unique[:, MbagAction.BREAK_BLOCK] = np.arange(
+            3 * action_type * batch_size * width * height * depth,
+            4 * action_type * batch_size * width * height * depth,
+        ).reshape(batch_size, 1, width, height, depth)
+
+        unique[:, MbagAction.GIVE_BLOCK] = np.arange(
+            4 * action_type * batch_size * width * height * depth,
+            5 * action_type * batch_size * width * height * depth,
+        ).reshape(batch_size, 1, width, height, depth)
+
         unique_flat = unique.reshape((batch_size, -1))
         unique_flat[:] = np.arange(unique_flat.shape[1], dtype=unique.dtype)[None] + 1
 
@@ -121,9 +147,26 @@ class MbagActionDistribution(object):
 
         # Can't place unplaceable block types.
         mask[
-            (action_type == MbagAction.PLACE_BLOCK)[:, None]
+            (
+                np.logical_or(
+                    action_type == MbagAction.PLACE_BLOCK,
+                    action_type == MbagAction.GIVE_BLOCK,
+                )
+            )[:, None]
             & ~MbagActionDistribution.PLACEABLE_BLOCK_MASK[None, :]
         ] = False
+
+        # Next, we can only place blocks that we currently have
+        if not config["abilities"]["inf_blocks"]:
+            mask[
+                (
+                    np.logical_or(
+                        action_type == MbagAction.PLACE_BLOCK,
+                        action_type == MbagAction.GIVE_BLOCK,
+                    )
+                )[:, None]
+                & (inventory_obs <= 0)
+            ] = False
 
         return mask
 
@@ -146,8 +189,16 @@ class MbagActionDistribution(object):
         )
         unique = np.zeros(mask.shape, dtype=np.int32)
 
-        # TODO: which actions are actually unique?
         unique[:] = np.arange(unique.shape[1], dtype=unique.dtype)[None] + 1
+
+        starting = unique.size * 2
+        # Movement and break block don't care about block IDs
+        for i in range(action_type.shape[0]):
+            if (
+                not action_type[i] == MbagAction.PLACE_BLOCK
+                and not action_type[i] == MbagAction.GIVE_BLOCK
+            ):
+                unique[i, :] = starting + i
 
         unique[~mask] = 0
 

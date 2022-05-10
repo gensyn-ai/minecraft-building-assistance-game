@@ -714,7 +714,7 @@ class MbagEnv(object):
         """
         player_inventory = self.player_inventories[player_index]
         inventory_simplified: MbagInventoryObs = np.zeros(
-            10, dtype=int
+            MinecraftBlocks.NUM_BLOCKS, dtype=int
         )  # 10 total blocks
         for i in range(player_inventory.shape[0]):
             inventory_simplified[player_inventory[i][0]] += player_inventory[i][1]
