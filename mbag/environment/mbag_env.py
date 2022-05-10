@@ -486,6 +486,9 @@ class MbagEnv(object):
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
 
+        if reward > 0:  # or action.action_type == MbagAction.PLACE_BLOCK:
+            print(action, reward, self._get_inventory_obs(player_index))
+
         info: MbagInfoDict = {
             "goal_similarity": self._get_goal_similarity(
                 self.current_blocks[:],
@@ -742,6 +745,11 @@ class MbagEnv(object):
         # Give the inventory item
         player_inventory[selected_slot, 0] = block_id
         player_inventory[selected_slot, 1] += 1
+        if np.any(self._get_inventory_obs(player_index) > 100):
+            print(
+                f"adding {MinecraftBlocks.ID2NAME[block_id]} to slot {selected_slot}",
+                self._get_inventory_obs(player_index),
+            )
 
         if self.config["malmo"]["use_malmo"] and give_in_malmo:
             player_name = self.malmo_client.get_player_name(player_index, self.config)
