@@ -465,15 +465,7 @@ class MbagEnv(object):
                 )
                 reward = new_goal_similarity - prev_goal_similarity
         elif (
-            action.action_type
-            in [
-                MbagAction.MOVE_POS_X,
-                MbagAction.MOVE_NEG_X,
-                MbagAction.MOVE_POS_Y,
-                MbagAction.MOVE_NEG_Y,
-                MbagAction.MOVE_POS_Z,
-                MbagAction.MOVE_NEG_Z,
-            ]
+            action.action_type in MbagAction.MOVE_ACTION_TYPES
             and not self.config["abilities"]["teleportation"]
         ):
             noop = not self._handle_move(player_index, action.action_type)
