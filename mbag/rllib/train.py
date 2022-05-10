@@ -44,6 +44,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
     def sacred_config(_log):  # noqa
         # Environment
+        env_id = "MBAG-v1"
         goal_generator = "random"
         goal_subset = "train"
         horizon = 50
@@ -52,7 +53,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         width = 5
         depth = 5
         noop_reward = 0
-        get_resources = 0
+        get_resources_reward = 0
         action_reward = 0
         place_wrong_reward = -1
         teleportation = True
@@ -84,7 +85,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "place_wrong": place_wrong_reward,
                 "own_reward_prop": own_reward_prop,
                 "own_reward_prop_horizon": own_reward_prop_horizon,
-                "get_resources": get_resources,
+                "get_resources": get_resources_reward,
             },
             "abilities": {
                 "teleportation": teleportation,

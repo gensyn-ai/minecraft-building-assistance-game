@@ -264,7 +264,10 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         # We have in-planes for current blocks, player locations, and
         # goal blocks if mask_goal is False.
         self.in_planes = 2 if self.mask_goal else 3  # TODO: update if we add more
-        self.in_channels = self.in_planes * self.embedding_size
+        # Add inventory observation as extra input channels.
+        self.in_channels = (
+            self.in_planes * self.embedding_size + MinecraftBlocks.NUM_BLOCKS
+        )
         if self.use_extra_features:
             self.in_channels += 1
 
@@ -360,8 +363,9 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             backbone_layers = backbone_layers[:-1]  # Remove last ReLU.
         return nn.Sequential(*backbone_layers)
 
+    # @torch.autocast("cuda" if torch.cuda.is_available() else "cpu")
     def forward(self, input_dict, state, seq_lens):
-        (self._world_obs,) = input_dict["obs"]
+        (self._world_obs, self._inventory_obs) = input_dict["obs"]
 
         # TODO: embed other block info?
         self._world_obs = self._world_obs.long()
@@ -376,6 +380,11 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             self._world_obs[:, PLAYER_LOCATIONS]
         )
         embedded_obs_pieces.append(embedded_player_locations)
+        embedded_obs_pieces.append(
+            self._inventory_obs[:, None, None, None, :].expand(
+                *embedded_obs_pieces[0].size()[:-1], -1
+            )
+        )
         if self.use_extra_features:
             # Feature for if goal block is the same as the current block at each
             # location.
@@ -394,15 +403,19 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             backbone_out = self.action_backbone(self._embedded_obs)
             self._backbone_out_shape = backbone_out.size()[1:]
             self._logits = backbone_out.flatten(start_dim=1)
-        return self._logits, state
+
+        # with torch.autocast(enabled=False):
+        return self._logits.float(), [s.float() for s in state]
 
     @property
     def logits(self) -> torch.Tensor:
-        return self._logits
+        return self._logits.float()
 
+    # @torch.autocast("cuda" if torch.cuda.is_available() else "cpu")
     def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
         return cast(torch.Tensor, self.block_id_head(head_input))
 
+    # @torch.autocast("cuda" if torch.cuda.is_available() else "cpu")
     def value_function(self):
         if self.vf_share_layers:
             return self.value_head(self._backbone_out).squeeze(1)

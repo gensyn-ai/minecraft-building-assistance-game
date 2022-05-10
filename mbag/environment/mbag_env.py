@@ -232,7 +232,6 @@ class MbagEnv(object):
                 ),
             )
         )
-        self.palette_x = self.config["world_size"][0] - 2
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
@@ -434,6 +433,7 @@ class MbagEnv(object):
             pass
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             prev_block = self.current_blocks[action.block_location]
+            prev_inventory_obs = self._get_inventory_obs(player_index)
             noop = not self._handle_place_break(player_index, action)
 
             # Calculate reward based on progress towards goal.
@@ -444,10 +444,11 @@ class MbagEnv(object):
                 # TODO: shouldn't we check if the user actually broke the block?
                 # might be worth adding a test to make sure the reward only comes
                 # through if they did
-                reward = self._get_reward_config_for_player(player_index)[
-                    "get_resources"
-                ]
-                # logger.debug("Getting block")
+                new_inventory_obs = self._get_inventory_obs(player_index)
+                reward += (
+                    np.count_nonzero(new_inventory_obs)
+                    - np.count_nonzero(prev_inventory_obs)
+                ) * self._get_reward_config_for_player(player_index)["get_resources"]
             else:
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
@@ -463,7 +464,7 @@ class MbagEnv(object):
                     partial_credit=True,
                     player_index=player_index,
                 )
-                reward = new_goal_similarity - prev_goal_similarity
+                reward += new_goal_similarity - prev_goal_similarity
         elif (
             action.action_type in MbagAction.MOVE_ACTION_TYPES
             and not self.config["abilities"]["teleportation"]
@@ -678,7 +679,9 @@ class MbagEnv(object):
         # in all directions).
         gx, gy, gz = self.player_locations[giver_player_index]
         rx, ry, rz = receiver_player_location
-        if abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1:
+        if not self.config["abilities"]["teleportation"] and (
+            abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1
+        ):
             return 0
 
         logger.debug("Finding player index")
