@@ -4,7 +4,6 @@ import logging
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.hardcoded_agents import (
     HardcodedResourceAgent,
-    HardcodedInventoryReceiver,
     HardcodedInventoryDonator,
 )
 from mbag.agents.heuristic_agents import NoopAgent

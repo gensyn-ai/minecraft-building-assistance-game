@@ -9,6 +9,7 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.rollout import rollout
 from ray.rllib.utils.typing import PolicyID
+from ray.rllib.agents import Trainer
 from sacred import Experiment
 from sacred import SETTINGS
 
@@ -27,27 +28,33 @@ def sacred_config():
     episodes = 100  # noqa: F841
     experiment_name = ""  # noqa: F841
     policy_ids: Optional[List[str]] = None  # noqa: F841
+    seed = 0
 
     num_workers = 4
     output_max_file_size = 64 * 1024 * 1024
     config_updates = {  # noqa: F841
+        "seed": seed,
         "evaluation_num_workers": num_workers,
         "create_env_on_driver": True,
-        "evaluation_num_episodes": 1,
+        "evaluation_num_episodes": max(num_workers, 1),
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
         "env_config": {"malmo": {}},
         "multiagent": {},
         "num_gpus": 1 if torch.cuda.is_available() else 0,
     }
+    extra_config_updates = {}  # noqa: F841
 
     record_video = False  # noqa: F841
+    if record_video:
+        num_workers = 0
 
 
 @ex.automain
 def main(
     run: str,
     config_updates: dict,
+    extra_config_updates: dict,
     checkpoint: str,
     experiment_name: str,
     episodes: int,
@@ -58,6 +65,10 @@ def main(
     ray.init(
         ignore_reinit_error=True,
         include_dashboard=False,
+    )
+
+    config_updates = Trainer.merge_trainer_configs(
+        config_updates, extra_config_updates, _allow_unknown_configs=True
     )
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

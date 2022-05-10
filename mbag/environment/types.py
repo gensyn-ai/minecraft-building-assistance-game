@@ -37,7 +37,6 @@ num_world_obs_channels = 5
 
 MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs]
 
-INVENTORY_SPACE = 36
 MbagInventory = np.ndarray
 """
 Player inventory will be stored as 2d numpy array.
@@ -62,7 +61,6 @@ class MbagAction(object):
     NOOP: MbagActionType = 0
     PLACE_BLOCK: MbagActionType = 1
     BREAK_BLOCK: MbagActionType = 2
-
     MOVE_POS_X: MbagActionType = 3
     MOVE_NEG_X: MbagActionType = 4
     MOVE_POS_Y: MbagActionType = 5
@@ -92,6 +90,14 @@ class MbagAction(object):
     # Which actions require which attributes:
     BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, GIVE_BLOCK]
     BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK, GIVE_BLOCK]
+    MOVE_ACTION_TYPES = [
+        MOVE_POS_X,
+        MOVE_NEG_X,
+        MOVE_POS_Y,
+        MOVE_NEG_Y,
+        MOVE_POS_Z,
+        MOVE_NEG_Z,
+    ]
 
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
         self.action_type, block_location_index, self.block_id = action_tuple

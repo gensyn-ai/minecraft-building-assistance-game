@@ -19,7 +19,6 @@ import logging
 
 from .blocks import MinecraftBlocks
 from .types import (
-    INVENTORY_SPACE,
     BlockLocation,
     MbagActionType,
     MbagInventory,
@@ -73,6 +72,12 @@ class RewardsConfigDict(TypedDict):
     or negative to discourage noops.
     """
 
+    action: float
+    """
+    The reward for doing any action which is not a noop. This could be negative to
+    introduce some cost for acting.
+    """
+
     place_wrong: float
     """
     The reward for placing a block which is not correct, but in a place where a block
@@ -95,7 +100,7 @@ class RewardsConfigDict(TypedDict):
 
     get_resources: float
     """
-    A number from 0 to 1. The reward for getting a resource by mining the pallette.
+    A number from 0 to 1. The reward for getting a resource by mining the palette.
     Not sure if strictly necessary.
     """
 
@@ -135,11 +140,19 @@ class MbagConfigDict(TypedDict, total=False):
     goal.
     """
 
+    timestep_skip: List[int]
+    """
+    Each element is how often the corresponding player can interact with the
+    environment, i.e. 1 means every timestep, 5 means only every 5th timestep.
+    """
+
     malmo: MalmoConfigDict
     """Configuration options for connecting to Minecraft with Project Malmo."""
 
-    rewards: RewardsConfigDict
-    """Configuration options for environment reward."""
+    rewards: Union[RewardsConfigDict, List[RewardsConfigDict]]
+    """
+    Configuration options for environment reward, optionally different for each player.
+    """
 
     abilities: AbilitiesConfigDict
     """Configuration for limits placed on the agent (flying, teleportation, inventory, etc...) """
@@ -152,6 +165,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "goal_generator": RandomGoalGenerator,
     "goal_generator_config": {},
     "goal_visibility": [True, False],
+    "timestep_skip": [1] * 10,
     "malmo": {
         "use_malmo": False,
         "player_names": None,
@@ -159,9 +173,10 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "video_dir": None,
     },
     "rewards": {
-        "noop": 0,
-        "place_wrong": 0,
-        "own_reward_prop": 0,
+        "noop": 0.0,
+        "action": 0.0,
+        "place_wrong": 0.0,
+        "own_reward_prop": 0.0,
         "own_reward_prop_horizon": None,
         "get_resources": 0,
     },
@@ -181,6 +196,15 @@ class MbagEnv(object):
     timestep: int
     global_timestep: int
 
+    BLOCKS_TO_GIVE = 5
+    """The number of blocks given in a GIVE_BLOCK action."""
+
+    INVENTORY_NUM_SLOTS = 36
+    """The number of stacks of items a player can carry."""
+
+    STACK_SIZE = 64
+    """The maximum number of blocks a player can carry in a stack."""
+
     def __init__(self, config: MbagConfigDict):
         self.config = copy.deepcopy(DEFAULT_CONFIG)
         self.config.update(config)
@@ -198,13 +222,21 @@ class MbagEnv(object):
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
-            (spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),)
+            (
+                spaces.Box(0, 255, self.world_obs_shape, dtype=np.uint8),
+                spaces.Box(
+                    0,
+                    self.INVENTORY_NUM_SLOTS * self.STACK_SIZE,
+                    (MinecraftBlocks.NUM_BLOCKS,),
+                    dtype=int,
+                ),
+            )
         )
         self.palette_x = self.config["world_size"][0] - 2
         self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
-            np.zeros((INVENTORY_SPACE, 2), dtype=np.int32)
+            np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
             for _ in range(self.config["num_players"])
         ]
         self.player_selected_hotbars = [0 for _ in range(self.config["num_players"])]
@@ -305,9 +337,15 @@ class MbagEnv(object):
         infos: List[MbagInfoDict] = []
 
         for player_index, player_action_tuple in enumerate(action_tuples):
-            player_reward, player_info = self._step_player(
-                player_index, player_action_tuple
-            )
+            if self.timestep % self.config["timestep_skip"][player_index] == 0:
+                player_reward, player_info = self._step_player(
+                    player_index, player_action_tuple
+                )
+            else:
+                player_reward, player_info = self._step_player(
+                    player_index,
+                    (MbagAction.NOOP, 0, 0),
+                )
             reward += player_reward
             own_rewards.append(player_reward)
             infos.append(player_info)
@@ -323,7 +361,8 @@ class MbagEnv(object):
             for player_index in range(self.config["num_players"])
         ]
         rewards = [
-            self._get_player_reward(reward, own_reward) for own_reward in own_rewards
+            self._get_player_reward(player_index, reward, own_reward)
+            for player_index, own_reward in enumerate(own_rewards)
         ]
         dones = [self._done()] * self.config["num_players"]
 
@@ -360,7 +399,7 @@ class MbagEnv(object):
                 goal.blocks[self.palette_x, 2, index] = block
                 goal.block_states[self.palette_x, 2, index] = 0
 
-        # print(goal.blocks)
+        # logger.debug(goal.blocks)
         return goal
 
     def _copy_palette_from_goal(self):
@@ -395,7 +434,7 @@ class MbagEnv(object):
             pass
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             prev_block = self.current_blocks[action.block_location]
-            noop = not self.handle_place_break(player_index, action)
+            noop = not self._handle_place_break(player_index, action)
 
             # Calculate reward based on progress towards goal.
             if (
@@ -405,41 +444,43 @@ class MbagEnv(object):
                 # TODO: shouldn't we check if the user actually broke the block?
                 # might be worth adding a test to make sure the reward only comes
                 # through if they did
-                reward = self.config["rewards"]["get_resources"]
-                # print("Getting block")
+                reward = self._get_reward_config_for_player(player_index)[
+                    "get_resources"
+                ]
+                # logger.debug("Getting block")
             else:
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
                 prev_goal_similarity = self._get_goal_similarity(
-                    prev_block, goal_block, partial_credit=True
+                    prev_block,
+                    goal_block,
+                    partial_credit=True,
+                    player_index=player_index,
                 )
                 new_goal_similarity = self._get_goal_similarity(
-                    new_block, goal_block, partial_credit=True
+                    new_block,
+                    goal_block,
+                    partial_credit=True,
+                    player_index=player_index,
                 )
                 reward = new_goal_similarity - prev_goal_similarity
         elif (
-            action.action_type
-            in [
-                MbagAction.MOVE_POS_X,
-                MbagAction.MOVE_NEG_X,
-                MbagAction.MOVE_POS_Y,
-                MbagAction.MOVE_NEG_Y,
-                MbagAction.MOVE_POS_Z,
-                MbagAction.MOVE_NEG_Z,
-            ]
+            action.action_type in MbagAction.MOVE_ACTION_TYPES
             and not self.config["abilities"]["teleportation"]
         ):
-            noop = not self.handle_move(player_index, action.action_type)
+            noop = not self._handle_move(player_index, action.action_type)
         elif (
             action.action_type == MbagAction.GIVE_BLOCK
             and not self.config["abilities"]["inf_blocks"]
         ):
-            noop = 0 == self.handle_give_block(
+            noop = 0 == self._handle_give_block(
                 player_index, action.block_id, action.block_location
             )
 
         if noop:
-            reward += self.config["rewards"]["noop"]
+            reward += self._get_reward_config_for_player(player_index)["noop"]
+        else:
+            reward += self._get_reward_config_for_player(player_index)["action"]
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -450,12 +491,12 @@ class MbagEnv(object):
                 self.goal_blocks[:],
             ).sum(),
             "own_reward": reward,
-            "own_reward_prop": self._get_own_reward_prop(),
+            "own_reward_prop": self._get_own_reward_prop(player_index),
         }
 
         return reward, info
 
-    def handle_place_break(self, player_index: int, action: MbagAction) -> bool:
+    def _handle_place_break(self, player_index: int, action: MbagAction) -> bool:
         prev_block = self.current_blocks[action.block_location]
         inventory_slot = 0
 
@@ -463,7 +504,7 @@ class MbagEnv(object):
             not self.config["abilities"]["inf_blocks"]
             and action.action_type == MbagAction.PLACE_BLOCK
         ):
-            inventory_slot = self.try_take_player_block(
+            inventory_slot = self._try_take_player_block(
                 action.block_id, player_index, False
             )
 
@@ -565,17 +606,18 @@ class MbagEnv(object):
 
                 # Not necessarily. In Minecraft broken block entities have random momentum so
                 # sometimes the block will not be given to the player.
-                self.try_give_player_block(
+                self._try_give_player_block(
                     int(prev_block[0]), player_index, give_in_malmo=False
                 )
             else:
                 # Take block from player
                 assert (
-                    self.try_take_player_block(action.block_id, player_index, True) >= 0
+                    self._try_take_player_block(action.block_id, player_index, True)
+                    >= 0
                 )
         return True
 
-    def handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
+    def _handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
         """
         Handle a move action.
         Returns whether the action was successful or not
@@ -617,58 +659,57 @@ class MbagEnv(object):
 
         return True
 
-    def handle_give_block(
-        self, player_index: int, block_id: int, player_location_temp: WorldLocation
-    ) -> bool:
+    def _handle_give_block(
+        self, giver_player_index: int, block_id: int, receiver_location: WorldLocation
+    ) -> int:
         """
-        Handles giving a block to a player. Returns how many blocks were given
+        Handles giving blocks to a player. Returns how many blocks were given.
         """
 
-        player_given = -1
-        player_location = (
-            player_location_temp[0] + 0.5,
-            player_location_temp[1],
-            player_location_temp[2] + 0.5,
+        receiver_player_location = (
+            receiver_location[0] + 0.5,
+            receiver_location[1],
+            receiver_location[2] + 0.5,
         )
-        print(self.player_locations)
-        print(player_location)
+        logger.debug(self.player_locations)
+        logger.debug(receiver_player_location)
 
-        # Check if player can reach the location specified
-        current_location = self.player_locations[player_index]
-        if player_location not in [
-            (current_location[0] + 1, current_location[1], current_location[2]),
-            (current_location[0] - 1, current_location[1], current_location[2]),
-            (current_location[0], current_location[1], current_location[2] + 1),
-            (current_location[0], current_location[1], current_location[2] - 1),
-        ]:
-            return False
+        # Check if player can reach the location specified (has to be within one block
+        # in all directions).
+        gx, gy, gz = self.player_locations[giver_player_index]
+        rx, ry, rz = receiver_player_location
+        if abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1:
+            return 0
 
-        print("Finding player index")
+        logger.debug("Finding player index")
         # Find player index at the location specified
         try:
-            player_given = self.player_locations.index(player_location)
+            receiver_player_index = self.player_locations.index(
+                receiver_player_location
+            )
         except ValueError:
-            return False
+            return 0
 
-        BLOCKS_GIVEN = 5
-        print("Giving the blocks")
-
-        print(self.player_inventories[player_index])
+        logger.debug(self.player_inventories[giver_player_index])
         # Give the blocks
-        for i in range(BLOCKS_GIVEN):
+        for block_index in range(self.BLOCKS_TO_GIVE):
             success = False
-            inventory_taken = self.try_take_player_block(block_id, player_index, True)
+            inventory_taken = self._try_take_player_block(
+                block_id, giver_player_index, True
+            )
             if inventory_taken >= 0:
-                success = self.try_give_player_block(block_id, player_given, True)
+                success = self._try_give_player_block(
+                    block_id, receiver_player_index, True
+                )
 
             if not success:
-                return i
-        print("Successfully gave block to player")
-        print(self.player_inventories[player_index])
+                return block_index
+        logger.debug("Successfully gave block to player")
+        logger.debug(self.player_inventories[giver_player_index])
 
-        return BLOCKS_GIVEN
+        return self.BLOCKS_TO_GIVE
 
-    def try_give_player_block(
+    def _try_give_player_block(
         self, block_id: int, player_index: int, give_in_malmo: bool = True
     ) -> bool:
         """
@@ -681,7 +722,7 @@ class MbagEnv(object):
         player_inventory = self.player_inventories[player_index]
         matching_inventory_slots = np.where(
             (player_inventory[:, 0] == block_id)
-            & (player_inventory[:, 1] < 64)
+            & (player_inventory[:, 1] < self.STACK_SIZE)
             & (player_inventory[:, 1] > 0)
         )[0]
 
@@ -708,20 +749,21 @@ class MbagEnv(object):
 
         return True
 
-    def simplify_inventory(self, player_index: int) -> MbagInventoryObs:
+    def _get_inventory_obs(self, player_index: int) -> MbagInventoryObs:
         """
-        Simplifies the inventory of the player_index player
+        Gets the array representation of the given player's inventory.
         """
+
         player_inventory = self.player_inventories[player_index]
-        inventory_simplified: MbagInventoryObs = np.zeros(
+        inventory_obs: MbagInventoryObs = np.zeros(
             MinecraftBlocks.NUM_BLOCKS, dtype=int
         )  # 10 total blocks
         for i in range(player_inventory.shape[0]):
-            inventory_simplified[player_inventory[i][0]] += player_inventory[i][1]
+            inventory_obs[player_inventory[i][0]] += player_inventory[i][1]
 
-        return inventory_simplified
+        return inventory_obs
 
-    def try_take_player_block(
+    def _try_take_player_block(
         self, block_id: int, player_index: int, take: bool
     ) -> int:
         """
@@ -809,6 +851,7 @@ class MbagEnv(object):
         current_block: Tuple[np.ndarray, np.ndarray],
         goal_block: Tuple[np.ndarray, np.ndarray],
         partial_credit: bool = False,
+        player_index: Optional[int] = None,
     ):
         """
         Get the similarity between this block and the goal block, used to calculate
@@ -822,10 +865,11 @@ class MbagEnv(object):
         similarity = np.zeros_like(current_block_id, dtype=float)
         if partial_credit:
             # Give partial credit for placing the wrong block type.
+            assert player_index is not None
             similarity[
                 (goal_block_id != MinecraftBlocks.AIR)
                 & (current_block_id != MinecraftBlocks.AIR)
-            ] = self.config["rewards"]["place_wrong"]
+            ] = self._get_reward_config_for_player(player_index)["place_wrong"]
         similarity[goal_block_id == current_block_id] = 1
         return similarity
 
@@ -854,7 +898,7 @@ class MbagEnv(object):
                     world_obs, other_player_location, other_player_index + 2
                 )
 
-        return (world_obs, self.simplify_inventory(player_index))
+        return (world_obs, self._get_inventory_obs(player_index))
 
     def _add_player_location_to_world_obs(
         self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
@@ -869,17 +913,26 @@ class MbagEnv(object):
             assert world_obs[4, x, y, z] == 0, "players are overlapping"
             world_obs[4, x, y, z] = marker
 
-    def _get_own_reward_prop(self) -> float:
-        own_reward_prop = self.config["rewards"]["own_reward_prop"]
-        own_reward_prop_horizon = self.config["rewards"]["own_reward_prop_horizon"]
+    def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
+        if isinstance(self.config["rewards"], list):
+            return self.config["rewards"][player_index]
+        else:
+            return self.config["rewards"]
+
+    def _get_own_reward_prop(self, player_index: int) -> float:
+        reward_config = self._get_reward_config_for_player(player_index)
+        own_reward_prop = reward_config["own_reward_prop"]
+        own_reward_prop_horizon = reward_config["own_reward_prop_horizon"]
         if own_reward_prop_horizon is not None:
             own_reward_prop *= max(
                 1 - self.global_timestep / own_reward_prop_horizon, 0
             )
         return own_reward_prop
 
-    def _get_player_reward(self, reward: float, own_reward: float) -> float:
-        own_reward_prop = self._get_own_reward_prop()
+    def _get_player_reward(
+        self, player_index: int, reward: float, own_reward: float
+    ) -> float:
+        own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
     def _update_state_from_malmo(self):
@@ -936,7 +989,7 @@ class MbagEnv(object):
                         ],
                         malmo_player_state[f"InventorySlot_{slot}_size"],  # type: ignore
                     ]
-                    for slot in range(INVENTORY_SPACE)
+                    for slot in range(self.INVENTORY_NUM_SLOTS)
                 ]
             )
             if self.config["abilities"]["inf_blocks"]:

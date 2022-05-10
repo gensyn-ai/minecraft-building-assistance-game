@@ -169,7 +169,7 @@ class DistillationPredictionPolicy(
                 if data_col.startswith("state_in_"):
                     train_batch[data_col] = np.zeros(
                         (
-                            len(train_batch["seq_lens"]),
+                            len(train_batch[SampleBatch.SEQ_LENS]),
                             view_req.shift_to - view_req.shift_from + 1,
                         )
                         + view_req.space.shape
@@ -182,10 +182,12 @@ class DistillationPredictionPolicy(
 
         # RNN case: Mask away 0-padded chunks at end of time axis.
         if state:
-            batch_size = len(train_batch["seq_lens"])
+            batch_size = len(train_batch[SampleBatch.SEQ_LENS])
             max_seq_len = logits.shape[0] // batch_size
             mask = sequence_mask(
-                train_batch["seq_lens"], max_seq_len, time_major=model.is_time_major()
+                train_batch[SampleBatch.SEQ_LENS],
+                max_seq_len,
+                time_major=model.is_time_major(),
             )
             mask = torch.reshape(mask, [-1])
             num_valid = torch.sum(mask)
