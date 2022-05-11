@@ -21,6 +21,7 @@ from .torch_models import (
     MbagTransformerModelConfig,
 )
 from .rllib_env import MbagMultiAgentEnv
+from .choice_env import ChoiceRewardWrapper
 from .callbacks import MbagCallbacks
 from .training_utils import (
     build_logger_creator,
@@ -63,6 +64,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
+        choice_wrapper = False
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
@@ -93,7 +95,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "inf_blocks": inf_blocks,
             },
         }
-        env = MbagMultiAgentEnv(**environment_params)
+        env = (
+            MbagMultiAgentEnv(**environment_params)
+            if not choice_wrapper
+            else ChoiceRewardWrapper(**environment_params)
+        )
 
         # Training
         run = "PPO"
