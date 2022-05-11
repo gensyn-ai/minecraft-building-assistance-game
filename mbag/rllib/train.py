@@ -44,7 +44,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
     def sacred_config(_log):  # noqa
         # Environment
-        env_id = "MBAG-v1"
+        environment_name = "MBAG-v1"
         goal_generator = "random"
         goal_subset = "train"
         horizon = 50
@@ -103,7 +103,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
         train_batch_size = 5000
-        sgd_minibatch_size = 500
+        sgd_minibatch_size = 512
         rollout_fragment_length = horizon
         num_training_iters = 500  # noqa: F841
         lr = 1e-3
@@ -264,7 +264,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
 
         config: TrainerConfigDict = {  # noqa: F841
-            "env": "MBAG-v1",
+            "env": environment_name,
             "env_config": environment_params,
             "multiagent": {
                 "policies": policies,
