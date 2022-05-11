@@ -191,7 +191,6 @@ class MbagEnv(object):
     player_locations: List[WorldLocation]
     player_directions: List[FacingDirection]
     player_inventories: List[MbagInventory]
-    player_selected_hotbars: List[int]
     palette_x: int
     timestep: int
     global_timestep: int
@@ -232,13 +231,6 @@ class MbagEnv(object):
                 ),
             )
         )
-        self.player_locations = [(0, 2, 0) for _ in range(self.config["num_players"])]
-        self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
-        self.player_inventories = [
-            np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
-            for _ in range(self.config["num_players"])
-        ]
-        self.player_selected_hotbars = [0 for _ in range(self.config["num_players"])]
 
         # Actions consist of an (action_type, block_location, block_id) tuple.
         # Not all action types use block_location and block_id. See MbagAction for
@@ -292,6 +284,11 @@ class MbagEnv(object):
                 int(i / self.config["world_size"][0]) + 0.5,
             )
             for i in range(self.config["num_players"])
+        ]
+        self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
+        self.player_inventories = [
+            np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
+            for _ in range(self.config["num_players"])
         ]
 
         if self.config["malmo"]["use_malmo"]:
