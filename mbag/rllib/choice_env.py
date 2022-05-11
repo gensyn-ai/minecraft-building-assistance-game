@@ -11,9 +11,9 @@ import numpy as np
 
 
 class ChoiceRewardWrapper(MbagMultiAgentEnv):
-    def __init__(self, config):
+    def __init__(self, **config):
         # self.choice_reward_weight = config.pop("choice_reward_weight")
-        self.mbag_env = MbagMultiAgentEnv(config)
+        self.mbag_env = MbagMultiAgentEnv(**config)
 
     def reset(self):
         return self.mbag_env.reset()
