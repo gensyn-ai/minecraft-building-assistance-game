@@ -36,8 +36,8 @@ class MbagActionDistribution(object):
         """
 
         world_obs, inventory_obs = obs
-        print(inventory_obs.shape)
-        print(world_obs.shape)
+        # print(inventory_obs.shape)
+        # print(world_obs.shape)
         batch_size, _, width, height, depth = world_obs.shape
 
         mask = np.ones(
@@ -80,7 +80,51 @@ class MbagActionDistribution(object):
         mask[:, MbagAction.BREAK_BLOCK][invalid_blocks] = False
 
         # Next, we can only give blocks to locations with players in them
-        print(world_obs[:, PLAYER_LOCATIONS])
+        # print(world_obs[:, PLAYER_LOCATIONS])
+        mask[:, MbagAction.GIVE_BLOCK] = np.logical_and(
+            world_obs[:, PLAYER_LOCATIONS] > 0, mask[:, MbagAction.GIVE_BLOCK]
+        )
+
+        if config["abilities"]["teleportation"]:
+
+            # We can only move if we can't teleport
+            for move_action in MbagAction.MOVE_ACTION_TYPES:
+                mask[:, move_action] = False
+
+        else:
+            # If we can't teleport, then we can only place or break blocks up to 3 blocks away
+            player_locations = (world_obs[:, PLAYER_LOCATIONS, :, :, :, None] > 0).any(
+                -1
+            )
+            reachable_3 = (
+                ndimage.convolve(
+                    player_locations,
+                    np.ones((1, 7, 7, 7)),
+                    mode="constant",
+                )
+                > 0
+            )
+            mask[:, MbagAction.BREAK_BLOCK] = np.logical_and(
+                reachable_3, mask[:, MbagAction.BREAK_BLOCK]
+            )
+            mask[:, MbagAction.PLACE_BLOCK] = np.logical_and(
+                reachable_3, mask[:, MbagAction.PLACE_BLOCK]
+            )
+
+            # If we can't teleport, then we can only give blocks to from one block away from players
+            conv_mask = np.ones((1, 3, 4, 3))
+            conv_mask[0, 1, 1:2, 1] = 0
+            reachable_1 = (
+                ndimage.convolve(
+                    player_locations,
+                    conv_mask,
+                    mode="constant",
+                )
+                > 0
+            )
+            mask[:, MbagAction.GIVE_BLOCK] = np.logical_and(
+                reachable_1, mask[:, MbagAction.GIVE_BLOCK]
+            )
 
         return mask
 

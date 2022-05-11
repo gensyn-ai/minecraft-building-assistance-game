@@ -377,7 +377,9 @@ class MbagEnv(object):
         world_size = self.config["world_size"]
 
         goal_size = (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
-        if not self.config["abilities"]["inf_blocks"]:
+        if self.config["abilities"]["inf_blocks"]:
+            self.palette_x = -1
+        else:
             goal_size = (world_size[0] - 3, world_size[1] - 1, world_size[2] - 2)
             self.palette_x = world_size[0] - 1
 
