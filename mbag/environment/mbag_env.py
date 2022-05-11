@@ -150,7 +150,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "goal_generator": RandomGoalGenerator,
     "goal_generator_config": {},
     "goal_visibility": [True, False],
-    "timestep_skip": [1, 1],
+    "timestep_skip": [1] * 10,
     "malmo": {
         "use_malmo": False,
         "player_names": None,
@@ -185,6 +185,8 @@ class MbagEnv(object):
 
         self.config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
         self.config["malmo"].update(config.get("malmo", {}))
+        self.config["rewards"] = copy.deepcopy(DEFAULT_CONFIG["rewards"])
+        self.config["rewards"].update(config.get("rewards", {}))
 
         if (
             self.config["malmo"]["video_dir"] is not None
