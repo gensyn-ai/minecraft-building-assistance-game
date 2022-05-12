@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, cast
 from typing_extensions import TypedDict
 import numpy as np
 from ray.rllib.policy import Policy
@@ -31,7 +31,10 @@ class RllibMbagAgent(MbagAgent):
             obs_batch, state_batch
         )
         self.state = [state_piece[0] for state_piece in state_out_batch]
-        return tuple(int(action_piece[0]) for action_piece in action_batch)
+        return cast(
+            MbagActionTuple,
+            tuple(int(action_piece[0]) for action_piece in action_batch),
+        )
 
     def get_state(self) -> List[np.ndarray]:
         return self.state
