@@ -65,7 +65,7 @@ class MalmoConfigDict(TypedDict, total=False):
     """
 
 
-class RewardsConfigDict(TypedDict):
+class RewardsConfigDict(TypedDict, total=False):
     noop: float
     """
     The reward for doing any action which does nothing. This is usually either zero,
@@ -212,6 +212,19 @@ class MbagEnv(object):
 
         self.config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
         self.config["malmo"].update(config.get("malmo", {}))
+        passed_rewards_config = config.get("rewards", {})
+        if isinstance(passed_rewards_config, list):
+            rewards_configs = []
+            for incomplete_rewards_config in passed_rewards_config:
+                rewards_config = copy.deepcopy(DEFAULT_CONFIG["rewards"])
+                assert isinstance(rewards_config, dict)
+                rewards_config.update(incomplete_rewards_config)
+                rewards_configs.append(rewards_config)
+            self.config["rewards"] = rewards_configs
+        else:
+            self.config["rewards"] = copy.deepcopy(DEFAULT_CONFIG["rewards"])
+            assert isinstance(self.config["rewards"], dict)
+            self.config["rewards"].update(passed_rewards_config)
 
         if (
             self.config["malmo"]["video_dir"] is not None
