@@ -199,6 +199,7 @@ class UNet3d(nn.Module):
     def forward(self, inputs: torch.Tensor, *extra_fc_inputs):
         activations = [inputs]
         for down_layer in self.down_layers:
+            print(activations[-1].size())
             activations.append(down_layer(activations[-1]))
 
         fc_layer_inputs = activations[-1].flatten(start_dim=1)
@@ -206,9 +207,20 @@ class UNet3d(nn.Module):
         outputs = outputs.reshape(activations[-1].size())
 
         for layer_index, up_layer in reversed(list(enumerate(self.up_layers))):
-            layer_inputs = torch.cat([activations[layer_index + 1], outputs], dim=1)
+            w, h, d = outputs.size()[-3:]
+            layer_activations = F.pad(activations[layer_index + 1], (0, 2) * 3)[
+                ..., :w, :h, :d
+            ]
+            layer_inputs = torch.cat([layer_activations, outputs], dim=1)
             outputs = up_layer(layer_inputs)
-        final_layer_inputs = torch.cat([activations[0], outputs], dim=1)
+
+        w, h, d = outputs.size()[-3:]
+        layer_activations = F.pad(activations[0], (0, 2) * 3)[..., :w, :h, :d]
+        final_layer_inputs = torch.cat([layer_activations, outputs], dim=1)
+
+        w, h, d = inputs.size()[-3:]
+        final_layer_inputs = final_layer_inputs[..., :w, :h, :d]
+
         return self.final_layer(final_layer_inputs)
 
 
