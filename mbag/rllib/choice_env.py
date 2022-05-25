@@ -32,13 +32,17 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
         location_choices = MbagActionDistribution.get_action_type_location_unique(
             self.mbag_env.wrapped_env.config, obs_batch
         )
-        print(action)
-        #     item_choices = MbagActionDistribution.get_block_id_unique(
-        #     self.mbag_env.wrapped_env.config,
-        #     obs_batch,
-        #   )
 
-        return np.count_unique(location_choices).size
+        item_choices = MbagActionDistribution.get_block_id_unique(
+            self.mbag_env.wrapped_env.config,
+            obs_batch,
+            np.array([action.action_type]),
+            np.array([action.block_location]),
+        )
+
+        return (
+            np.count_unique(location_choices).size + np.count_unique(item_choices).size
+        )
 
 
 register_env(
