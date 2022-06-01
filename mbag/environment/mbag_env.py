@@ -186,6 +186,7 @@ class MbagEnv(object):
         self.config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
         self.config["malmo"].update(config.get("malmo", {}))
         passed_rewards_config = config.get("rewards", {})
+
         if isinstance(passed_rewards_config, list):
             rewards_configs = []
             for incomplete_rewards_config in passed_rewards_config:
@@ -248,6 +249,7 @@ class MbagEnv(object):
         self.global_timestep = global_timestep
 
     def reset(self) -> List[MbagObs]:
+        """Reset Minecraft environment and return player observations for each player."""
         self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
@@ -300,14 +302,14 @@ class MbagEnv(object):
         infos: List[MbagInfoDict] = []
 
         for player_index, player_action_tuple in enumerate(action_tuples):
+            # For each player, if he is acting this timestep, step the player, otherwise execute NOOP.
             if self.timestep % self.config["timestep_skip"][player_index] == 0:
                 player_reward, player_info = self._step_player(
                     player_index, player_action_tuple
                 )
             else:
                 player_reward, player_info = self._step_player(
-                    player_index,
-                    (MbagAction.NOOP, 0, 0),
+                    player_index, (MbagAction.NOOP, 0, 0),
                 )
             reward += player_reward
             own_rewards.append(player_reward)
@@ -396,14 +398,13 @@ class MbagEnv(object):
 
                 if self.config["abilities"]["teleportation"]:
                     self.malmo_client.send_command(
-                        player_index,
-                        "tp " + " ".join(map(str, player_location)),
+                        player_index, "tp " + " ".join(map(str, player_location)),
                     )
 
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
-                delta /= np.sqrt((delta**2).sum())
+                delta /= np.sqrt((delta ** 2).sum())
                 yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
@@ -485,8 +486,7 @@ class MbagEnv(object):
 
         info: MbagInfoDict = {
             "goal_similarity": self._get_goal_similarity(
-                self.current_blocks[:],
-                self.goal_blocks[:],
+                self.current_blocks[:], self.goal_blocks[:],
             ).sum(),
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
@@ -495,11 +495,13 @@ class MbagEnv(object):
         return reward, info
 
     def _is_valid_player_space(self, player_location: WorldLocation, player_index: int):
+        """Check to see if the player is able to place a block from his current position."""
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
             int(np.floor(player_location[1])),
             int(np.floor(player_location[2])),
         )
+        # Check if block is out of bounds.
         for i in range(3):
             if (
                 proposed_block[i] < 0
