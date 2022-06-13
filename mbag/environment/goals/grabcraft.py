@@ -401,8 +401,8 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
             f.write(metadata_json_str)
 
 
-class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
-    save_crop_dir: str
+class SingleWallGrabcraftGoalConfig(CroppedGrabcraftGoalConfig):
+    pass 
 
 
 class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
@@ -410,6 +410,8 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
         "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
         "subset": GrabcraftGoalGenerator.default_config["subset"],
         "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
+        "tethered_to_ground": False,
+        "density_threshold": False,
         "use_limited_block_set": GrabcraftGoalGenerator.default_config[
             "use_limited_block_set"
         ],
@@ -438,13 +440,13 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
         Chooses slice with highest density to crop out of random house structure
 
                     ^
-                y |
+                ` y |
                     |
                     |
                     |
                     | _ _ _ _ _ _ _>
                     /               x
-                /
+                `  /
                 z /
                 v
         If this is the plane on which the house exists, we go along the z-axis to choose the "slice" of the house
@@ -480,7 +482,7 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
                     continue
 
             # Find z for which
-            z = np.argmax([slice_.density() for slice_ in slices])
+            z = int(np.argmax([slice_.density() for slice_ in slices]))
             wall = slices[z]
 
             return structure_id, wall, (x, y, z)
