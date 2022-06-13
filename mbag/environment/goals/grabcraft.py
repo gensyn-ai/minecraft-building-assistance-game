@@ -399,3 +399,101 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
             os.path.join(save_dir, str(structure_id) + "_crop.metadata.json"), "w+"
         ) as f:
             f.write(metadata_json_str)
+
+class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
+    save_crop_dir: str
+
+class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
+    default_config: SingleWallGrabcraftGoalConfig = {
+        "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
+        "subset": GrabcraftGoalGenerator.default_config["subset"],
+        "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
+        "use_limited_block_set": GrabcraftGoalGenerator.default_config[
+            "use_limited_block_set"
+        ],
+        "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
+    }
+
+    config: SingleWallGrabcraftGoalConfig
+
+    def _generate_slice(self, structure: MinecraftBlocks, slice_size: WorldSize, location: Tuple[int, int, int]):
+        slice = MinecraftBlocks(slice_size)
+        slice.blocks[:] = MinecraftBlocks.AIR
+        slice.block_states[:] = 0
+        slice.fill_from_crop(structure, location)
+
+        return slice
+
+
+    def _generate_wall_crop(self, size: WorldSize) -> Tuple[str, MinecraftBlocks, Tuple[int, int, int]]:
+        """
+        Chooses slice with highest density to crop out of random house structure
+                    
+                    ^
+                y |
+                    |
+                    |
+                    |
+                    | _ _ _ _ _ _ _> 
+                    /               x
+                /
+                z /
+                v
+        If this is the plane on which the house exists, we go along the z-axis to choose the "slice" of the house
+        with the highest density.                  
+        """
+        while True:
+            structure_id = random.choice(list(self.structure_metadata.keys()))
+            print(structure_id)
+
+            structure = self._get_structure(structure_id)            
+            if structure is None:
+                print("structure is none")
+                continue
+            
+            wall_size = (
+                min(size[0], structure.size[0]),
+                min(size[1], structure.size[1]),
+                1
+            )
+            
+            # If the building is bigger than the world size we don't want to crop one side of the wall.
+            # Instead, we want to crop closer to the center. Therefore, we offset the crop on the x-axis
+            # proportionally to the size difference between the crop_size and the structure size.
+            x = (structure.size[0] - wall_size[0]) // 2
+            # Start from bottom
+            y = 0
+
+            slices = [self._generate_slice(structure, wall_size, (x, y, z)) for z in range(structure.size[2] - 1)]
+            
+            if self.config["force_single_cc"]:
+                slices = [slice_ for slice_ in slices if slice_.is_single_cc()]
+                if slices == []:
+                    print("slices == []")
+                    continue
+            
+            # Find z for which
+            z = np.argmax([slice_.density() for slice_ in slices])
+            wall = slices[z]
+
+            return structure_id, wall, (x, y, z) 
+    
+    def generate_goal(
+        self, size: WorldSize, save_crop: bool = False
+    ) -> MinecraftBlocks:
+        structure_id, crop, location = self._generate_wall_crop(size)
+
+        # Randomly place structure within world.
+        goal = GoalGenerator.randomly_place_structure(crop, size)
+
+        # Add a layer of dirt at the bottom of the structure wherever there's still
+        # air.
+        bottom_layer = goal.blocks[:, 0, :]
+        bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
+            "dirt"
+        ]
+
+        if save_crop:
+            self.save_crop_as_json(structure_id, crop.size, location)
+
+        return goal
