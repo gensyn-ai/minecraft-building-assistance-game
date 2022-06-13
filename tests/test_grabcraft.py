@@ -173,6 +173,7 @@ def test_generate_crop_json():
         print(size)
         assert size[0] <= 8 and size[1] <= 9 and size[2] <= 8
 
+
 def test_single_wall_generator():
     config = {"data_dir": "data/grabcraft", "subset": "train"}
     world_size: WorldSize = (15, 10, 15)
@@ -210,6 +211,7 @@ def test_single_wall_generator():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward > 0
+
 
 @pytest.mark.xfail(strict=False)
 def test_single_wall_generator_in_malmo():

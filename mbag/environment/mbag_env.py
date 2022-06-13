@@ -309,7 +309,8 @@ class MbagEnv(object):
                 )
             else:
                 player_reward, player_info = self._step_player(
-                    player_index, (MbagAction.NOOP, 0, 0),
+                    player_index,
+                    (MbagAction.NOOP, 0, 0),
                 )
             reward += player_reward
             own_rewards.append(player_reward)
@@ -398,13 +399,14 @@ class MbagEnv(object):
 
                 if self.config["abilities"]["teleportation"]:
                     self.malmo_client.send_command(
-                        player_index, "tp " + " ".join(map(str, player_location)),
+                        player_index,
+                        "tp " + " ".join(map(str, player_location)),
                     )
 
                 viewpoint = np.array(player_location)
                 viewpoint[1] += 1.6
                 delta = np.array(click_location) - viewpoint
-                delta /= np.sqrt((delta ** 2).sum())
+                delta /= np.sqrt((delta**2).sum())
                 yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
                 pitch = np.rad2deg(-np.arcsin(delta[1]))
                 self.malmo_client.send_command(player_index, f"setYaw {yaw}")
@@ -486,7 +488,8 @@ class MbagEnv(object):
 
         info: MbagInfoDict = {
             "goal_similarity": self._get_goal_similarity(
-                self.current_blocks[:], self.goal_blocks[:],
+                self.current_blocks[:],
+                self.goal_blocks[:],
             ).sum(),
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),

@@ -1,7 +1,11 @@
 from typing import Dict, Type
 
 from .goal_generator import GoalGenerator
-from .grabcraft import CroppedGrabcraftGoalGenerator, GrabcraftGoalGenerator, SingleWallGrabcraftGenerator
+from .grabcraft import (
+    CroppedGrabcraftGoalGenerator,
+    GrabcraftGoalGenerator,
+    SingleWallGrabcraftGenerator,
+)
 from .simple import BasicGoalGenerator, RandomGoalGenerator
 from .craftassist import CraftAssistGoalGenerator
 
