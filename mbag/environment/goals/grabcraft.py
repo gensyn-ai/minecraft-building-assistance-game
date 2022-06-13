@@ -402,7 +402,9 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
 
 
 class SingleWallGrabcraftGoalConfig(CroppedGrabcraftGoalConfig):
-    pass
+    min_density: float
+    mirror_wall: bool
+    choose_densest: bool
 
 
 class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
@@ -416,28 +418,31 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
             "use_limited_block_set"
         ],
         "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
+        "min_density": 0.8,
+        "mirror_wall": True,
+        "choose_densest": False,
     }
 
     config: SingleWallGrabcraftGoalConfig
 
-    def _generate_slice(
+    def _generate_wall(
         self,
         structure: MinecraftBlocks,
-        slice_size: WorldSize,
+        wall_size: WorldSize,
         location: Tuple[int, int, int],
     ) -> MinecraftBlocks:
-        slice = MinecraftBlocks(slice_size)
-        slice.blocks[:] = MinecraftBlocks.AIR
-        slice.block_states[:] = 0
-        slice.fill_from_crop(structure, location)
+        wall = MinecraftBlocks(wall_size)
+        wall.blocks[:] = MinecraftBlocks.AIR
+        wall.block_states[:] = 0
+        wall.fill_from_crop(structure, location)
 
-        return slice
+        return wall
 
     def _generate_wall_crop(
         self, size: WorldSize
     ) -> Tuple[str, MinecraftBlocks, Tuple[int, int, int]]:
         """
-        Chooses slice with highest density to crop out of random house structure
+        Chooses wall with highest density to crop out of random house structure
 
                     ^
                 ` y |
@@ -449,7 +454,7 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
                 `  /
                 z /
                 v
-        If this is the plane on which the house exists, we go along the z-axis to choose the "slice" of the house
+        If this is the plane on which the house exists, we go along the z-axis to choose the "wall" of the house
         with the highest density.
         """
         while True:
@@ -471,19 +476,35 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
             # Start from bottom
             y = 0
 
-            slice_tuples = [
-                (z, self._generate_slice(structure, wall_size, (x, y, z)))
+            wall_tuples = [
+                (z, self._generate_wall(structure, wall_size, (x, y, z)))
                 for z in range(structure.size[2] - 1)
             ]
 
+            if self.config["mirror_wall"]:
+                for _, wall in wall_tuples:
+                    wall.mirror_x_axis()
+
             if self.config["force_single_cc"]:
-                slice_tuples = [
-                    (z, slice_) for z, slice_ in slice_tuples if slice_.is_single_cc()
+                wall_tuples = [
+                    (z, wall) for z, wall in wall_tuples if wall.is_single_cc()
                 ]
-                if slice_tuples == []:
+                if wall_tuples == []:
                     continue
 
-            z, wall = max(slice_tuples, key=lambda x: x[1].density())
+            if self.config["min_density"] > 0:
+                wall_tuples = [
+                    (z, wall)
+                    for z, wall in wall_tuples
+                    if wall.density() >= self.config["min_density"]
+                ]
+                if wall_tuples == []:
+                    continue
+
+            if self.config["choose_densest"]:
+                z, wall = max(wall_tuples, key=lambda x: x[1].density())
+            else:
+                z, wall = random.choice(wall_tuples)
 
             return structure_id, wall, (x, y, z)
 
