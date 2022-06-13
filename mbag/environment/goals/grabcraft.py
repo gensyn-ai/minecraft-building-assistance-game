@@ -471,19 +471,19 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
             # Start from bottom
             y = 0
 
-            slices = [
-                self._generate_slice(structure, wall_size, (x, y, z))
+            slice_tuples = [
+                (z, self._generate_slice(structure, wall_size, (x, y, z)))
                 for z in range(structure.size[2] - 1)
             ]
 
             if self.config["force_single_cc"]:
-                slices = [slice_ for slice_ in slices if slice_.is_single_cc()]
-                if slices == []:
+                slice_tuples = [
+                    (z, slice_) for z, slice_ in slice_tuples if slice_.is_single_cc()
+                ]
+                if slice_tuples == []:
                     continue
 
-            # Find z for which
-            z = int(np.argmax([slice_.density() for slice_ in slices]))
-            wall = slices[z]
+            z, wall = max(slice_tuples, key=lambda x: x[1].density())
 
             return structure_id, wall, (x, y, z)
 
