@@ -402,7 +402,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
 
 
 class SingleWallGrabcraftGoalConfig(CroppedGrabcraftGoalConfig):
-    pass 
+    pass
 
 
 class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
