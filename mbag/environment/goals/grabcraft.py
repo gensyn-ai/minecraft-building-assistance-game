@@ -444,11 +444,8 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         """
         while True:
             structure_id = random.choice(list(self.structure_metadata.keys()))
-            print(structure_id)
-
             structure = self._get_structure(structure_id)            
             if structure is None:
-                print("structure is none")
                 continue
             
             wall_size = (
@@ -469,7 +466,6 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
             if self.config["force_single_cc"]:
                 slices = [slice_ for slice_ in slices if slice_.is_single_cc()]
                 if slices == []:
-                    print("slices == []")
                     continue
             
             # Find z for which
