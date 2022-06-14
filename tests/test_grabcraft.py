@@ -178,10 +178,6 @@ def test_single_wall_generator():
     config = {"data_dir": "data/grabcraft", "subset": "train"}
     world_size: WorldSize = (15, 10, 15)
 
-    generator = SingleWallGrabcraftGenerator(config)
-    goal = generator.generate_goal(world_size)
-    assert goal.size == world_size
-
     generator = SingleWallGrabcraftGenerator(
         {
             **config,
@@ -221,10 +217,6 @@ def test_single_wall_generator():
 def test_single_wall_generator_with_alternate_settings():
     config = {"data_dir": "data/grabcraft", "subset": "train"}
     world_size: WorldSize = (15, 10, 15)
-
-    generator = SingleWallGrabcraftGenerator(config)
-    goal = generator.generate_goal(world_size)
-    assert goal.size == world_size
 
     generator = SingleWallGrabcraftGenerator(
         {
