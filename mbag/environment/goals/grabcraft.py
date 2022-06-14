@@ -3,6 +3,7 @@ import os
 import json
 import random
 import logging
+from sre_constants import MAX_REPEAT
 import numpy as np
 import sys
 from typing import Dict, List, Optional, Tuple
@@ -408,6 +409,9 @@ class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
 
 
 class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
+    # How often the generator tries to generate a random wall from the specfications before giving up.
+    MAX_TRIES = 10000
+
     default_config: SingleWallGrabcraftGoalConfig = {
         "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
         "subset": GrabcraftGoalGenerator.default_config["subset"],
@@ -436,8 +440,8 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         return wall
 
     def _generate_wall_crop(
-        self, size: WorldSize
-    ) -> Tuple[str, MinecraftBlocks, Tuple[int, int, int]]:
+        self, size: WorldSize, structure: MinecraftBlocks
+    ) -> Optional[MinecraftBlocks]:
         """
         Chooses wall with highest density to crop out of random house structure
 
@@ -454,65 +458,64 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         If this is the plane on which the house exists, we go along the z-axis to choose the "wall" of the house
         with the highest density.
         """
-        while True:
-            structure_id = random.choice(list(self.structure_metadata.keys()))
-            structure = self._get_structure(structure_id)
-            if structure is None:
-                continue
+        wall_size = (
+            min(size[0], structure.size[0]),
+            min(size[1], structure.size[1]),
+            1,
+        )
 
-            wall_size = (
-                min(size[0], structure.size[0]),
-                min(size[1], structure.size[1]),
-                1,
-            )
+        # If the building is bigger than the world size, we choose among multiple possible x-values
+        xs = list(range(structure.size[0] - wall_size[0] + 1))
+        # Start from bottom
+        y = 0
 
-            # If the building is bigger than the world size, we randomize what part of the structure to copy
-            x = (
-                0
-                if structure.size[0] == wall_size[0]
-                else random.randrange(structure.size[0] - wall_size[0])
-            )
-            # Start from bottom
-            y = 0
+        walls = [
+            self._generate_wall(structure, wall_size, (x, y, z))
+            for z in range(structure.size[2] - 1)
+            for x in xs
+        ]
 
-            wall_tuples = [
-                (z, self._generate_wall(structure, wall_size, (x, y, z)))
-                for z in range(structure.size[2] - 1)
+        if self.config["mirror_wall"]:
+            for wall in walls:
+                wall.mirror_x_axis()
+
+        if self.config["force_single_cc"]:
+            walls = [wall for wall in walls if wall.is_single_cc()]
+            if walls == []:
+                print("Couldn't find continuous wall.")
+                return None
+
+        if self.config["min_density"] > 0:
+            walls = [
+                wall for wall in walls if wall.density() >= self.config["min_density"]
             ]
+            if walls == []:
+                print("Couldn't find wall the matches minimum density.")
+                return None
 
-            if self.config["mirror_wall"]:
-                for _, wall in wall_tuples:
-                    wall.mirror_x_axis()
+        if self.config["choose_densest"]:
+            wall = max(walls, key=lambda x: x.density())
+        else:
+            wall = random.choice(walls)
 
-            if self.config["force_single_cc"]:
-                wall_tuples = [
-                    (z, wall) for z, wall in wall_tuples if wall.is_single_cc()
-                ]
-                if wall_tuples == []:
-                    continue
-
-            if self.config["min_density"] > 0:
-                wall_tuples = [
-                    (z, wall)
-                    for z, wall in wall_tuples
-                    if wall.density() >= self.config["min_density"]
-                ]
-                if wall_tuples == []:
-                    continue
-
-            if self.config["choose_densest"]:
-                z, wall = max(wall_tuples, key=lambda x: x[1].density())
-            else:
-                z, wall = random.choice(wall_tuples)
-
-            return structure_id, wall, (x, y, z)
+        return wall
 
     def generate_goal(
         self, size: WorldSize, save_crop: bool = False
     ) -> MinecraftBlocks:
-        structure_id, crop, location = self._generate_wall_crop(size)
+        crop = None
+        tries = 0
+        while crop is None and tries < self.MAX_TRIES:
+            structure_id = random.choice(list(self.structure_metadata.keys()))
+            structure = self._get_structure(structure_id)
+            if structure is not None:
+                crop = self._generate_wall_crop(size, structure)
+            tries += 1
 
-        # Randomly place structure within world.
-        goal = GoalGenerator.randomly_place_structure(crop, size)
+        if crop is None:
+            raise Exception("Unable to generate wall from specifications.")
+        else:
+            # Randomly place structure within world.
+            goal = GoalGenerator.randomly_place_structure(crop, size)
 
-        return goal
+            return goal

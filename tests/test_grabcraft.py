@@ -183,7 +183,12 @@ def test_single_wall_generator():
     assert goal.size == world_size
 
     generator = SingleWallGrabcraftGenerator(
-        {**config, "force_single_cc": True, "use_limited_block_set": True}
+        {
+            **config,
+            "force_single_cc": True,
+            "use_limited_block_set": True,
+            "min_density": 0.55,
+        }
     )
     goal = generator.generate_goal(world_size)
     assert goal.is_single_cc()
@@ -228,6 +233,7 @@ def test_single_wall_generator_with_alternate_settings():
             "use_limited_block_set": True,
             "choose_densest": True,
             "make_symmetric": False,
+            "min_density": 0.55,
         }
     )
     goal = generator.generate_goal(world_size)
@@ -271,6 +277,7 @@ def test_single_wall_generator_in_malmo():
                 "subset": "train",
                 "use_limited_block_set": True,
                 "force_single_cc": True,
+                "min_density": 0.55,
             },
             "goal_visibility": [True],
             "malmo": {
@@ -288,3 +295,15 @@ def test_single_wall_generator_in_malmo():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward > 0
+
+
+def test_single_wall_generator_hard_coded_crop():
+    size = (10, 10, 10)
+    generator = SingleWallGrabcraftGenerator({"min_density": 0.55})
+
+    structure = generator._get_structure("5262")
+    assert structure is not None
+
+    crop = generator._generate_wall_crop(size, structure)
+
+    assert crop is not None
