@@ -213,6 +213,51 @@ def test_single_wall_generator():
     assert episode_info.cumulative_reward > 0
 
 
+def test_single_wall_generator_with_alternate_settings():
+    config = {"data_dir": "data/grabcraft", "subset": "train"}
+    world_size: WorldSize = (15, 10, 15)
+
+    generator = SingleWallGrabcraftGenerator(config)
+    goal = generator.generate_goal(world_size)
+    assert goal.size == world_size
+
+    generator = SingleWallGrabcraftGenerator(
+        {
+            **config,
+            "force_single_cc": True,
+            "use_limited_block_set": True,
+            "choose_densest": True,
+            "make_symmetric": False,
+        }
+    )
+    goal = generator.generate_goal(world_size)
+    assert goal.is_single_cc()
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (15, 10, 15),
+            "num_players": 1,
+            "horizon": 1000,
+            "goal_generator": SingleWallGrabcraftGenerator,
+            "goal_generator_config": config,
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                PriorityQueueAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
+
+
 @pytest.mark.xfail(strict=False)
 def test_single_wall_generator_in_malmo():
     evaluator = MbagEvaluator(

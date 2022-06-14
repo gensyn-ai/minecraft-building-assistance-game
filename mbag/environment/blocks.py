@@ -435,6 +435,33 @@ class MinecraftBlocks(object):
             np.all(structure_mask == np.isin(structure_mask_ccs, list(ground_ccs)))
         )
 
+    def mirror_x_axis(self):
+        """
+        Mirror blocks on x-axis. Eg:
+                    ^
+                ` y |      |
+                    |    + | +
+                    |   *  |  *
+                    |  -  *|*  -
+                    | _ _ _|_ _ _ _>
+                    /               x
+                `  /
+                z /
+                v
+        """
+        x_size = self.blocks.shape[0]
+
+        # There are more elegant ways to mirror this but I couldn't find any that were easy to understand.
+        half = x_size // 2
+        if x_size % 2 == 0:
+            for offset in range(half):
+                self.blocks[half + offset, :, :] = self.blocks[half - 1 - offset, :, :]
+        else:
+            for offset in range(half):
+                self.blocks[half + 1 + offset, :, :] = self.blocks[
+                    half - 1 - offset, :, :
+                ]
+
     @classmethod
     def from_malmo_grid(
         cls, size: WorldSize, block_names: List[str]
