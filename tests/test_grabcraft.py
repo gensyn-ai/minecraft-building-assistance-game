@@ -186,7 +186,6 @@ def test_single_wall_generator():
         }
     )
     goal = generator.generate_goal(world_size)
-    assert goal.is_single_cc()
 
     evaluator = MbagEvaluator(
         {
