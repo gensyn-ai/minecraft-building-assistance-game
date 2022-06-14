@@ -176,7 +176,7 @@ def test_generate_crop_json():
 
 def test_single_wall_generator():
     config = {"data_dir": "data/grabcraft", "subset": "train"}
-    world_size: WorldSize = (15, 10, 15)
+    world_size: WorldSize = (10, 10, 15)
 
     generator = SingleWallGrabcraftGenerator(
         {
@@ -190,7 +190,7 @@ def test_single_wall_generator():
 
     evaluator = MbagEvaluator(
         {
-            "world_size": (15, 10, 15),
+            "world_size": world_size,
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": SingleWallGrabcraftGenerator,
@@ -215,7 +215,7 @@ def test_single_wall_generator():
 
 def test_single_wall_generator_with_alternate_settings():
     config = {"data_dir": "data/grabcraft", "subset": "train"}
-    world_size: WorldSize = (15, 10, 15)
+    world_size: WorldSize = (10, 10, 15)
 
     generator = SingleWallGrabcraftGenerator(
         {
@@ -231,7 +231,7 @@ def test_single_wall_generator_with_alternate_settings():
 
     evaluator = MbagEvaluator(
         {
-            "world_size": (15, 10, 15),
+            "world_size": world_size,
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": SingleWallGrabcraftGenerator,
@@ -286,12 +286,23 @@ def test_single_wall_generator_in_malmo():
 
 
 def test_single_wall_generator_hard_coded_crop():
-    size = (10, 10, 10)
-    generator = SingleWallGrabcraftGenerator({"min_density": 0.55})
+    size = (10, 10, 15)
+    config = {"data_dir": "data/grabcraft", "subset": "train"}
 
-    structure = generator._get_structure("5262")
+    generator = SingleWallGrabcraftGenerator(
+        {
+            **config,
+            "use_limited_block_set": True,
+            "choose_densest": True,
+            "make_symmetric": False,
+            "force_single_cc": True,
+        }
+    )
+
+    structure = generator._get_structure("5861")
     assert structure is not None
 
     crop = generator._generate_wall_crop(size, structure)
 
     assert crop is not None
+    assert crop.is_single_cc()
