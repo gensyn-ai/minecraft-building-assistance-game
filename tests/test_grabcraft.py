@@ -181,7 +181,6 @@ def test_single_wall_generator():
     generator = SingleWallGrabcraftGenerator(
         {
             **config,
-            "force_single_cc": True,
             "use_limited_block_set": True,
             "min_density": 0.55,
         }
@@ -224,7 +223,7 @@ def test_single_wall_generator_with_alternate_settings():
             "use_limited_block_set": True,
             "choose_densest": True,
             "make_symmetric": False,
-            "min_density": 0.55,
+            "force_single_cc": True,
         }
     )
     goal = generator.generate_goal(world_size)
@@ -267,7 +266,6 @@ def test_single_wall_generator_in_malmo():
                 "data_dir": "data/grabcraft",
                 "subset": "train",
                 "use_limited_block_set": True,
-                "min_density": 0.55,
             },
             "goal_visibility": [True],
             "malmo": {
