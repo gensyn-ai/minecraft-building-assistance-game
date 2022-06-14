@@ -401,23 +401,20 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
             f.write(metadata_json_str)
 
 
-class SingleWallGrabcraftGoalConfig(CroppedGrabcraftGoalConfig):
+class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
     min_density: float
     mirror_wall: bool
     choose_densest: bool
 
 
-class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
+class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
     default_config: SingleWallGrabcraftGoalConfig = {
         "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
         "subset": GrabcraftGoalGenerator.default_config["subset"],
         "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
-        "tethered_to_ground": False,
-        "density_threshold": False,
         "use_limited_block_set": GrabcraftGoalGenerator.default_config[
             "use_limited_block_set"
         ],
-        "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
         "min_density": 0.8,
         "mirror_wall": True,
         "choose_densest": False,
@@ -469,10 +466,12 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
                 1,
             )
 
-            # If the building is bigger than the world size we don't want to crop one side of the wall.
-            # Instead, we want to crop closer to the center. Therefore, we offset the crop on the x-axis
-            # proportionally to the size difference between the crop_size and the structure size.
-            x = (structure.size[0] - wall_size[0]) // 2
+            # If the building is bigger than the world size, we randomize what part of the structure to copy
+            x = (
+                0
+                if structure.size[0] == wall_size[0]
+                else random.randrange(structure.size[0] - wall_size[0])
+            )
             # Start from bottom
             y = 0
 
@@ -515,15 +514,5 @@ class SingleWallGrabcraftGenerator(CroppedGrabcraftGoalGenerator):
 
         # Randomly place structure within world.
         goal = GoalGenerator.randomly_place_structure(crop, size)
-
-        # Add a layer of dirt at the bottom of the structure wherever there's still
-        # air.
-        bottom_layer = goal.blocks[:, 0, :]
-        bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-            "dirt"
-        ]
-
-        if save_crop:
-            self.save_crop_as_json(structure_id, crop.size, location)
 
         return goal
