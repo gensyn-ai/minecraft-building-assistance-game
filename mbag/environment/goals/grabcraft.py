@@ -485,6 +485,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
                 return None
 
         if self.config["min_density"] > 0:
+            print([wall.density() for wall in walls])
             walls = [
                 wall for wall in walls if wall.density() >= self.config["min_density"]
             ]
