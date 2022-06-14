@@ -186,6 +186,7 @@ def test_single_wall_generator():
         }
     )
     goal = generator.generate_goal(world_size)
+    assert goal is not None
 
     evaluator = MbagEvaluator(
         {
