@@ -481,7 +481,6 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         if self.config["force_single_cc"]:
             walls = [wall for wall in walls if wall.is_single_cc()]
             if walls == []:
-                print("Couldn't find continuous wall.")
                 return None
 
         if self.config["min_density"] > 0:
@@ -489,7 +488,6 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
                 wall for wall in walls if wall.density() >= self.config["min_density"]
             ]
             if walls == []:
-                print("Couldn't find wall the matches minimum density.")
                 return None
 
         if self.config["choose_densest"]:
