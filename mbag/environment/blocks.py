@@ -437,17 +437,24 @@ class MinecraftBlocks(object):
 
     def mirror_x_axis(self):
         """
-        Mirror blocks on x-axis. Eg:
+        Mirror blocks on x-axis. We are mirroring the left side. Eg:
+
+        This shape,
+                    ^
+                ` y |      |
+                    |    + | 
+                    |   *  |  - -+++
+                    |  -  *|++++  ++
+                    | _ _ _|_ _*_ _>
+                                    x
+        Would turn into this shape
                     ^
                 ` y |      |
                     |    + | +
                     |   *  |  *
                     |  -  *|*  -
                     | _ _ _|_ _ _ _>
-                    /               x
-                `  /
-                z /
-                v
+                                    x
         """
         x_size = self.blocks.shape[0]
 
