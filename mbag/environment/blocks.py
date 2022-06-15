@@ -442,7 +442,7 @@ class MinecraftBlocks(object):
         This shape,
                     ^
                 ` y |      |
-                    |    + | 
+                    |    + |
                     |   *  |  - -+++
                     |  -  *|++++  ++
                     | _ _ _|_ _*_ _>
