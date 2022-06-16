@@ -42,3 +42,18 @@ class GoalGenerator(ABC):
         blocks.block_states[structure_slice] = structure.block_states
 
         return blocks
+
+    @staticmethod
+    def add_grass(
+        structure: MinecraftBlocks,
+    ) -> MinecraftBlocks:
+        """
+        Add grass to the bottom layer of the structure.
+        """
+
+        bottom_layer = structure.blocks[:, 0, :]
+        bottom_layer[
+            bottom_layer == MinecraftBlocks.NAME2ID["air"]
+        ] = MinecraftBlocks.NAME2ID["grass"]
+
+        return structure

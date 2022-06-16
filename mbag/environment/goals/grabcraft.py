@@ -512,5 +512,6 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         else:
             # Randomly place structure within world.
             goal = GoalGenerator.randomly_place_structure(crop, size)
+            goal = GoalGenerator.add_grass(goal)
 
             return goal
