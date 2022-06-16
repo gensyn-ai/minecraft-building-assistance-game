@@ -470,7 +470,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
 
         walls = [
             self._generate_wall(structure, wall_size, (x, y, z))
-            for z in range(structure.size[2] - 1)
+            for z in range(structure.size[2])
             for x in xs
         ]
 
