@@ -497,9 +497,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
 
         return wall
 
-    def generate_goal(
-        self, size: WorldSize
-    ) -> MinecraftBlocks:
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         crop = None
         tries = 0
         while crop is None and tries < self.MAX_TRIES:
