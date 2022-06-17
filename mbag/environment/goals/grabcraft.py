@@ -226,14 +226,18 @@ class GrabcraftGoalGenerator(GoalGenerator):
                     if block_variant is None:
                         logger.warning(f"no map entry for \"{block['name']}\"")
                         structure.blocks[
-                            x - min_x, y - min_y, z - min_z,
+                            x - min_x,
+                            y - min_y,
+                            z - min_z,
                         ] = MinecraftBlocks.AUTO
                     else:
                         block_name, variant_name = block_variant
                         block_id = MinecraftBlocks.NAME2ID.get(block_name)
                         if block_id is not None:
                             structure.blocks[
-                                x - min_x, y - min_y, z - min_z,
+                                x - min_x,
+                                y - min_y,
+                                z - min_z,
                             ] = block_id
                         else:
                             return None
