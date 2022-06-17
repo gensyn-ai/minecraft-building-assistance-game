@@ -20,8 +20,7 @@ class GoalGenerator(ABC):
 
     @staticmethod
     def randomly_place_structure(
-        structure: MinecraftBlocks,
-        size: WorldSize,
+        structure: MinecraftBlocks, size: WorldSize,
     ) -> MinecraftBlocks:
         """
         Given a structure of size smaller than the given size, randomly places the
@@ -44,12 +43,11 @@ class GoalGenerator(ABC):
         return blocks
 
     @staticmethod
-    def add_grass(
-        structure: MinecraftBlocks,
-    ) -> MinecraftBlocks:
+    def add_grass(structure: MinecraftBlocks,) -> MinecraftBlocks:
         """
         Add grass to the bottom layer of the structure.
         """
+        structure = structure.copy()
 
         bottom_layer = structure.blocks[:, 0, :]
         bottom_layer[

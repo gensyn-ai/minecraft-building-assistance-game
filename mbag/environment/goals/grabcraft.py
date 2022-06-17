@@ -184,12 +184,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
                 if not goal.is_single_cc():
                     success = False
 
-            # Add a layer of dirt at the bottom of the structure wherever there's still
-            # air.
-            bottom_layer = goal.blocks[:, 0, :]
-            bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-                "dirt"
-            ]
+            goal = GoalGenerator.add_grass(goal)
 
         return goal
 
@@ -231,18 +226,14 @@ class GrabcraftGoalGenerator(GoalGenerator):
                     if block_variant is None:
                         logger.warning(f"no map entry for \"{block['name']}\"")
                         structure.blocks[
-                            x - min_x,
-                            y - min_y,
-                            z - min_z,
+                            x - min_x, y - min_y, z - min_z,
                         ] = MinecraftBlocks.AUTO
                     else:
                         block_name, variant_name = block_variant
                         block_id = MinecraftBlocks.NAME2ID.get(block_name)
                         if block_id is not None:
                             structure.blocks[
-                                x - min_x,
-                                y - min_y,
-                                z - min_z,
+                                x - min_x, y - min_y, z - min_z,
                             ] = block_id
                         else:
                             return None
@@ -336,12 +327,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         # Randomly place structure within world.
         goal = GoalGenerator.randomly_place_structure(crop, size)
 
-        # Add a layer of dirt at the bottom of the structure wherever there's still
-        # air.
-        bottom_layer = goal.blocks[:, 0, :]
-        bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-            "dirt"
-        ]
+        goal = GoalGenerator.add_grass(goal)
 
         if save_crop:
             self.save_crop_as_json(structure_id, crop.size, location)
