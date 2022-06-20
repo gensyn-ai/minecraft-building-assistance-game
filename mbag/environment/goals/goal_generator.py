@@ -48,7 +48,7 @@ class GoalGenerator(ABC):
         structure: MinecraftBlocks,
     ) -> MinecraftBlocks:
         """
-        Add grass to the bottom layer of the structure.
+        Add grass to the bottom layer of the structure and returns the result.
         """
         structure = structure.copy()
 
