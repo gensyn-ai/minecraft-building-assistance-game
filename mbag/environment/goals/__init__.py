@@ -1,7 +1,11 @@
 from typing import Dict, Type
 
 from .goal_generator import GoalGenerator
-from .grabcraft import CroppedGrabcraftGoalGenerator, GrabcraftGoalGenerator
+from .grabcraft import (
+    CroppedGrabcraftGoalGenerator,
+    GrabcraftGoalGenerator,
+    SingleWallGrabcraftGenerator,
+)
 from .simple import BasicGoalGenerator, RandomGoalGenerator
 from .craftassist import CraftAssistGoalGenerator
 
@@ -10,6 +14,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "random": RandomGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "cropped_grabcraft": CroppedGrabcraftGoalGenerator,
+    "single_wall_grabcraft": SingleWallGrabcraftGenerator,
     "craftassist": CraftAssistGoalGenerator,
 }
 
@@ -19,5 +24,6 @@ __all__ = [
     "RandomGoalGenerator",
     "GrabcraftGoalGenerator",
     "CroppedGrabcraftGoalGenerator",
+    "SingleWallGrabcraftGenerator",
     "CraftAssistGoalGenerator",
 ]

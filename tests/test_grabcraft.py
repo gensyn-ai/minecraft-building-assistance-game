@@ -7,10 +7,11 @@ import pytest
 from mbag.environment.types import WorldSize
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import PriorityQueueAgent
+from mbag.agents.heuristic_agents import NoopAgent, PriorityQueueAgent
 from mbag.environment.goals.grabcraft import (
     GrabcraftGoalGenerator,
     CroppedGrabcraftGoalGenerator,
+    SingleWallGrabcraftGenerator,
 )
 
 
@@ -171,3 +172,137 @@ def test_generate_crop_json():
         size = generator._get_structure_size(structure_json)
         print(size)
         assert size[0] <= 8 and size[1] <= 9 and size[2] <= 8
+
+
+def test_single_wall_generator():
+    config = {"data_dir": "data/grabcraft", "subset": "train"}
+    world_size: WorldSize = (10, 10, 15)
+
+    generator = SingleWallGrabcraftGenerator(
+        {
+            **config,
+            "use_limited_block_set": True,
+            "min_density": 0.55,
+        }
+    )
+    goal = generator.generate_goal(world_size)
+    assert goal is not None
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": world_size,
+            "num_players": 1,
+            "horizon": 1000,
+            "goal_generator": SingleWallGrabcraftGenerator,
+            "goal_generator_config": config,
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                PriorityQueueAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
+
+
+def test_single_wall_generator_with_alternate_settings():
+    config = {"data_dir": "data/grabcraft", "subset": "train"}
+    world_size: WorldSize = (10, 10, 15)
+
+    generator = SingleWallGrabcraftGenerator(
+        {
+            **config,
+            "use_limited_block_set": True,
+            "choose_densest": True,
+            "make_symmetric": False,
+            "force_single_cc": True,
+        }
+    )
+    goal = generator.generate_goal(world_size)
+    assert goal.is_single_cc()
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": world_size,
+            "num_players": 1,
+            "horizon": 1000,
+            "goal_generator": SingleWallGrabcraftGenerator,
+            "goal_generator_config": config,
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                PriorityQueueAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
+
+
+@pytest.mark.xfail(strict=False)
+def test_single_wall_generator_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (10, 10, 10),
+            "num_players": 1,
+            "horizon": 1000,
+            "goal_generator": SingleWallGrabcraftGenerator,
+            "goal_generator_config": {
+                "data_dir": "data/grabcraft",
+                "subset": "train",
+                "use_limited_block_set": True,
+            },
+            "goal_visibility": [True],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                NoopAgent,
+                {},
+            ),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0
+
+
+def test_single_wall_generator_hard_coded_crop():
+    size = (10, 10, 15)
+    config = {"data_dir": "data/grabcraft", "subset": "train"}
+
+    generator = SingleWallGrabcraftGenerator(
+        {
+            **config,
+            "use_limited_block_set": True,
+            "choose_densest": True,
+            "make_symmetric": False,
+            "force_single_cc": True,
+        }
+    )
+
+    structure = generator._get_structure("5861")
+    assert structure is not None
+
+    crop = generator._generate_wall_crop(size, structure)
+
+    assert crop is not None
+    assert crop.is_single_cc()

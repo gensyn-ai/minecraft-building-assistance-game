@@ -125,10 +125,7 @@ class CraftAssistGoalGenerator(GoalGenerator):
 
             # Add a layer of dirt at the bottom of the structure wherever there's still
             # air.
-            bottom_layer = goal.blocks[:, 0, :]
-            bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-                "dirt"
-            ]
+            goal = GoalGenerator.add_grass(goal)
 
         logger.info(f"chose house {house_id}")
 
