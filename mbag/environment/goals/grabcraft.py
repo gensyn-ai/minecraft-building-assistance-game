@@ -395,6 +395,10 @@ class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
     min_density: float
     mirror_wall: bool
     choose_densest: bool
+    # If this is true, then all blocks are the same type.
+    make_uniform: bool
+    # If make_uniform is set to True, then this determines what block_id the structure is.
+    uniform_block: int
 
 
 class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
@@ -411,6 +415,8 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         "min_density": 0.8,
         "mirror_wall": True,
         "choose_densest": False,
+        "make_uniform": False,
+        "uniform_block": MinecraftBlocks.NAME2ID["grass"],
     }
 
     config: SingleWallGrabcraftGoalConfig
@@ -503,5 +509,8 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
             # Randomly place structure within world.
             goal = GoalGenerator.randomly_place_structure(crop, size)
             goal = GoalGenerator.add_grass(goal)
+
+            if self.config["make_uniform"]:
+                goal = GoalGenerator.make_uniform(goal, self.config["uniform_block"])
 
             return goal
