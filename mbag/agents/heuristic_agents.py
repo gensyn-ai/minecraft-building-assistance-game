@@ -6,7 +6,6 @@ from typing import Dict, List, Tuple, Type, cast
 import numpy as np
 import random
 import heapq
-from copy import deepcopy
 
 from ..environment.types import (
     BlockLocation,
