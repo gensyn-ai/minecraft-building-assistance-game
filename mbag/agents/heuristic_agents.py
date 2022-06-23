@@ -357,33 +357,40 @@ class MirrorBuildingAgent(MbagAgent):
         return np.transpose((a1 != a2).nonzero())
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        (curr_obs,) = obs
-        curr_blocks = curr_obs[
+        curr_blocks = obs[0][
             0,
         ]
-        # At the first timestep we do nothing because the other agent hasn't done anything yet.
-        if self.prev_blocks is None:
-            action = MbagAction.NOOP, 0, 0
-        elif np.array_equal(curr_blocks, self.prev_blocks):
+
+        if self.prev_blocks is None or np.array_equal(curr_blocks, self.prev_blocks):
+            # If this is the first timestep or the world hasn't changed since last time, we do nothing.
             action = MbagAction.NOOP, 0, 0
         else:
             # Get location where a block was changed from last time to this time
             change_location = tuple(
                 self._diff_indices(curr_blocks, self.prev_blocks)[0]
             )
-            mirror = self._mirror_x_index(change_location, curr_blocks.shape[0])
+            mirror_location = self._mirror_x_index(
+                change_location, curr_blocks.shape[0]
+            )
 
-            if curr_blocks[mirror] == curr_blocks[change_location]:
+            if curr_blocks[mirror_location] == curr_blocks[change_location]:
                 action = (MbagAction.NOOP, 0, 0)
-            elif curr_blocks[mirror] == MinecraftBlocks.AIR:
-                location = np.ravel_multi_index(mirror, self.env_config["world_size"])
+            elif curr_blocks[mirror_location] == MinecraftBlocks.AIR:
+                # If there is nothing at the mirror location, we place the corresponding block there.
+                location = np.ravel_multi_index(
+                    mirror_location, self.env_config["world_size"]
+                )
+                block_type = int(curr_blocks[change_location])
                 action = (
                     MbagAction.PLACE_BLOCK,
                     location,
-                    int(curr_blocks[change_location]),
+                    block_type,
                 )
             elif curr_blocks[change_location] == MinecraftBlocks.AIR:
-                location = np.ravel_multi_index(mirror, self.env_config["world_size"])
+                # If there is nothing at the location of the original change, we remove the block at the mirror location.
+                location = np.ravel_multi_index(
+                    mirror_location, self.env_config["world_size"]
+                )
                 action = (MbagAction.BREAK_BLOCK, location, 0)
             else:
                 action = MbagAction.NOOP, 0, 0
