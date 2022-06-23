@@ -221,17 +221,17 @@ def test_rllib_heuristic_agents():
 def test_mirror_x_index():
     agent = MirrorBuildingAgent({"world_size": (10, 10, 10)}, {})
 
-    K = 10
-    for i in range(K):
-        assert (agent._mirror_x_index(np.array([i]), K) == np.array([K - i - 1])).all()
+    k = 10
+    for i in range(k):
+        assert (agent._mirror_x_index(np.array([i]), k) == np.array([k - i - 1])).all()
         assert (
-            agent._mirror_x_index(np.array([i, 3, 5]), K) == np.array([K - i - 1, 3, 5])
+            agent._mirror_x_index(np.array([i, 3, 5]), k) == np.array([k - i - 1, 3, 5])
         ).all()
 
-    K = 9
-    for i in range(K):
+    k = 9
+    for i in range(k):
         assert (
-            agent._mirror_x_index(np.array([i, 3, 5]), K) == np.array([K - i - 1, 3, 5])
+            agent._mirror_x_index(np.array([i, 3, 5]), k) == np.array([k - i - 1, 3, 5])
         ).all()
 
 
@@ -272,14 +272,14 @@ def test_mirror_building_agent_get_action():
     assert agent.get_action((a,)) == (MbagAction.NOOP, 0, 0)
 
     b = a.copy()
-    DIRT = MinecraftBlocks.NAME2ID["dirt"]
-    b[0, 0, 0, 0] = DIRT
+    dirt_block = MinecraftBlocks.NAME2ID["dirt"]
+    b[0, 0, 0, 0] = dirt_block
 
-    assert str(agent.get_action((b,))) == str((MbagAction.PLACE_BLOCK, 18, DIRT))
+    assert str(agent.get_action((b,))) == str((MbagAction.PLACE_BLOCK, 18, dirt_block))
     assert str(agent.get_action((a,))) == str((MbagAction.NOOP, 0, 0))
 
     c = b.copy()
-    c[0, 2, 0, 0] = DIRT
+    c[0, 2, 0, 0] = dirt_block
 
     agent.get_action((c,))
     assert str(agent.get_action((b,))) == str((MbagAction.BREAK_BLOCK, 0, 0))
@@ -327,4 +327,4 @@ def test_mirror_building_agent_in_malmo():
         [(LayerBuilderAgent, {}), (MirrorBuildingAgent, {})],
         force_get_set_state=False,
     )
-    episode_info = evaluator.rollout()
+    evaluator.rollout()

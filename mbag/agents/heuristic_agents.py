@@ -2,7 +2,7 @@
 A collection of agents following simple heuristics.
 """
 
-from typing import Dict, List, Tuple, Type, cast
+from typing import Dict, List, Tuple, Type
 import numpy as np
 import random
 import heapq
@@ -13,7 +13,6 @@ from ..environment.types import (
     MbagActionType,
     MbagObs,
     MbagAction,
-    MbagWorldObsArray,
 )
 from ..environment.blocks import MinecraftBlocks
 from .mbag_agent import MbagAgent
