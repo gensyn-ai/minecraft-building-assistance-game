@@ -1,14 +1,20 @@
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import MbagAction
 import pytest
 import numpy as np
 import logging
 from numpy.testing import assert_array_equal
 
-from mbag.environment.goals.grabcraft import GrabcraftGoalGenerator
+from mbag.environment.goals.grabcraft import (
+    GrabcraftGoalGenerator,
+    SingleWallGrabcraftGenerator,
+)
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
     LayerBuilderAgent,
     PriorityQueueAgent,
+    MirrorBuildingAgent,
     ALL_HEURISTIC_AGENTS,
 )
 from mbag.environment.goals.simple import (
@@ -179,7 +185,9 @@ def test_rllib_heuristic_agents():
         },
     }
 
-    for heuristic_agent_id, heuristic_agent_cls in ALL_HEURISTIC_AGENTS.items():
+    agents = ALL_HEURISTIC_AGENTS.copy()
+    del agents["mirror_builder"]
+    for heuristic_agent_id, heuristic_agent_cls in agents.items():
         logger.info(f"Testing {heuristic_agent_id} agent...")
         heuristic_agent = heuristic_agent_cls({}, env_config)
         trainer = PGTrainer(
@@ -208,3 +216,115 @@ def test_rllib_heuristic_agents():
             num_steps=0,
             num_episodes=2,
         )
+
+
+def test_mirror_x_index():
+    agent = MirrorBuildingAgent({"world_size": (10, 10, 10)}, {})
+
+    K = 10
+    for i in range(K):
+        assert (agent._mirror_x_index(np.array([i]), K) == np.array([K - i - 1])).all()
+        assert (
+            agent._mirror_x_index(np.array([i, 3, 5]), K) == np.array([K - i - 1, 3, 5])
+        ).all()
+
+    K = 9
+    for i in range(K):
+        assert (
+            agent._mirror_x_index(np.array([i, 3, 5]), K) == np.array([K - i - 1, 3, 5])
+        ).all()
+
+
+def test_diff_indices():
+    agent = MirrorBuildingAgent({"world_size": (10, 10, 10)}, {})
+
+    a = np.zeros((5, 5, 5))
+    b = np.ones((5, 5, 5))
+    assert len(agent._diff_indices(a, a)) == 0
+
+    diffs = agent._diff_indices(
+        a,
+        b,
+    )
+    assert len(diffs) == 5**3
+    for x in range(5):
+        for y in range(5):
+            for z in range(5):
+                assert np.array([x, y, z]) in diffs
+
+    c = a.copy()
+    c[0, 0, 0] = 1
+    assert np.array_equal(agent._diff_indices(a, c), [[0, 0, 0]])
+    c[1, 2, 3] = 1
+    assert np.array_equal(agent._diff_indices(a, c), [[0, 0, 0], [1, 2, 3]])
+
+
+def test_mirror_building_agent_get_action():
+    agent = MirrorBuildingAgent({}, {"world_size": (3, 3, 3)})
+
+    dim = (3, 3, 3, 3)
+    a = np.zeros(dim)
+    a[
+        0,
+    ] = MinecraftBlocks.AIR
+
+    assert agent.get_action((a,)) == (MbagAction.NOOP, 0, 0)
+    assert agent.get_action((a,)) == (MbagAction.NOOP, 0, 0)
+
+    b = a.copy()
+    DIRT = MinecraftBlocks.NAME2ID["dirt"]
+    b[0, 0, 0, 0] = DIRT
+
+    assert str(agent.get_action((b,))) == str((MbagAction.PLACE_BLOCK, 18, DIRT))
+    assert str(agent.get_action((a,))) == str((MbagAction.NOOP, 0, 0))
+
+    c = b.copy()
+    c[0, 2, 0, 0] = DIRT
+
+    agent.get_action((c,))
+    assert str(agent.get_action((b,))) == str((MbagAction.BREAK_BLOCK, 0, 0))
+
+
+def test_mirror_building_agent():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (10, 10, 10),
+            "num_players": 2,
+            "horizon": 50,
+            "goal_generator": (
+                SingleWallGrabcraftGenerator,
+                {"test_wall": True, "choose_densest": True},
+            ),
+            "goal_visibility": [True, False],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [(LayerBuilderAgent, {}), (MirrorBuildingAgent, {})],
+        force_get_set_state=False,
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 44
+
+
+@pytest.mark.xfail(strict=False)
+def test_mirror_building_agent_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (10, 10, 10),
+            "num_players": 2,
+            "horizon": 100,
+            "goal_generator": (SingleWallGrabcraftGenerator, {}),
+            "goal_visibility": [True, False],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": True,
+                "video_dir": None,
+            },
+        },
+        [(LayerBuilderAgent, {}), (MirrorBuildingAgent, {})],
+        force_get_set_state=False,
+    )
+    episode_info = evaluator.rollout()

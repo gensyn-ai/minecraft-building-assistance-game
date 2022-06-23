@@ -395,6 +395,8 @@ class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
     min_density: float
     mirror_wall: bool
     choose_densest: bool
+    # enable for testing purposes to make it always give you the same wall
+    test_wall: bool
 
 
 class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
@@ -411,6 +413,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         "min_density": 0.8,
         "mirror_wall": True,
         "choose_densest": False,
+        "test_wall": False,
     }
 
     config: SingleWallGrabcraftGoalConfig
@@ -491,7 +494,12 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         crop = None
         tries = 0
         while crop is None and tries < self.MAX_TRIES:
-            structure_id = random.choice(list(self.structure_metadata.keys()))
+
+            structure_id = (
+                random.choice(list(self.structure_metadata.keys()))
+                if not self.config["test_wall"]
+                else "5861"
+            )
             structure = self._get_structure(structure_id)
             if structure is not None:
                 crop = self._generate_wall_crop(size, structure)

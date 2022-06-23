@@ -2,10 +2,11 @@
 A collection of agents following simple heuristics.
 """
 
-from typing import Dict, List, Tuple, Type
+from typing import Dict, List, Tuple, Type, cast
 import numpy as np
 import random
 import heapq
+from copy import deepcopy
 
 from ..environment.types import (
     BlockLocation,
@@ -13,6 +14,7 @@ from ..environment.types import (
     MbagActionType,
     MbagObs,
     MbagAction,
+    MbagWorldObsArray,
 )
 from ..environment.blocks import MinecraftBlocks
 from .mbag_agent import MbagAgent
@@ -333,7 +335,67 @@ class PriorityQueueAgent(MbagAgent):
         self.block_frontier = list(map(tuple, state[0][1]))
 
 
+class MirrorBuildingAgent(MbagAgent):
+    """
+    Build by mirroring the other agent along the x-axis.
+    """
+
+    prev_blocks = None
+
+    def reset(self):
+        self.prev_blocks = None
+
+    def _mirror_x_index(self, index: np.ndarray, x_len: int):
+        """Mirror an index along the x-axis"""
+        mid = (x_len - 1) / 2
+
+        mirror = list(index)
+        mirror[0] = int(2 * mid - index[0])
+
+        return tuple(mirror)
+
+    def _diff_indices(self, a1: np.ndarray, a2: np.ndarray):
+        """Get indices where two numpy arrays differ"""
+        return np.transpose((a1 != a2).nonzero())
+
+    def get_action(self, obs: MbagObs) -> MbagActionTuple:
+        (curr_obs,) = obs
+        curr_blocks = curr_obs[
+            0,
+        ]
+        # At the first timestep we do nothing because the other agent hasn't done anything yet.
+        if self.prev_blocks is None:
+            action = MbagAction.NOOP, 0, 0
+        elif np.array_equal(curr_blocks, self.prev_blocks):
+            action = MbagAction.NOOP, 0, 0
+        else:
+            # Get location where a block was changed from last time to this time
+            change_location = tuple(
+                self._diff_indices(curr_blocks, self.prev_blocks)[0]
+            )
+            mirror = self._mirror_x_index(change_location, curr_blocks.shape[0])
+
+            if curr_blocks[mirror] == curr_blocks[change_location]:
+                action = (MbagAction.NOOP, 0, 0)
+            elif curr_blocks[mirror] == MinecraftBlocks.AIR:
+                location = np.ravel_multi_index(mirror, self.env_config["world_size"])
+                action = (
+                    MbagAction.PLACE_BLOCK,
+                    location,
+                    int(curr_blocks[change_location]),
+                )
+            elif curr_blocks[change_location] == MinecraftBlocks.AIR:
+                location = np.ravel_multi_index(mirror, self.env_config["world_size"])
+                action = (MbagAction.BREAK_BLOCK, location, 0)
+            else:
+                action = MbagAction.NOOP, 0, 0
+
+        self.prev_blocks = curr_blocks
+        return action
+
+
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
     "priority_queue": PriorityQueueAgent,
+    "mirror_builder": MirrorBuildingAgent,
 }
