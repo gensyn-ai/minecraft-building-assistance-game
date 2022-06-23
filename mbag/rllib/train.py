@@ -46,6 +46,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         # Environment
         goal_generator = "random"
         goal_subset = "train"
+        goal_generator_params = {}
         horizon = 50
         num_players = 1
         height = 5
@@ -67,6 +68,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "goal_generator": (
                 ALL_GOAL_GENERATORS[goal_generator],
                 {
+                    **goal_generator_params
                     "subset": goal_subset,
                 },
             ),
