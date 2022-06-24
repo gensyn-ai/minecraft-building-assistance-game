@@ -343,60 +343,82 @@ class MirrorBuildingAgent(MbagAgent):
     def reset(self):
         self.prev_blocks = None
 
-    def _mirror_x_index(self, index: np.ndarray, x_len: int):
-        """Mirror an index along the x-axis"""
-        mid = (x_len - 1) / 2
+    def _mirror_placed_blocks(self, blocks):
+        """
+        First, add all blocks from the left side to the right side (mirroring on the x-axis). Then add all blocks
+        from the right side to the left side in the places where there are no blocks on the left side.
 
-        mirror = list(index)
-        mirror[0] = int(2 * mid - index[0])
+        We start with this shape,
+                    ^
+                ` y |      |
+                    | *  * |
+                    |   *  |  *
+                    |  *   | - -
+                    | _ _ _|_ ___ _>
+                                    x
+        First, wherever there's air on the right side, we replace it with whatever is on the left side
+                    ^
+                ` y |      |
+                    | *  * | *  *
+                    |   *  |  *
+                    |  *   | - -
+                    | _ _ _|_ ___ _>
+                                    x
+        Then we do the same thing on the left side.
+                    ^
+                ` y |      |
+                    | *  * | *  *
+                    |   *  |  *
+                    |  * - | - -
+                    | _ _ _|_ ___ _>
+                                    x
+        """
+        mirror = blocks.copy()
 
-        return tuple(mirror)
+        for x in range(mirror.shape[0] // 2):
+            left_slice = mirror[
+                x,
+            ]
+            right_slice = mirror[
+                -1 - x,
+            ]
+            # First, wherever there's air on the right side, we replace it with whatever is on the left side
+            right_slice[right_slice == MinecraftBlocks.AIR] = left_slice[
+                right_slice == MinecraftBlocks.AIR
+            ]
+            # Then, we do the same thing for the left side
+            left_slice[left_slice == MinecraftBlocks.AIR] = right_slice[
+                left_slice == MinecraftBlocks.AIR
+            ]
+
+        return mirror
 
     def _diff_indices(self, a1: np.ndarray, a2: np.ndarray):
         """Get indices where two numpy arrays differ"""
         return np.transpose((a1 != a2).nonzero())
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        curr_blocks = obs[0][
+        blocks = obs[0][
             0,
         ]
 
-        if self.prev_blocks is None or np.array_equal(curr_blocks, self.prev_blocks):
-            # If this is the first timestep or the world hasn't changed since last time, we do nothing.
-            action = MbagAction.NOOP, 0, 0
+        blocks_mirrored = self._mirror_placed_blocks(blocks)
+        differences = self._diff_indices(blocks, blocks_mirrored)
+        if np.size(differences) == 0:
+            return MbagAction.NOOP, 0, 0
         else:
-            # Get location where a block was changed from last time to this time
-            change_location = tuple(
-                self._diff_indices(curr_blocks, self.prev_blocks)[0]
+            index = np.ravel_multi_index(
+                tuple(differences[0]), self.env_config["world_size"]
             )
-            mirror_location = self._mirror_x_index(
-                change_location, curr_blocks.shape[0]
+            return (
+                MbagAction.PLACE_BLOCK,
+                index,
+                int(blocks_mirrored[tuple(differences[0])]),
             )
 
-            if curr_blocks[mirror_location] == curr_blocks[change_location]:
-                action = (MbagAction.NOOP, 0, 0)
-            elif curr_blocks[mirror_location] == MinecraftBlocks.AIR:
-                # If there is nothing at the mirror location, we place the corresponding block there.
-                location = np.ravel_multi_index(
-                    mirror_location, self.env_config["world_size"]
-                )
-                block_type = int(curr_blocks[change_location])
-                action = (
-                    MbagAction.PLACE_BLOCK,
-                    location,
-                    block_type,
-                )
-            elif curr_blocks[change_location] == MinecraftBlocks.AIR:
-                # If there is nothing at the location of the original change, we remove the block at the mirror location.
-                location = np.ravel_multi_index(
-                    mirror_location, self.env_config["world_size"]
-                )
-                action = (MbagAction.BREAK_BLOCK, location, 0)
-            else:
-                action = MbagAction.NOOP, 0, 0
-
-        self.prev_blocks = curr_blocks
-        return action
+    # rllib wants this to return this type of object
+    def get_state(self) -> List[np.ndarray]:
+        return [np.array([0, 0], dtype=object)]
 
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {

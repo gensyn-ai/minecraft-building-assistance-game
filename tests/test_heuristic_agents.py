@@ -185,9 +185,7 @@ def test_rllib_heuristic_agents():
         },
     }
 
-    agents = ALL_HEURISTIC_AGENTS.copy()
-    del agents["mirror_builder"]
-    for heuristic_agent_id, heuristic_agent_cls in agents.items():
+    for heuristic_agent_id, heuristic_agent_cls in ALL_HEURISTIC_AGENTS.items():
         logger.info(f"Testing {heuristic_agent_id} agent...")
         heuristic_agent = heuristic_agent_cls({}, env_config)
         trainer = PGTrainer(
@@ -218,21 +216,53 @@ def test_rllib_heuristic_agents():
         )
 
 
-def test_mirror_x_index():
+def test_mirror_placed_blocks():
     agent = MirrorBuildingAgent({"world_size": (10, 10, 10)}, {})
 
-    k = 10
-    for i in range(k):
-        assert (agent._mirror_x_index(np.array([i]), k) == np.array([k - i - 1])).all()
-        assert (
-            agent._mirror_x_index(np.array([i, 3, 5]), k) == np.array([k - i - 1, 3, 5])
-        ).all()
+    # If it's all air, nothing should be changed
+    blocks = np.zeros((4, 4, 4))
+    blocks[:] = MinecraftBlocks.AIR
+    assert np.array_equal(agent._mirror_placed_blocks(blocks), blocks)
 
-    k = 9
-    for i in range(k):
-        assert (
-            agent._mirror_x_index(np.array([i, 3, 5]), k) == np.array([k - i - 1, 3, 5])
-        ).all()
+    # If one half is all bedrock the other half should also be all bedrock
+    blocks[
+        :2,
+    ] = MinecraftBlocks.BEDROCK
+    assert (agent._mirror_placed_blocks(blocks) == MinecraftBlocks.BEDROCK).all()
+    blocks[:] = MinecraftBlocks.AIR
+    blocks[
+        2:,
+    ] = MinecraftBlocks.BEDROCK
+    assert (agent._mirror_placed_blocks(blocks) == MinecraftBlocks.BEDROCK).all()
+
+    # Check if it can mirror one block change on the left side
+    blocks[:] = MinecraftBlocks.AIR
+    blocks[0, 0, 0] = MinecraftBlocks.BEDROCK
+    mirror = blocks.copy()
+    mirror[3, 0, 0] = MinecraftBlocks.BEDROCK
+    assert np.array_equal(agent._mirror_placed_blocks(blocks), mirror)
+
+    # Check if it can mirror one block change on the right side
+    blocks[:] = MinecraftBlocks.AIR
+    blocks[2, 0, 0] = MinecraftBlocks.BEDROCK
+    mirror = blocks.copy()
+    mirror[1, 0, 0] = MinecraftBlocks.BEDROCK
+    assert np.array_equal(agent._mirror_placed_blocks(blocks), mirror)
+
+    # If there are two different blocks on opposite side, nothing should be changed.
+    blocks[:] = MinecraftBlocks.AIR
+    blocks[3, 0, 0] = MinecraftBlocks.BEDROCK
+    blocks[0, 0, 0] = MinecraftBlocks.NAME2ID["grass"]
+    assert np.array_equal(agent._mirror_placed_blocks(blocks), blocks)
+
+    # Test more complicated behavior
+    blocks[:] = MinecraftBlocks.AIR
+    blocks[2, 0, 0] = MinecraftBlocks.BEDROCK
+    blocks[3, 0, 0] = MinecraftBlocks.BEDROCK
+    blocks[0, 0, 0] = MinecraftBlocks.NAME2ID["grass"]
+    mirror = blocks.copy()
+    mirror[1, 0, 0] = MinecraftBlocks.BEDROCK
+    assert np.array_equal(agent._mirror_placed_blocks(blocks), mirror)
 
 
 def test_diff_indices():
@@ -260,29 +290,29 @@ def test_diff_indices():
 
 
 def test_mirror_building_agent_get_action():
-    agent = MirrorBuildingAgent({}, {"world_size": (3, 3, 3)})
+    agent = MirrorBuildingAgent({}, {"world_size": (4, 4, 4)})
 
-    dim = (3, 3, 3, 3)
+    dim = (4, 4, 4, 4)
     a = np.zeros(dim)
-    a[
-        0,
-    ] = MinecraftBlocks.AIR
 
-    assert agent.get_action((a,)) == (MbagAction.NOOP, 0, 0)
+    # Does it do nothing if the map is empty?
     assert agent.get_action((a,)) == (MbagAction.NOOP, 0, 0)
 
-    b = a.copy()
-    dirt_block = MinecraftBlocks.NAME2ID["dirt"]
-    b[0, 0, 0, 0] = dirt_block
+    # Does it copy to the right?
+    a[0, 0, 0, 0] = MinecraftBlocks.BEDROCK
+    assert str(agent.get_action((a,))) == str(
+        (MbagAction.PLACE_BLOCK, 48, MinecraftBlocks.BEDROCK)
+    )
 
-    assert str(agent.get_action((b,))) == str((MbagAction.PLACE_BLOCK, 18, dirt_block))
+    # Does it do nothing if there are differnt blocks on opposite sides?
+    a[0, 3, 0, 0] = MinecraftBlocks.NAME2ID["grass"]
     assert str(agent.get_action((a,))) == str((MbagAction.NOOP, 0, 0))
 
-    c = b.copy()
-    c[0, 2, 0, 0] = dirt_block
-
-    agent.get_action((c,))
-    assert str(agent.get_action((b,))) == str((MbagAction.BREAK_BLOCK, 0, 0))
+    # Does it copy to the left?
+    a[0, 0, 0, 0] = MinecraftBlocks.AIR
+    assert str(agent.get_action((a,))) == str(
+        (MbagAction.PLACE_BLOCK, 0, MinecraftBlocks.NAME2ID["grass"])
+    )
 
 
 def test_mirror_building_agent():
@@ -293,7 +323,7 @@ def test_mirror_building_agent():
             "horizon": 50,
             "goal_generator": (
                 SingleWallGrabcraftGenerator,
-                {"test_wall": True, "choose_densest": True},
+                {"test_wall": True, "choose_densest": True, "force_bottom_grass": True},
             ),
             "goal_visibility": [True, False],
             "malmo": {
@@ -306,7 +336,7 @@ def test_mirror_building_agent():
         force_get_set_state=False,
     )
     episode_info = evaluator.rollout()
-    assert episode_info.cumulative_reward > 44
+    assert episode_info.cumulative_reward > 50
 
 
 @pytest.mark.xfail(strict=False)
@@ -316,7 +346,10 @@ def test_mirror_building_agent_in_malmo():
             "world_size": (10, 10, 10),
             "num_players": 2,
             "horizon": 100,
-            "goal_generator": (SingleWallGrabcraftGenerator, {}),
+            "goal_generator": (
+                SingleWallGrabcraftGenerator,
+                {"force_bottom_grass": True},
+            ),
             "goal_visibility": [True, False],
             "malmo": {
                 "use_malmo": True,

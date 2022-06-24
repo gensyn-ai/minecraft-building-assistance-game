@@ -397,6 +397,8 @@ class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
     choose_densest: bool
     # enable for testing purposes to make it always give you the same wall
     test_wall: bool
+    # Makes it so that there is only grass at the bottom layer, so that the agent will never have to destroy any blocks.
+    force_bottom_grass: bool
 
 
 class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
@@ -414,6 +416,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         "mirror_wall": True,
         "choose_densest": False,
         "test_wall": False,
+        "force_bottom_grass": False,
     }
 
     config: SingleWallGrabcraftGoalConfig
@@ -511,5 +514,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
             # Randomly place structure within world.
             goal = GoalGenerator.randomly_place_structure(crop, size)
             goal = GoalGenerator.add_grass(goal)
+            if self.config["force_bottom_grass"]:
+                goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["grass"]
 
             return goal
