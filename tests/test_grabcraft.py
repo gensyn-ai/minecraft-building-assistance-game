@@ -373,7 +373,19 @@ def test_make_uniform():
         (crop.blocks == MinecraftBlocks.AIR) == (uniform_blocks == MinecraftBlocks.AIR)
     )
     assert np.all(
-        (crop_blocks[:, 0, :] == grass_block) == (uniform_blocks == grass_block)
+        (crop_blocks[:, 0, :] == grass_block)
+        == (uniform_blocks[:, 0, :] == grass_block)
+    )
+    assert np.all(
+        (crop_blocks[:, 0, :] == MinecraftBlocks.AIR)
+        == (uniform_blocks[:, 0, :] == MinecraftBlocks.AIR)
+    )
+    assert np.all(
+        (
+            (crop_blocks[:, 0, :] != MinecraftBlocks.AIR)
+            & (crop_blocks[:, 0, :] != grass_block)
+        )
+        == (uniform_blocks[:, 0, :] == cobblestone_block)
     )
     assert np.all(
         uniform_blocks[:, 1:, :][crop_blocks[:, 1:, :] != MinecraftBlocks.AIR]

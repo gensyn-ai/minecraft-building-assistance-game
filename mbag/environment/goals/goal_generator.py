@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
 import random
-import numpy as np
 
 from ..types import WorldSize
 from ..blocks import MinecraftBlocks
@@ -76,10 +75,8 @@ class GoalGenerator(ABC):
 
         bottom_layer = new_structure.blocks[:, 0, :]
         bottom_layer[
-            np.logical_and(
-                bottom_layer == MinecraftBlocks.AIR,
-                bottom_layer == MinecraftBlocks.NAME2ID["grass"],
-            )
+            (bottom_layer != MinecraftBlocks.AIR)
+            & (bottom_layer != MinecraftBlocks.NAME2ID["grass"])
         ] = block_type
 
         return new_structure
