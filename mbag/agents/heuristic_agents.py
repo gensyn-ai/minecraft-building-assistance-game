@@ -343,7 +343,7 @@ class MirrorBuildingAgent(MbagAgent):
     def reset(self):
         self.prev_blocks = None
 
-    def _mirror_placed_blocks(self, blocks: MinecraftBlocks) -> MinecraftBlocks:
+    def _mirror_placed_blocks(self, blocks: np.ndarray) -> np.ndarray:
         """
         First, add all blocks from the left side to the right side (mirroring on the x-axis). Then add all blocks
         from the right side to the left side in the places where there are no blocks on the left side.
@@ -417,8 +417,8 @@ class MirrorBuildingAgent(MbagAgent):
             )
 
     # rllib wants this to return this type of object
-    def get_state(self) -> List[np.ndarray]:
-        return [np.array([0, 0], dtype=object)]
+    # def get_state(self) -> List[np.ndarray]:
+    #     return [np.array([0, 0], dtype=object)]
 
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
