@@ -456,18 +456,8 @@ class MinecraftBlocks(object):
                     | _ _ _|_ _ _ _>
                                     x
         """
-        x_size = self.blocks.shape[0]
-
-        # There are more elegant ways to mirror this but I couldn't find any that were easy to understand.
-        half = x_size // 2
-        if x_size % 2 == 0:
-            for offset in range(half):
-                self.blocks[half + offset, :, :] = self.blocks[half - 1 - offset, :, :]
-        else:
-            for offset in range(half):
-                self.blocks[half + 1 + offset, :, :] = self.blocks[
-                    half - 1 - offset, :, :
-                ]
+        for x in range(self.blocks.shape[0] // 2):
+            self.blocks[-1 - x] = self.blocks[x]
 
     @classmethod
     def from_malmo_grid(

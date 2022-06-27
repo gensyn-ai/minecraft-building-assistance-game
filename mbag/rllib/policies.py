@@ -50,7 +50,9 @@ class MbagAgentPolicy(Policy):
         episodes=None,
         **kwargs,
     ):
-        self.view_requirements["state_in_0"].batch_repeat_value = 1
+        for batch_key, view_requirement in self.view_requirements.items():
+            if batch_key.startswith("state_in_"):
+                view_requirement.batch_repeat_value = 1
 
         unflattened_obs_batch = restore_original_dimensions(
             obs_batch,
@@ -63,7 +65,12 @@ class MbagAgentPolicy(Policy):
 
         obs: MbagObs
         prev_state: Tuple[np.ndarray, ...]
-        for obs, prev_state in zip(zip(*unflattened_obs_batch), zip(*state_batches)):
+        for obs, prev_state in zip(
+            zip(*unflattened_obs_batch),
+            zip(*state_batches)
+            if state_batches != []
+            else [[] for _ in range(len(obs_batch))],
+        ):
             self.agent.set_state(list(prev_state))
             action = self.agent.get_action(obs)
             actions.append(action)
