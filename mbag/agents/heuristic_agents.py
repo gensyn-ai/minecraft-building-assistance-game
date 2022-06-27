@@ -333,7 +333,92 @@ class PriorityQueueAgent(MbagAgent):
         self.block_frontier = list(map(tuple, state[0][1]))
 
 
+class MirrorBuildingAgent(MbagAgent):
+    """
+    Build by mirroring the other agent along the x-axis.
+    """
+
+    prev_blocks = None
+
+    def reset(self):
+        self.prev_blocks = None
+
+    def _mirror_placed_blocks(self, blocks: np.ndarray) -> np.ndarray:
+        """
+        First, add all blocks from the left side to the right side (mirroring on the x-axis). Then add all blocks
+        from the right side to the left side in the places where there are no blocks on the left side.
+
+        We start with this shape,
+                    ^
+                ` y |      |
+                    | *  * |
+                    |   *  |  *
+                    |  *   | - -
+                    | _ _ _|_ ___ _>
+                                    x
+        First, wherever there's air on the right side, we replace it with whatever is on the left side
+                    ^
+                ` y |      |
+                    | *  * | *  *
+                    |   *  |  *
+                    |  *   | - -
+                    | _ _ _|_ ___ _>
+                                    x
+        Then we do the same thing on the left side.
+                    ^
+                ` y |      |
+                    | *  * | *  *
+                    |   *  |  *
+                    |  * - | - -
+                    | _ _ _|_ ___ _>
+                                    x
+        """
+        mirror = blocks.copy()
+
+        for x in range(mirror.shape[0] // 2):
+            left_slice = mirror[
+                x,
+            ]
+            right_slice = mirror[
+                -1 - x,
+            ]
+            # First, wherever there's air on the right side, we replace it with whatever is on the left side
+            right_slice[right_slice == MinecraftBlocks.AIR] = left_slice[
+                right_slice == MinecraftBlocks.AIR
+            ]
+            # Then, we do the same thing for the left side
+            left_slice[left_slice == MinecraftBlocks.AIR] = right_slice[
+                left_slice == MinecraftBlocks.AIR
+            ]
+
+        return mirror
+
+    def _diff_indices(self, a1: np.ndarray, a2: np.ndarray):
+        """Get indices where two numpy arrays differ"""
+        return np.transpose((a1 != a2).nonzero())
+
+    def get_action(self, obs: MbagObs) -> MbagActionTuple:
+        blocks = obs[0][
+            0,
+        ]
+
+        blocks_mirrored = self._mirror_placed_blocks(blocks)
+        differences = self._diff_indices(blocks, blocks_mirrored)
+        if np.size(differences) == 0:
+            return MbagAction.NOOP, 0, 0
+        else:
+            index = np.ravel_multi_index(
+                tuple(differences[0]), self.env_config["world_size"]
+            )
+            return (
+                MbagAction.PLACE_BLOCK,
+                index,
+                int(blocks_mirrored[tuple(differences[0])]),
+            )
+
+
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
     "priority_queue": PriorityQueueAgent,
+    "mirror_builder": MirrorBuildingAgent,
 }
