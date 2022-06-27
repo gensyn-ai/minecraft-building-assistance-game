@@ -343,7 +343,7 @@ class MirrorBuildingAgent(MbagAgent):
     def reset(self):
         self.prev_blocks = None
 
-    def _mirror_placed_blocks(self, blocks):
+    def _mirror_placed_blocks(self, blocks: MinecraftBlocks) -> MinecraftBlocks:
         """
         First, add all blocks from the left side to the right side (mirroring on the x-axis). Then add all blocks
         from the right side to the left side in the places where there are no blocks on the left side.
