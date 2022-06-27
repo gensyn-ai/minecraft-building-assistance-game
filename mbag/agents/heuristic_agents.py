@@ -416,10 +416,6 @@ class MirrorBuildingAgent(MbagAgent):
                 int(blocks_mirrored[tuple(differences[0])]),
             )
 
-    # rllib wants this to return this type of object
-    # def get_state(self) -> List[np.ndarray]:
-    #     return [np.array([0, 0], dtype=object)]
-
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
