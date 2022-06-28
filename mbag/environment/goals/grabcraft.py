@@ -434,11 +434,11 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
 
         return wall
 
-    def _generate_wall_crop(
+    def _generate_wall_crops(
         self, size: WorldSize, structure: MinecraftBlocks
-    ) -> Optional[MinecraftBlocks]:
+    ) -> Optional[List[MinecraftBlocks]]:
         """
-        Chooses wall with highest density to crop out of random house structure
+        Generate a list of wall crops for a structure.
 
                     ^
                 ` y |
@@ -486,6 +486,14 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
             if walls == []:
                 return None
 
+        return walls
+
+    def _generate_wall_crop(
+        self, size: WorldSize, structure: MinecraftBlocks
+    ) -> Optional[MinecraftBlocks]:
+        walls = self._generate_wall_crops(size, structure)
+        if walls is None:
+            return None
         if self.config["choose_densest"]:
             wall = max(walls, key=lambda x: x.density())
         else:
@@ -518,3 +526,15 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
                 goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["grass"]
 
             return goal
+
+    def get_sample_size(self, size: WorldSize):
+        sum = 0
+        for k in self.structure_metadata.keys():
+            structure = self._get_structure(k)
+            walls = (
+                self._generate_wall_crops(size, structure)
+                if structure is not None
+                else None
+            )
+            sum += len(walls) if walls is not None else 0
+        return sum
