@@ -326,7 +326,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 ] = (
                     lambda agent_id, episode, worker, to_policy_id=heuristic, **kwargs: to_policy_id
                 )
-            else:
+            elif heuristic is None:
                 # Add a corresponding distilled policy for each policy in the checkpoint.
                 previous_policy_ids = list(policies.keys())
                 policies_to_train.clear()
@@ -354,6 +354,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 config["multiagent"][
                     "distillation_mapping_fn"
                 ] = lambda policy_id: f"{policy_id}_distilled"
+            else:
+                print("========heyyyy")
+                print(policies.keys())
             # Remove extra config parameters.
             for key in list(config.keys()):
                 if key not in DISTILLATION_DEFAULT_CONFIG:
