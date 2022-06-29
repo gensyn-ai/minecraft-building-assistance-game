@@ -46,6 +46,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         # Environment
         goal_generator = "random"
         goal_subset = "train"
+        make_uniform = None
         horizon = 50
         num_players = 1
         height = 5
@@ -60,15 +61,18 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
+
+        goal_generator_config = {"subset": goal_subset}
+        if make_uniform is not None:
+            goal_generator_config["make_uniform"] = make_uniform
+
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
             "goal_generator": (
                 ALL_GOAL_GENERATORS[goal_generator],
-                {
-                    "subset": goal_subset,
-                },
+                goal_generator_config,
             ),
             "malmo": {
                 "use_malmo": False,
@@ -122,7 +126,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         ] = "convolutional"
         max_seq_len = horizon
         embedding_size = 8
-        position_embedding_size = 8
+        position_embedding_size = 6
         mask_goal = False
         use_extra_features = not mask_goal
         num_conv_1_layers = 1
