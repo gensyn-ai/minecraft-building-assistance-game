@@ -200,7 +200,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         elif multiagent_mode == "cross_play":
             policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
             if heuristic is not None:
-                policy_ids[0] = heuristic
+                policy_ids[-1] = heuristic
 
             def policy_mapping_fn(
                 agent_id: str, episode, worker, policy_ids=policy_ids, **kwargs
@@ -325,16 +325,16 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     env.action_space,
                     {"model": model_config},
                 )
-                
-            if checkpoint_to_load_policies is not None:
+                # Maybe do this:
+                policies_to_train = [distill_policy_id]
+            elif checkpoint_to_load_policies is not None:
                 # Add a corresponding distilled policy for each policy in the checkpoint.
                 previous_policy_ids = [k for k in policies.keys() if k.startswith('ppo')]
                 policies_to_train.clear()
                 for policy_id in previous_policy_ids:
                     load_policies_mapping[policy_id] = policy_id
-                    
-                    print(loaded_policy_dict.keys())
-                    policies[policy_id] = loaded_policy_dict[policy_id]
+                    policies[policy_id] = checkpoint_to_load_policies_config["multiagent"]["policies"][policy_id]
+                    # policies[policy_id] = loaded_policy_dict[policy_id]
                     prev_model_config = policies[policy_id][3]["model"]
                     if (
                         prev_model_config.get("custom_model")
@@ -354,11 +354,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             config["multiagent"][
                 "distillation_mapping_fn"
             ] = lambda policy_id: f"{policy_id}_distilled"
+            config["multiagent"]["policies_to_train"] = policies_to_train
 
             # Remove extra config parameters.
             for key in list(config.keys()):
                 if key not in DISTILLATION_DEFAULT_CONFIG:
                     del config[key]
+
 
         del env
         del loaded_policy_dict
@@ -384,6 +386,8 @@ def main(
         ignore_reinit_error=True,
         include_dashboard=False,
     )
+
+    print(config)
 
     trainer_class = get_trainable_cls(run)
     trainer = trainer_class(
