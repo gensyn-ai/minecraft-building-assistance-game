@@ -271,9 +271,11 @@ class MapExperiences:
         self,
         distillation_mapping_fn: Callable[[PolicyID], PolicyID],
         policies_recurrent: Dict[PolicyID, bool],
+        trainable_policies: List[PolicyID],
     ):
         self.distillation_mapping_fn = distillation_mapping_fn
         self.policies_recurrent = policies_recurrent
+        self.trainable_policies = trainable_policies
 
     def __call__(self, samples: SampleBatchType) -> SampleBatchType:
         assert isinstance(samples, MultiAgentBatch)
@@ -283,7 +285,10 @@ class MapExperiences:
         for policy_id, batch in samples.policy_batches.items():
             distill_policy_id = self.distillation_mapping_fn(policy_id)
             distill_batch = batch.copy(shallow=True)
-            if not self.policies_recurrent[distill_policy_id]:
+            if distill_policy_id not in self.policies_recurrent:
+                # Not distilling this policy, ignore.
+                assert distill_policy_id not in self.trainable_policies
+            elif not self.policies_recurrent[distill_policy_id]:
                 # Remove state from batch for non-recurrent policies.
                 for key in list(distill_batch.keys()):
                     if key.startswith("state_in_") or key.startswith("state_out_"):
@@ -335,6 +340,7 @@ def execution_plan(
         MapExperiences(
             config["multiagent"]["distillation_mapping_fn"],
             policies_recurrent,
+            workers.trainable_policies(),
         )
     )
 
