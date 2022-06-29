@@ -228,7 +228,9 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         block_id_logits = block_id_logits.clone()
         block_id_logits[
             (action_type == MbagAction.PLACE_BLOCK)[:, None]
-            & ~MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[None, :]
+            & ~MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[None, :].to(
+                block_id_logits.device
+            )
         ] = mask_logit
 
         return TorchCategorical(block_id_logits)  # type: ignore

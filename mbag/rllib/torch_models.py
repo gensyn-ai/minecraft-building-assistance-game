@@ -59,6 +59,12 @@ DEFAULT_CONFIG: MbagModelConfig = {
 
 
 class MbagTorchModel(MbagModel, nn.Module):
+    """
+    This base class implements common functionality for PyTorch MBAG models such
+    as block type embedding, separate policy and value networks, the value head,
+    and the block ID head.
+    """
+
     _logits: torch.Tensor
 
     def __init__(
@@ -122,23 +128,48 @@ class MbagTorchModel(MbagModel, nn.Module):
         )
 
     def _get_in_planes(self) -> int:
+        """
+        Return how many "planes" of data of size embedding_size are present in the
+        embedded observation.
+        """
+
         # We have in-planes for current blocks, player locations, and
         # goal blocks if mask_goal is False.
         return 2 if self.mask_goal else 3  # TODO: update if we add more
 
     def _get_in_channels(self) -> int:
+        """Get the number of channels in the embedded observation."""
         in_channels = self._get_in_planes() * self.embedding_size
         if self.use_extra_features:
             in_channels += 1
         return in_channels
 
     def _get_head_in_channels(self) -> int:
+        """
+        Get the number of channels output from the backbone which are used as input to
+        the value and block ID heads.
+        """
+
         raise NotImplementedError()
 
     def _construct_backbone(self, is_value_network=False) -> nn.Module:
+        """
+        Construct the main backbone of the model. This takes as input the result of
+        _get_embedded_obs and should output a tensor of shape
+            (batch_size, self._get_head_in_channels()) + self.world_size.
+        When vf_share_layers is True, this is called once; when vf_share_layers is
+        False, it is called twice, and the value backbone is passed
+        is_value_network=True.
+        """
+
         raise NotImplementedError()
 
     def _construct_block_id_head(self) -> nn.Module:
+        """
+        Construct the head which selects the block ID part of the action conditional
+        on the other action parts (see MbagAutoregressiveActionDistribution).
+        """
+
         block_id_in_channels = self._get_head_in_channels()
         block_id_layers: List[nn.Module] = []
         for layer_index in range(self.num_block_id_layers):
@@ -155,6 +186,11 @@ class MbagTorchModel(MbagModel, nn.Module):
         return nn.Sequential(*block_id_layers)
 
     def _construct_value_head(self) -> nn.Module:
+        """
+        Construct the head which takes in the output of the value backbone and
+        outputs a one-dimensional value estimate.
+        """
+
         return nn.Sequential(
             nn.AdaptiveAvgPool3d((1, 1, 1)),
             nn.Flatten(),
@@ -162,6 +198,10 @@ class MbagTorchModel(MbagModel, nn.Module):
         )
 
     def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
+        """
+        Transform a raw observation into the input for the network backbone.
+        """
+
         embedded_blocks = self.block_id_embedding(world_obs[:, CURRENT_BLOCKS])
         embedded_obs_pieces = [embedded_blocks]
         if not self.mask_goal:
@@ -662,8 +702,7 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
 
 class MbagTransformerModel(MbagTorchModel):
     """
-    Concatenates all observation parts into one long sequence, with different encodings
-    for each part, and then applies a transformer to the result.
+    Model which uses a transformer encoder as the backbone.
     """
 
     def __init__(
@@ -680,7 +719,6 @@ class MbagTransformerModel(MbagTorchModel):
         )
         extra_config.update(cast(MbagTransformerModelConfig, kwargs))
         self.position_embedding_size = extra_config["position_embedding_size"]
-        assert self.position_embedding_size % 3 == 0
         self.num_layers = extra_config["num_layers"]
         self.num_heads = extra_config["num_heads"]
 
@@ -694,7 +732,7 @@ class MbagTransformerModel(MbagTorchModel):
         self.position_embedding = nn.Parameter(
             torch.zeros(self.world_size + (self.position_embedding_size,))
         )
-        dim_embedding_size = self.position_embedding_size // 3
+        dim_embedding_size = self.position_embedding_size // 6 * 2
         self.position_embedding.data[
             ..., :dim_embedding_size
         ] = self._get_position_embedding(
@@ -724,6 +762,11 @@ class MbagTransformerModel(MbagTorchModel):
         return super()._get_in_channels() + self.position_embedding_size
 
     def _get_position_embedding(self, seq_len: int, size: int) -> torch.Tensor:
+        """
+        Get an initial positional embedding of shape (seq_len, size) by using
+        the sin/cos embedding.
+        """
+
         embedding = torch.zeros(seq_len, size)
         position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
