@@ -122,7 +122,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         ] = "convolutional"
         max_seq_len = horizon
         embedding_size = 8
-        position_embedding_size = 8
+        position_embedding_size = 6
         mask_goal = False
         use_extra_features = not mask_goal
         num_conv_1_layers = 1
