@@ -119,5 +119,5 @@ class MbagInfoDict(TypedDict):
     action_type: MbagActionType
     """
     The action that the player effectively took. That is, if the player attempted to
-    do something but wasn't succesful, it is logged at NOOP.
+    do something but it didn't actually affect the world, it is logged as NOOP.
     """
