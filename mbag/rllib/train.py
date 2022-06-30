@@ -333,11 +333,15 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 policies_to_train = [distill_policy_id]
             elif checkpoint_to_load_policies is not None:
                 # Add a corresponding distilled policy for each policy in the checkpoint.
-                previous_policy_ids = [k for k in policies.keys() if k.startswith('ppo')]
+                previous_policy_ids = [
+                    k for k in policies.keys() if k.startswith("ppo")
+                ]
                 policies_to_train.clear()
                 for policy_id in previous_policy_ids:
                     load_policies_mapping[policy_id] = policy_id
-                    policies[policy_id] = checkpoint_to_load_policies_config["multiagent"]["policies"][policy_id]
+                    policies[policy_id] = checkpoint_to_load_policies_config[
+                        "multiagent"
+                    ]["policies"][policy_id]
                     # policies[policy_id] = loaded_policy_dict[policy_id]
                     prev_model_config = policies[policy_id][3]["model"]
                     if (
@@ -364,7 +368,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             for key in list(config.keys()):
                 if key not in DISTILLATION_DEFAULT_CONFIG:
                     del config[key]
-
 
         del env
         del loaded_policy_dict
