@@ -136,6 +136,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         hidden_size = hidden_channels
         num_block_id_layers = 2
         num_heads = 4
+        use_separated_transformer = False
         use_resnet = False
         num_unet_layers = 0
         unet_grow_factor = 2
@@ -167,11 +168,14 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         elif model == "transformer":
             transformer_config: MbagTransformerModelConfig = {
                 "embedding_size": embedding_size,
+                "use_extra_features": use_extra_features,
+                "mask_goal": mask_goal,
                 "position_embedding_size": position_embedding_size,
                 "num_layers": num_layers,
                 "num_heads": num_heads,
                 "hidden_size": hidden_size,
                 "num_block_id_layers": num_block_id_layers,
+                "use_separated_transformer": use_separated_transformer,
             }
             model_config["custom_model_config"] = transformer_config
 

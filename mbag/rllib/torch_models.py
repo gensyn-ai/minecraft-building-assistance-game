@@ -687,16 +687,64 @@ class Permute(nn.Module):
         return x.permute(*self.dims)
 
 
+class SeparatedTransformerEncoder(nn.Module):
+    def __init__(self, num_layers: int, d_model: int, nhead: int, dim_feedforward):
+        super().__init__()
+
+        self.layers: List[nn.TransformerEncoderLayer] = []
+        for layer_index in range(num_layers):
+            layer = nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                batch_first=True,
+            )
+            self.add_module(f"layer_{layer_index}", layer)
+            self.layers.append(layer)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
+        n_spatial_dims = len(x.size()) - 2
+        for layer_index, layer in enumerate(self.layers):
+            spatial_dim = layer_index % n_spatial_dims
+            permutation = (
+                (0,)
+                + tuple(
+                    other_spatial_dim + 2
+                    for other_spatial_dim in range(n_spatial_dims)
+                    if other_spatial_dim != spatial_dim
+                )
+                + (spatial_dim + 2, 1)
+            )
+            inverse_permutation = tuple(
+                permutation.index(dim) for dim in range(len(x.size()))
+            )
+            x_permuted = x.permute(*permutation)
+            layer_input = x_permuted.flatten(end_dim=-3)
+            layer_output = layer(layer_input)
+            x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+
+        return x
+
+
 class MbagTransformerModelConfig(MbagModelConfig, total=False):
     position_embedding_size: int
     num_layers: int
     num_heads: int
+    use_separated_transformer: bool
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
+    "embedding_size": DEFAULT_CONFIG["embedding_size"],
+    "use_extra_features": DEFAULT_CONFIG["use_extra_features"],
+    "mask_goal": DEFAULT_CONFIG["mask_goal"],
+    "hidden_size": DEFAULT_CONFIG["hidden_size"],
+    "num_block_id_layers": DEFAULT_CONFIG["num_block_id_layers"],
+    "fake_state": DEFAULT_CONFIG["fake_state"],
     "position_embedding_size": 12,
     "num_layers": 3,
     "num_heads": 2,
+    "use_separated_transformer": False,
 }
 
 
@@ -721,6 +769,7 @@ class MbagTransformerModel(MbagTorchModel):
         self.position_embedding_size = extra_config["position_embedding_size"]
         self.num_layers = extra_config["num_layers"]
         self.num_heads = extra_config["num_heads"]
+        self.use_separated_transformer = extra_config["use_separated_transformer"]
 
         super().__init__(
             obs_space, action_space, num_outputs, model_config, name, **kwargs
@@ -784,35 +833,45 @@ class MbagTransformerModel(MbagTorchModel):
         return F.pad(x, [0, self.hidden_size - x.size()[-1]])
 
     def _construct_backbone(self, is_value_network=False) -> nn.Module:
-        return nn.Sequential(
-            nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(
-                    d_model=self.hidden_size,
-                    nhead=self.num_heads,
-                    dim_feedforward=self.hidden_size,
-                    batch_first=True,
+        if self.use_separated_transformer:
+            return SeparatedTransformerEncoder(
+                num_layers=self.num_layers,
+                d_model=self.hidden_size,
+                nhead=self.num_heads,
+                dim_feedforward=self.hidden_size,
+            )
+        else:
+            return nn.Sequential(
+                nn.TransformerEncoder(
+                    nn.TransformerEncoderLayer(
+                        d_model=self.hidden_size,
+                        nhead=self.num_heads,
+                        dim_feedforward=self.hidden_size,
+                        batch_first=True,
+                    ),
+                    self.num_layers,
                 ),
-                self.num_layers,
-            ),
-            View(-1, *self.world_size, self.hidden_size),
-            Permute(0, 4, 1, 2, 3),
-        )
+                View(-1, *self.world_size, self.hidden_size),
+                Permute(0, 4, 1, 2, 3),
+            )
 
     def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
         embedded_obs = super()._get_embedded_obs(world_obs)
         batch_size = embedded_obs.size()[0]
-        embedded_obs = torch.cat(
-            [
-                embedded_obs,
-                self.position_embedding[None]
-                .expand(batch_size, -1, -1, -1, -1)
-                .permute(0, 4, 1, 2, 3),
-            ],
-            dim=1,
-        )
-        return self._pad_to_hidden_size(
-            embedded_obs.flatten(start_dim=2).transpose(1, 2)
-        )
+        embedded_obs = self._pad_to_hidden_size(
+            torch.cat(
+                [
+                    embedded_obs.permute(0, 2, 3, 4, 1),
+                    self.position_embedding[None].expand(batch_size, -1, -1, -1, -1),
+                ],
+                dim=4,
+            )
+        ).permute(0, 4, 1, 2, 3)
+
+        if self.use_separated_transformer:
+            return embedded_obs
+        else:
+            return embedded_obs.flatten(start_dim=2).transpose(1, 2)
 
     def _get_head_in_channels(self) -> int:
         return self.hidden_size

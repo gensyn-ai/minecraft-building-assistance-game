@@ -50,8 +50,9 @@ class MbagCallbacks(DefaultCallbacks):
             # If the action_key hasn't been logged yet, set up an entry for each actiontype
             if action_key not in episode.custom_metrics:
                 for action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
-                    action_key = f"{policy_id}/num_{action_type_name}"
-                    episode.custom_metrics[action_key] = 0
+                    episode.custom_metrics[
+                        f"{policy_id}/num_{action_type_name.lower()}"
+                    ] = 0
 
             episode.custom_metrics[action_key] += 1
 
@@ -89,14 +90,16 @@ class MbagCallbacks(DefaultCallbacks):
             ]
             total_actions = sum(
                 [
-                    episode.custom_metrics[f"{policy_id}/num_{action_type_name}"]
+                    episode.custom_metrics[
+                        f"{policy_id}/num_{action_type_name.lower()}"
+                    ]
                     for action_type_name in MbagAction.ACTION_TYPE_NAMES.values()
                 ]
             )
             for action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
                 num_actions = episode.custom_metrics[
-                    f"{policy_id}/num_{action_type_name}"
+                    f"{policy_id}/num_{action_type_name.lower()}"
                 ]
-                episode.custom_metrics[f"{policy_id}/percent_{action_type_name}"] = (
-                    num_actions / total_actions
-                )
+                episode.custom_metrics[
+                    f"{policy_id}/percent_{action_type_name.lower()}"
+                ] = (num_actions / total_actions)
