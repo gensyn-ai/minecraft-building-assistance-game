@@ -327,13 +327,12 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     {"mbag_agent": mbag_agent},
                 )
                 distill_policy_id = f"{heuristic}_distilled"
-                policies[distill_policy_id] = (
+                policies[distill_policy_id] = PolicySpec(
                     MBAG_POLICIES.get(run),
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},
                 )
-                # Maybe do this:
                 policies_to_train = [distill_policy_id]
             elif checkpoint_to_load_policies is not None:
                 # Add a corresponding distilled policy for each policy in the checkpoint.

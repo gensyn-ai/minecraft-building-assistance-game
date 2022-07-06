@@ -491,6 +491,7 @@ def async_execution_plan(workers, config):
         MapExperiences(
             config["multiagent"]["distillation_mapping_fn"],
             policies_recurrent,
+            workers.trainable_policies(),
         )
     )
 
