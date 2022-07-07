@@ -397,8 +397,6 @@ def main(
         include_dashboard=False,
     )
 
-    print(config)
-
     trainer_class = get_trainable_cls(run)
     trainer = trainer_class(
         config,
