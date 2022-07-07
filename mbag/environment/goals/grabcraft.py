@@ -436,7 +436,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
 
     def _generate_wall_crops(
         self, size: WorldSize, structure: MinecraftBlocks
-    ) -> Optional[List[MinecraftBlocks]]:
+    ) -> List[MinecraftBlocks]:
         """
         Generate a list of wall crops for a structure.
 
@@ -476,15 +476,11 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
 
         if self.config["force_single_cc"]:
             walls = [wall for wall in walls if wall.is_single_cc()]
-            if walls == []:
-                return None
 
         if self.config["min_density"] > 0:
             walls = [
                 wall for wall in walls if wall.density() >= self.config["min_density"]
             ]
-            if walls == []:
-                return None
 
         return walls
 
@@ -492,7 +488,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
         self, size: WorldSize, structure: MinecraftBlocks
     ) -> Optional[MinecraftBlocks]:
         walls = self._generate_wall_crops(size, structure)
-        if walls is None:
+        if len(walls) == 0:
             return None
         if self.config["choose_densest"]:
             wall = max(walls, key=lambda x: x.density())
@@ -534,7 +530,7 @@ class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
             walls = (
                 self._generate_wall_crops(size, structure)
                 if structure is not None
-                else None
+                else []
             )
-            sum += len(walls) if walls is not None else 0
+            sum += len(walls)
         return sum
