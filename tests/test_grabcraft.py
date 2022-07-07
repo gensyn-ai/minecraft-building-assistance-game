@@ -311,6 +311,29 @@ def test_single_wall_generator_hard_coded_crop():
     assert crop.is_single_cc()
 
 
+# This takes about 85 seconds to run, so it will fail the 10 second timeout.
+@pytest.mark.xfail(strict=False)
+def test_get_sample_size():
+    size = (10, 10, 15)
+    generator = SingleWallGrabcraftGenerator(
+        {"data_dir": "data/grabcraft", "subset": "train"}
+    )
+
+    result = generator.get_sample_size(size)
+
+    assert result is not None
+    assert result == 32708
+
+    generator = SingleWallGrabcraftGenerator(
+        {"data_dir": "data/grabcraft", "subset": "test"}
+    )
+
+    result = generator.get_sample_size(size)
+
+    assert result is not None
+    assert result == 4938
+
+
 @pytest.mark.xfail(strict=False)
 def test_make_uniform_in_malmo():
     evaluator = MbagEvaluator(
