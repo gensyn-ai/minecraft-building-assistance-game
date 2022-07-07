@@ -2,6 +2,7 @@ from typing import Dict, List, Tuple, cast
 import warnings
 import torch
 import numpy as np
+import copy
 from torch import nn
 import torch.nn.functional as F  # noqa: N812
 from abc import ABC, abstractmethod
@@ -11,7 +12,12 @@ from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, PLAYER_LOCATIONS
+from mbag.environment.types import (
+    CURRENT_BLOCKS,
+    GOAL_BLOCKS,
+    PLAYER_LOCATIONS,
+    MbagWorldObsArray,
+)
 
 
 class MbagModel(ABC, TorchModelV2):
@@ -27,43 +33,228 @@ class MbagModel(ABC, TorchModelV2):
         ...
 
 
-class MbagConvolutionalModelConfig(TypedDict, total=False):
+class MbagModelConfig(TypedDict, total=False):
     embedding_size: int
+    """Block ID embedding size."""
     use_extra_features: bool
     """Use extra hand-designed features as input to the network."""
     mask_goal: bool
     """Remove goal information from observations before passing into the network."""
-    num_conv_1_layers: int
-    """Number of 1x1x1 convolutions before the main backbone."""
-    num_layers: int
-    use_resnet: bool
-    filter_size: int
-    hidden_channels: int
-    num_block_id_layers: int
-    """Number of extra layers for the block ID head."""
-    num_unet_layers: int
-    """Number of layers to include in a UNet3d, if any."""
-    unet_grow_factor: float
-    unet_use_bn: bool
     fake_state: bool
     """Whether to add fake state to this model so that it's treated as recurrent."""
+    hidden_size: int
+    """Size of hidden layers."""
+    num_block_id_layers: int
+    """Number of extra layers for the block ID head."""
 
 
-CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
+DEFAULT_CONFIG: MbagModelConfig = {
     "embedding_size": 8,
     "use_extra_features": False,
     "mask_goal": False,
-    "num_conv_1_layers": 0,
-    "num_layers": 3,
-    "use_resnet": False,
-    "filter_size": 3,
-    "hidden_channels": 32,
-    "num_block_id_layers": 1,
-    "num_unet_layers": 0,
-    "unet_grow_factor": 2.0,
-    "unet_use_bn": False,
     "fake_state": False,
+    "hidden_size": 16,
+    "num_block_id_layers": 1,
 }
+
+
+class MbagTorchModel(MbagModel, nn.Module):
+    """
+    This base class implements common functionality for PyTorch MBAG models such
+    as block type embedding, separate policy and value networks, the value head,
+    and the block ID head.
+    """
+
+    _logits: torch.Tensor
+
+    def __init__(
+        self,
+        obs_space: spaces.Space,
+        action_space: spaces.Space,
+        num_outputs: int,
+        model_config,
+        name,
+        **kwargs,
+    ):
+        TorchModelV2.__init__(
+            self, obs_space, action_space, num_outputs, model_config, name
+        )
+        nn.Module.__init__(self)
+
+        obs_space = obs_space.original_space
+        assert isinstance(obs_space, spaces.Tuple)
+        self.world_obs_space: spaces.Box = obs_space[0]
+        self.world_size = self.world_obs_space.shape[-3:]
+
+        assert isinstance(action_space, spaces.Tuple)
+        self.action_type_space: spaces.Discrete = action_space[0]
+        self.block_location_space: spaces.Discrete = action_space[1]
+        self.block_id_space: spaces.Discrete = action_space[2]
+
+        assert self.block_location_space.n == np.prod(self.world_obs_space.shape[-3:])
+
+        extra_config = copy.deepcopy(DEFAULT_CONFIG)
+        extra_config.update(cast(MbagModelConfig, kwargs))
+        self.embedding_size = extra_config["embedding_size"]
+        self.use_extra_features = extra_config["use_extra_features"]
+        self.mask_goal = extra_config["mask_goal"]
+        self.fake_state: bool = extra_config["fake_state"]
+        self.hidden_size = extra_config["hidden_size"]
+        self.num_block_id_layers = extra_config["num_block_id_layers"]
+
+        self.block_id_embedding = nn.Embedding(
+            num_embeddings=len(MinecraftBlocks.ID2NAME),
+            embedding_dim=self.embedding_size,
+        )
+        self.player_id_embedding = nn.Embedding(
+            # Assume there are no more than 16 players, could be an issue down the line?
+            num_embeddings=16,
+            embedding_dim=self.embedding_size,
+        )
+
+        self.vf_share_layers: bool = model_config["vf_share_layers"]
+        if self.vf_share_layers:
+            self.backbone = self._construct_backbone()
+        else:
+            self.action_backbone = self._construct_backbone()
+            self.value_backbone = self._construct_backbone(is_value_network=True)
+
+        self.block_id_head = self._construct_block_id_head()
+
+        self.value_head = nn.Sequential(
+            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.Flatten(),
+            nn.Linear(self._get_head_in_channels(), 1, bias=True),
+        )
+
+    def _get_in_planes(self) -> int:
+        """
+        Return how many "planes" of data of size embedding_size are present in the
+        embedded observation.
+        """
+
+        # We have in-planes for current blocks, player locations, and
+        # goal blocks if mask_goal is False.
+        return 2 if self.mask_goal else 3  # TODO: update if we add more
+
+    def _get_in_channels(self) -> int:
+        """Get the number of channels in the embedded observation."""
+        in_channels = self._get_in_planes() * self.embedding_size
+        if self.use_extra_features:
+            in_channels += 1
+        return in_channels
+
+    def _get_head_in_channels(self) -> int:
+        """
+        Get the number of channels output from the backbone which are used as input to
+        the value and block ID heads.
+        """
+
+        raise NotImplementedError()
+
+    def _construct_backbone(self, is_value_network=False) -> nn.Module:
+        """
+        Construct the main backbone of the model. This takes as input the result of
+        _get_embedded_obs and should output a tensor of shape
+            (batch_size, self._get_head_in_channels()) + self.world_size.
+        When vf_share_layers is True, this is called once; when vf_share_layers is
+        False, it is called twice, and the value backbone is passed
+        is_value_network=True.
+        """
+
+        raise NotImplementedError()
+
+    def _construct_block_id_head(self) -> nn.Module:
+        """
+        Construct the head which selects the block ID part of the action conditional
+        on the other action parts (see MbagAutoregressiveActionDistribution).
+        """
+
+        block_id_in_channels = self._get_head_in_channels()
+        block_id_layers: List[nn.Module] = []
+        for layer_index in range(self.num_block_id_layers):
+            block_id_layers.append(
+                nn.Linear(
+                    block_id_in_channels if layer_index == 0 else self.hidden_size,
+                    self.block_id_space.n
+                    if layer_index == self.num_block_id_layers - 1
+                    else self.hidden_size,
+                )
+            )
+            if layer_index < self.num_block_id_layers - 1:
+                block_id_layers.append(nn.LeakyReLU())
+        return nn.Sequential(*block_id_layers)
+
+    def _construct_value_head(self) -> nn.Module:
+        """
+        Construct the head which takes in the output of the value backbone and
+        outputs a one-dimensional value estimate.
+        """
+
+        return nn.Sequential(
+            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.Flatten(),
+            nn.Linear(self._get_head_in_channels(), 1, bias=True),
+        )
+
+    def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
+        """
+        Transform a raw observation into the input for the network backbone.
+        """
+
+        embedded_blocks = self.block_id_embedding(world_obs[:, CURRENT_BLOCKS])
+        embedded_obs_pieces = [embedded_blocks]
+        if not self.mask_goal:
+            embedded_goal_blocks = self.block_id_embedding(world_obs[:, GOAL_BLOCKS])
+            embedded_obs_pieces.append(embedded_goal_blocks)
+        embedded_player_locations = self.player_id_embedding(
+            world_obs[:, PLAYER_LOCATIONS]
+        )
+        embedded_obs_pieces.append(embedded_player_locations)
+        if self.use_extra_features:
+            # Feature for if goal block is the same as the current block at each
+            # location.
+            embedded_obs_pieces.append(
+                (world_obs[:, 0] == world_obs[:, 2]).float()[..., None]
+            )
+        embedded_obs = torch.cat(embedded_obs_pieces, dim=-1)
+
+        return embedded_obs.permute(0, 4, 1, 2, 3)
+
+    def forward(self, input_dict, state, seq_lens):
+        self._world_obs = input_dict["obs"][0].long()
+        self._embedded_obs = self._get_embedded_obs(self._world_obs)
+
+        if self.vf_share_layers:
+            self._backbone_out = self.backbone(self._embedded_obs)
+            self._backbone_out_shape = self._backbone_out.size()[1:]
+            self._logits = self._backbone_out.flatten(start_dim=1)
+        else:
+            backbone_out = self.action_backbone(self._embedded_obs)
+            self._backbone_out_shape = backbone_out.size()[1:]
+            self._logits = backbone_out.flatten(start_dim=1)
+        assert self._backbone_out_shape[0] == self._get_head_in_channels()
+
+        return self._logits, state
+
+    @property
+    def logits(self) -> torch.Tensor:
+        return self._logits
+
+    def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.block_id_head(head_input))
+
+    def value_function(self):
+        if self.vf_share_layers:
+            return self.value_head(self._backbone_out).squeeze(1)
+        else:
+            return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+
+    def get_initial_state(self):
+        if self.fake_state:
+            return [np.zeros(1)]
+        else:
+            return super().get_initial_state()
 
 
 class ResidualBlock(nn.Module):
@@ -212,13 +403,42 @@ class UNet3d(nn.Module):
         return self.final_layer(final_layer_inputs)
 
 
-class MbagConvolutionalModel(MbagModel, nn.Module):
+class MbagConvolutionalModelConfig(MbagModelConfig, total=False):
+    num_conv_1_layers: int
+    """Number of 1x1x1 convolutions before the main backbone."""
+    num_layers: int
+    use_resnet: bool
+    filter_size: int
+    hidden_channels: int
+    num_unet_layers: int
+    """Number of layers to include in a UNet3d, if any."""
+    unet_grow_factor: float
+    unet_use_bn: bool
+
+
+CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
+    "embedding_size": DEFAULT_CONFIG["embedding_size"],
+    "use_extra_features": DEFAULT_CONFIG["use_extra_features"],
+    "mask_goal": DEFAULT_CONFIG["mask_goal"],
+    "hidden_size": DEFAULT_CONFIG["hidden_size"],
+    "num_block_id_layers": DEFAULT_CONFIG["num_block_id_layers"],
+    "fake_state": DEFAULT_CONFIG["fake_state"],
+    "num_conv_1_layers": 0,
+    "num_layers": 3,
+    "use_resnet": False,
+    "filter_size": 3,
+    "hidden_channels": 32,
+    "num_unet_layers": 0,
+    "unet_grow_factor": 2.0,
+    "unet_use_bn": False,
+}
+
+
+class MbagConvolutionalModel(MbagTorchModel):
     """
     Has an all-convolutional backbone and separate heads for each part of the
     autoregressive action distribution.
     """
-
-    _logits: torch.Tensor
 
     def __init__(
         self,
@@ -229,27 +449,8 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         name,
         **kwargs,
     ):
-        TorchModelV2.__init__(
-            self, obs_space, action_space, num_outputs, model_config, name
-        )
-        nn.Module.__init__(self)
-
-        obs_space = obs_space.original_space
-        assert isinstance(obs_space, spaces.Tuple)
-        self.world_obs_space: spaces.Box = obs_space[0]
-
-        assert isinstance(action_space, spaces.Tuple)
-        self.action_type_space: spaces.Discrete = action_space[0]
-        self.block_location_space: spaces.Discrete = action_space[1]
-        self.block_id_space: spaces.Discrete = action_space[2]
-
-        assert self.block_location_space.n == np.prod(self.world_obs_space.shape[-3:])
-
-        extra_config = CONV_DEFAULT_CONFIG
+        extra_config: MbagConvolutionalModelConfig = copy.deepcopy(CONV_DEFAULT_CONFIG)
         extra_config.update(cast(MbagConvolutionalModelConfig, kwargs))
-        self.embedding_size = extra_config["embedding_size"]
-        self.use_extra_features = extra_config["use_extra_features"]
-        self.mask_goal = extra_config["mask_goal"]
         self.num_conv_1_layers = extra_config["num_conv_1_layers"]
         self.num_layers = extra_config["num_layers"]
         self.use_resnet = extra_config["use_resnet"]
@@ -259,54 +460,13 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
         self.num_unet_layers = extra_config["num_unet_layers"]
         self.unet_grow_factor = extra_config["unet_grow_factor"]
         self.unet_use_bn = extra_config["unet_use_bn"]
-        self.fake_state: bool = extra_config["fake_state"]
 
-        # We have in-planes for current blocks, player locations, and
-        # goal blocks if mask_goal is False.
-        self.in_planes = 2 if self.mask_goal else 3  # TODO: update if we add more
-        self.in_channels = self.in_planes * self.embedding_size
-        if self.use_extra_features:
-            self.in_channels += 1
-
-        self.block_id_embedding = nn.Embedding(
-            num_embeddings=len(MinecraftBlocks.ID2NAME),
-            embedding_dim=self.embedding_size,
-        )
-        self.player_id_embedding = nn.Embedding(
-            # Assume there are no more than 16 players, could be an issue down the line?
-            num_embeddings=16,
-            embedding_dim=self.embedding_size,
+        super().__init__(
+            obs_space, action_space, num_outputs, model_config, name, **kwargs
         )
 
-        self.vf_share_layers: bool = model_config["vf_share_layers"]
-        if self.vf_share_layers:
-            self.backbone = self._construct_backbone(include_unet=True)
-        else:
-            self.action_backbone = self._construct_backbone(include_unet=True)
-            self.value_backbone = self._construct_backbone()
-
-        block_id_in_channels = self.action_type_space.n + self.hidden_channels
-        block_id_layers: List[nn.Module] = []
-        for layer_index in range(self.num_block_id_layers):
-            block_id_layers.append(
-                nn.Linear(
-                    block_id_in_channels if layer_index == 0 else self.hidden_channels,
-                    self.block_id_space.n
-                    if layer_index == self.num_block_id_layers - 1
-                    else self.hidden_channels,
-                )
-            )
-            if layer_index < self.num_block_id_layers - 1:
-                block_id_layers.append(nn.LeakyReLU())
-        self.block_id_head = nn.Sequential(*block_id_layers)
-
-        self.value_head = nn.Sequential(
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
-            nn.Flatten(),
-            nn.Linear(self.action_type_space.n + self.hidden_channels, 1, bias=True),
-        )
-
-    def _construct_backbone(self, include_unet=False):
+    def _construct_backbone(self, is_value_network=False) -> nn.Module:
+        include_unet = not is_value_network
         backbone_layers: List[nn.Module] = []
         layer_index = 0
         num_layers = self.num_conv_1_layers + self.num_layers
@@ -316,7 +476,7 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             else:
                 filter_size = self.filter_size
             if layer_index == 0:
-                in_channels = self.in_channels
+                in_channels = self._get_in_channels()
             else:
                 in_channels = self.hidden_channels
             if layer_index == self.num_conv_1_layers + self.num_layers - 1 and (
@@ -360,60 +520,8 @@ class MbagConvolutionalModel(MbagModel, nn.Module):
             backbone_layers = backbone_layers[:-1]  # Remove last ReLU.
         return nn.Sequential(*backbone_layers)
 
-    def forward(self, input_dict, state, seq_lens):
-        (self._world_obs,) = input_dict["obs"]
-
-        # TODO: embed other block info?
-        self._world_obs = self._world_obs.long()
-        embedded_blocks = self.block_id_embedding(self._world_obs[:, CURRENT_BLOCKS])
-        embedded_obs_pieces = [embedded_blocks]
-        if not self.mask_goal:
-            embedded_goal_blocks = self.block_id_embedding(
-                self._world_obs[:, GOAL_BLOCKS]
-            )
-            embedded_obs_pieces.append(embedded_goal_blocks)
-        embedded_player_locations = self.player_id_embedding(
-            self._world_obs[:, PLAYER_LOCATIONS]
-        )
-        embedded_obs_pieces.append(embedded_player_locations)
-        if self.use_extra_features:
-            # Feature for if goal block is the same as the current block at each
-            # location.
-            embedded_obs_pieces.append(
-                (self._world_obs[:, 0] == self._world_obs[:, 2]).float()[..., None]
-            )
-        embedded_obs = torch.cat(embedded_obs_pieces, dim=-1)
-
-        self._embedded_obs = embedded_obs.permute(0, 4, 1, 2, 3)
-
-        if self.vf_share_layers:
-            self._backbone_out = self.backbone(self._embedded_obs)
-            self._backbone_out_shape = self._backbone_out.size()[1:]
-            self._logits = self._backbone_out.flatten(start_dim=1)
-        else:
-            backbone_out = self.action_backbone(self._embedded_obs)
-            self._backbone_out_shape = backbone_out.size()[1:]
-            self._logits = backbone_out.flatten(start_dim=1)
-        return self._logits, state
-
-    @property
-    def logits(self) -> torch.Tensor:
-        return self._logits
-
-    def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.block_id_head(head_input))
-
-    def value_function(self):
-        if self.vf_share_layers:
-            return self.value_head(self._backbone_out).squeeze(1)
-        else:
-            return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
-
-    def get_initial_state(self):
-        if self.fake_state:
-            return [np.zeros(1)]
-        else:
-            return super().get_initial_state()
+    def _get_head_in_channels(self) -> int:
+        return int(self.action_type_space.n) + self.hidden_channels
 
 
 ModelCatalog.register_custom_model("mbag_convolutional_model", MbagConvolutionalModel)
@@ -561,30 +669,88 @@ ModelCatalog.register_custom_model(
 )
 
 
-class MbagTransformerModelConfig(TypedDict, total=False):
-    embedding_size: int
+class View(nn.Module):
+    def __init__(self, *shape: int):
+        super().__init__()
+        self.shape = shape
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.view(*self.shape)
+
+
+class Permute(nn.Module):
+    def __init__(self, *dims: int):
+        super().__init__()
+        self.dims = dims
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x.permute(*self.dims)
+
+
+class SeparatedTransformerEncoder(nn.Module):
+    def __init__(self, num_layers: int, d_model: int, nhead: int, dim_feedforward):
+        super().__init__()
+
+        self.layers: List[nn.TransformerEncoderLayer] = []
+        for layer_index in range(num_layers):
+            layer = nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                batch_first=True,
+            )
+            self.add_module(f"layer_{layer_index}", layer)
+            self.layers.append(layer)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
+        n_spatial_dims = len(x.size()) - 2
+        for layer_index, layer in enumerate(self.layers):
+            spatial_dim = layer_index % n_spatial_dims
+            permutation = (
+                (0,)
+                + tuple(
+                    other_spatial_dim + 2
+                    for other_spatial_dim in range(n_spatial_dims)
+                    if other_spatial_dim != spatial_dim
+                )
+                + (spatial_dim + 2, 1)
+            )
+            inverse_permutation = tuple(
+                permutation.index(dim) for dim in range(len(x.size()))
+            )
+            x_permuted = x.permute(*permutation)
+            layer_input = x_permuted.flatten(end_dim=-3)
+            layer_output = layer(layer_input)
+            x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+
+        return x
+
+
+class MbagTransformerModelConfig(MbagModelConfig, total=False):
     position_embedding_size: int
     num_layers: int
     num_heads: int
-    hidden_size: int
-    num_block_id_layers: int
+    use_separated_transformer: bool
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
-    "embedding_size": 10,
+    "embedding_size": DEFAULT_CONFIG["embedding_size"],
+    "use_extra_features": DEFAULT_CONFIG["use_extra_features"],
+    "mask_goal": DEFAULT_CONFIG["mask_goal"],
+    "hidden_size": DEFAULT_CONFIG["hidden_size"],
+    "num_block_id_layers": DEFAULT_CONFIG["num_block_id_layers"],
+    "fake_state": DEFAULT_CONFIG["fake_state"],
     "position_embedding_size": 12,
     "num_layers": 3,
     "num_heads": 2,
-    "hidden_size": 32,
-    "num_block_id_layers": 2,
+    "use_separated_transformer": False,
 }
 
 
-class MbagTransformerModel(MbagModel, nn.Module):
+class MbagTransformerModel(MbagTorchModel):
     """
-    Concatenates all observation parts into one long sequence, with different encodings
-    for each part, and then applies a transformer to the result. There are special
-    positions in the sequence for the action type output and the block ID output.
+    Model which uses a transformer encoder as the backbone.
     """
 
     def __init__(
@@ -596,49 +762,26 @@ class MbagTransformerModel(MbagModel, nn.Module):
         name,
         **kwargs,
     ):
-        TorchModelV2.__init__(
-            self, obs_space, action_space, num_outputs, model_config, name
+        extra_config: MbagTransformerModelConfig = copy.deepcopy(
+            TRANSFORMER_DEFAULT_CONFIG
         )
-        nn.Module.__init__(self)
-
-        obs_space = obs_space.original_space
-        assert isinstance(obs_space, spaces.Tuple)
-        self.world_obs_space: spaces.Box = obs_space[0]
-        self.world_size = self.world_obs_space.shape[-3:]
-
-        assert isinstance(action_space, spaces.Tuple)
-        self.action_type_space: spaces.Discrete = action_space[0]
-        self.block_location_space: spaces.Discrete = action_space[1]
-        self.block_id_space: spaces.Discrete = action_space[2]
-
-        assert self.block_location_space.n == np.prod(self.world_size)
-
-        extra_config = TRANSFORMER_DEFAULT_CONFIG
         extra_config.update(cast(MbagTransformerModelConfig, kwargs))
-        self.embedding_size = extra_config["embedding_size"]
         self.position_embedding_size = extra_config["position_embedding_size"]
         self.num_layers = extra_config["num_layers"]
         self.num_heads = extra_config["num_heads"]
-        self.hidden_size = extra_config["hidden_size"]
-        self.num_block_id_layers = extra_config["num_block_id_layers"]
-        assert (
-            self.embedding_size * 2 + self.position_embedding_size <= self.hidden_size
+        self.use_separated_transformer = extra_config["use_separated_transformer"]
+
+        super().__init__(
+            obs_space, action_space, num_outputs, model_config, name, **kwargs
         )
 
-        self.block_id_embedding = nn.Embedding(
-            num_embeddings=len(MinecraftBlocks.ID2NAME),
-            embedding_dim=self.embedding_size,
-        )
+        assert self._get_in_channels() <= self.hidden_size
+
+        # Initialize positional embeddings along each dimension.
         self.position_embedding = nn.Parameter(
             torch.zeros(self.world_size + (self.position_embedding_size,))
         )
-
-        # Special embeddings for the sequence elements for value function, action_type,
-        # block_id, and block_location outputs.
-        self.vf_embedding = nn.Parameter(torch.zeros((1, self.position_embedding_size)))
-
-        # Initialize positional embeddings along each dimension.
-        dim_embedding_size = self.position_embedding_size // 3
+        dim_embedding_size = self.position_embedding_size // 6 * 2
         self.position_embedding.data[
             ..., :dim_embedding_size
         ] = self._get_position_embedding(
@@ -664,46 +807,15 @@ class MbagTransformerModel(MbagModel, nn.Module):
             None, None, :
         ]
 
-        self.vf_embedding.data.normal_()
-
-        self.vf_share_layers: bool = model_config["vf_share_layers"]
-        if not self.vf_share_layers:
-            raise ValueError(
-                "MbagTransformerModel does not support vf_share_layers=False"
-            )
-
-        self.backbone_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=self.hidden_size,
-                nhead=self.num_heads,
-                dim_feedforward=self.hidden_size,
-                batch_first=True,
-            ),
-            self.num_layers,
-        )
-
-        self.action_type_location_head = nn.Linear(
-            self.hidden_size, self.action_type_space.n + self.hidden_size, bias=True
-        )
-
-        block_id_in_size = self.action_type_space.n + self.hidden_size
-        block_id_layers: List[nn.Module] = []
-        for layer_index in range(self.num_block_id_layers):
-            block_id_layers.append(
-                nn.Linear(
-                    block_id_in_size if layer_index == 0 else self.hidden_size,
-                    self.block_id_space.n
-                    if layer_index == self.num_block_id_layers - 1
-                    else self.hidden_channels,
-                )
-            )
-            if layer_index < self.num_block_id_layers - 1:
-                block_id_layers.append(nn.LeakyReLU())
-        self.block_id_head = nn.Sequential(*block_id_layers)
-
-        self.value_head = nn.Linear(self.hidden_size, 1, bias=True)
+    def _get_in_channels(self) -> int:
+        return super()._get_in_channels() + self.position_embedding_size
 
     def _get_position_embedding(self, seq_len: int, size: int) -> torch.Tensor:
+        """
+        Get an initial positional embedding of shape (seq_len, size) by using
+        the sin/cos embedding.
+        """
+
         embedding = torch.zeros(seq_len, size)
         position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
@@ -720,59 +832,49 @@ class MbagTransformerModel(MbagModel, nn.Module):
 
         return F.pad(x, [0, self.hidden_size - x.size()[-1]])
 
-    def forward(self, input_dict, state, seq_lens):
-        (self._world_obs,) = input_dict["obs"]
-        batch_size = self._world_obs.size()[0]
-
-        # TODO: embed other block info?
-        self._world_obs = self._world_obs.long()
-        embedded_blocks = self.block_id_embedding(self._world_obs[:, 0])
-        embedded_goal_blocks = self.block_id_embedding(self._world_obs[:, 2])
-
-        embedded_world_obs = torch.cat(
-            [
-                self.position_embedding[None].expand(batch_size, -1, -1, -1, -1),
-                embedded_blocks,
-                embedded_goal_blocks,
-            ],
-            dim=-1,
-        )
-        flattened_world_obs = (
-            embedded_world_obs.permute(0, 4, 1, 2, 3)
-            .flatten(start_dim=2)
-            .transpose(1, 2)
-        )
-        encoder_input = torch.cat(
-            [
-                self._pad_to_hidden_size(
-                    self.vf_embedding[None].expand(batch_size, -1, -1)
-                ),
-                self._pad_to_hidden_size(flattened_world_obs),
-            ],
-            dim=1,
-        )
-
-        backbone_out = self.backbone_encoder(encoder_input)
-        self._value_out = backbone_out[:, 0]
-        backbone_out = backbone_out[:, 1:]
-
-        dist_inputs = (
-            self.action_type_location_head(backbone_out)
-            .transpose(1, 2)
-            .reshape(
-                batch_size,
-                self.action_type_space.n + self.hidden_size,
-                *self.world_size,
+    def _construct_backbone(self, is_value_network=False) -> nn.Module:
+        if self.use_separated_transformer:
+            return SeparatedTransformerEncoder(
+                num_layers=self.num_layers,
+                d_model=self.hidden_size,
+                nhead=self.num_heads,
+                dim_feedforward=self.hidden_size,
             )
-        )
+        else:
+            return nn.Sequential(
+                nn.TransformerEncoder(
+                    nn.TransformerEncoderLayer(
+                        d_model=self.hidden_size,
+                        nhead=self.num_heads,
+                        dim_feedforward=self.hidden_size,
+                        batch_first=True,
+                    ),
+                    self.num_layers,
+                ),
+                View(-1, *self.world_size, self.hidden_size),
+                Permute(0, 4, 1, 2, 3),
+            )
 
-        return dist_inputs, []
+    def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
+        embedded_obs = super()._get_embedded_obs(world_obs)
+        batch_size = embedded_obs.size()[0]
+        embedded_obs = self._pad_to_hidden_size(
+            torch.cat(
+                [
+                    embedded_obs.permute(0, 2, 3, 4, 1),
+                    self.position_embedding[None].expand(batch_size, -1, -1, -1, -1),
+                ],
+                dim=4,
+            )
+        ).permute(0, 4, 1, 2, 3)
 
-    def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.block_id_head(head_input))
+        if self.use_separated_transformer:
+            return embedded_obs
+        else:
+            return embedded_obs.flatten(start_dim=2).transpose(1, 2)
 
-    def value_function(self):
-        return self.value_head(self._value_out)[:, 0]
+    def _get_head_in_channels(self) -> int:
+        return self.hidden_size
 
 
 ModelCatalog.register_custom_model("mbag_transformer_model", MbagTransformerModel)

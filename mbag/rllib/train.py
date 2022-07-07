@@ -46,6 +46,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         # Environment
         goal_generator = "random"
         goal_subset = "train"
+        make_uniform = None
         horizon = 50
         num_players = 1
         height = 5
@@ -60,15 +61,18 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
+
+        goal_generator_config = {"subset": goal_subset}
+        if make_uniform is not None:
+            goal_generator_config["make_uniform"] = make_uniform
+
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
             "goal_generator": (
                 ALL_GOAL_GENERATORS[goal_generator],
-                {
-                    "subset": goal_subset,
-                },
+                goal_generator_config,
             ),
             "malmo": {
                 "use_malmo": False,
@@ -122,7 +126,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         ] = "convolutional"
         max_seq_len = horizon
         embedding_size = 8
-        position_embedding_size = 8
+        position_embedding_size = 6
         mask_goal = False
         use_extra_features = not mask_goal
         num_conv_1_layers = 1
@@ -132,6 +136,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         hidden_size = hidden_channels
         num_block_id_layers = 2
         num_heads = 4
+        use_separated_transformer = False
         use_resnet = False
         num_unet_layers = 0
         unet_grow_factor = 2
@@ -163,11 +168,14 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         elif model == "transformer":
             transformer_config: MbagTransformerModelConfig = {
                 "embedding_size": embedding_size,
+                "use_extra_features": use_extra_features,
+                "mask_goal": mask_goal,
                 "position_embedding_size": position_embedding_size,
                 "num_layers": num_layers,
                 "num_heads": num_heads,
                 "hidden_size": hidden_size,
                 "num_block_id_layers": num_block_id_layers,
+                "use_separated_transformer": use_separated_transformer,
             }
             model_config["custom_model_config"] = transformer_config
 
@@ -200,7 +208,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         elif multiagent_mode == "cross_play":
             policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
             if heuristic is not None:
-                policy_ids[0] = heuristic
+                policy_ids[-1] = heuristic
 
             def policy_mapping_fn(
                 agent_id: str, episode, worker, policy_ids=policy_ids, **kwargs
@@ -308,7 +316,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         # Distillation
         if "distillation_prediction" in run:
             config["checkpoint_to_load_policies"] = checkpoint_to_load_policies
-            if checkpoint_to_load_policies is None:
+            if heuristic is not None:
                 # Distill a heuristic policy.
                 assert heuristic is not None
                 mbag_agent = ALL_HEURISTIC_AGENTS[heuristic]({}, environment_params)
@@ -318,23 +326,26 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     env.action_space,
                     {"mbag_agent": mbag_agent},
                 )
-                config["multiagent"][
-                    "distillation_mapping_fn"
-                ] = lambda policy_id, to_policy_id=policy_ids[0]: to_policy_id
-                config["multiagent"][
-                    "policy_mapping_fn"
-                ] = (
-                    lambda agent_id, episode, worker, to_policy_id=heuristic, **kwargs: to_policy_id
+                distill_policy_id = f"{heuristic}_distilled"
+                policies[distill_policy_id] = PolicySpec(
+                    MBAG_POLICIES.get(run),
+                    env.observation_space,
+                    env.action_space,
+                    {"model": model_config},
                 )
-            else:
+                policies_to_train = [distill_policy_id]
+            elif checkpoint_to_load_policies is not None:
                 # Add a corresponding distilled policy for each policy in the checkpoint.
-                previous_policy_ids = list(policies.keys())
+                previous_policy_ids = [
+                    k for k in policies.keys() if k.startswith("ppo")
+                ]
                 policies_to_train.clear()
                 for policy_id in previous_policy_ids:
                     load_policies_mapping[policy_id] = policy_id
                     policies[policy_id] = checkpoint_to_load_policies_config[
                         "multiagent"
                     ]["policies"][policy_id]
+                    # policies[policy_id] = loaded_policy_dict[policy_id]
                     prev_model_config = policies[policy_id][3]["model"]
                     if (
                         prev_model_config.get("custom_model")
@@ -351,9 +362,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         {"model": model_config},
                     )
                     policies_to_train.append(distill_policy_id)
-                config["multiagent"][
-                    "distillation_mapping_fn"
-                ] = lambda policy_id: f"{policy_id}_distilled"
+            config["multiagent"][
+                "distillation_mapping_fn"
+            ] = lambda policy_id: f"{policy_id}_distilled"
+            config["multiagent"]["policies_to_train"] = policies_to_train
+
             # Remove extra config parameters.
             for key in list(config.keys()):
                 if key not in DISTILLATION_DEFAULT_CONFIG:

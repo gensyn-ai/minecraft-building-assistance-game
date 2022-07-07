@@ -115,3 +115,9 @@ class MbagInfoDict(TypedDict):
     The current proportion of this player's reward which is coming from their own
     direct actions, as opposed to other agents'.
     """
+
+    action_type: MbagActionType
+    """
+    The action that the player effectively took. That is, if the player attempted to
+    do something but it didn't actually affect the world, it is logged as NOOP.
+    """
