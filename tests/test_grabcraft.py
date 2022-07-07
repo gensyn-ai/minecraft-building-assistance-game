@@ -334,6 +334,7 @@ def test_get_sample_size():
     assert result == 4938
 
 
+@pytest.mark.xfail(strict=False)
 def test_make_uniform_in_malmo():
     evaluator = MbagEvaluator(
         {
