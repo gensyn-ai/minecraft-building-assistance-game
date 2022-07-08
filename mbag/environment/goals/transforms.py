@@ -85,6 +85,7 @@ class AddGrassTransform(GoalTransform):
 class CropTransformConfig(TypedDict):
     density_threshold: float
     tethered_to_ground: bool
+    wall: bool
 
 
 class CropTransform(GoalTransform):
@@ -100,6 +101,7 @@ class CropTransform(GoalTransform):
     default_config: CropTransformConfig = {
         "density_threshold": 0.25,
         "tethered_to_ground": True,
+        "wall": False,
     }
     config: CropTransformConfig
 
@@ -110,7 +112,7 @@ class CropTransform(GoalTransform):
             struct_density = goal.density()
 
             crop_size = (
-                min(size[0], goal.size[0]),
+                1 if self.config["wall"] else min(size[0], goal.size[0]),
                 min(size[1], goal.size[1]),
                 min(size[2], goal.size[2]),
             )
