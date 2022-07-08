@@ -146,7 +146,6 @@ def test_pq_agent_grabcraft():
         )
 
 
-@pytest.mark.xfail(strict=False)
 def test_malmo_pq():
     evaluator = MbagEvaluator(
         {
@@ -352,7 +351,6 @@ def test_mirror_building_agent():
     assert episode_info.cumulative_reward > 50
 
 
-# @pytest.mark.xfail(strict=False)
 def test_mirror_building_agent_in_malmo():
     evaluator = MbagEvaluator(
         {

@@ -36,7 +36,6 @@ def test_movement():
     assert episode_info.cumulative_reward == 0
 
 
-@pytest.mark.xfail(strict=False)
 def test_movement_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -89,7 +88,6 @@ def test_movement_with_building():
     assert episode_info.cumulative_reward == 9
 
 
-@pytest.mark.xfail(strict=False)
 def test_movement_with_building_in_malmo():
     evaluator = MbagEvaluator(
         {

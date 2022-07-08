@@ -7,7 +7,6 @@ from mbag.agents.heuristic_agents import LayerBuilderAgent, NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 
 
-@pytest.mark.xfail(strict=False)
 def test_malmo():
     evaluator = MbagEvaluator(
         {
@@ -30,7 +29,6 @@ def test_malmo():
     assert episode_info.cumulative_reward == 18
 
 
-@pytest.mark.xfail(strict=False)
 def test_two_agents_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -54,7 +52,6 @@ def test_two_agents_in_malmo():
     assert episode_info.cumulative_reward == 18
 
 
-@pytest.mark.xfail(strict=False)
 def test_video_dir():
     with tempfile.TemporaryDirectory() as video_dir:
         evaluator = MbagEvaluator(
