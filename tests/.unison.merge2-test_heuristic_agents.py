@@ -6,6 +6,9 @@ import numpy as np
 import logging
 from numpy.testing import assert_array_equal
 
+from mbag.environment.goals.grabcraft import (
+    GrabcraftGoalGenerator,
+)
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
@@ -106,17 +109,11 @@ def test_pq_agent_grabcraft():
                 "world_size": (12, 12, 12),
                 "num_players": num_players,
                 "horizon": 1000,
-                "goal_generator": TransformedGoalGenerator,
+                "goal_generator": GrabcraftGoalGenerator,
                 "goal_generator_config": {
-                    "goal_generator": "grabcraft",
-                    "goal_generator_config": {
-                        "data_dir": "data/grabcraft",
-                        "subset": "train",
-                    },
-                    "goal_transforms": [
-                        {"transform": "single_cc_filter"},
-                        {"transform": "randomly_place"},
-                    ],
+                    "data_dir": "data/grabcraft",
+                    "subset": "train",
+                    "force_single_cc": True,
                 },
                 "goal_visibility": [True] * num_players,
                 "malmo": {
@@ -329,7 +326,7 @@ def test_mirror_building_agent():
                 TransformedGoalGenerator,
                 {
                     "goal_generator": "random",
-                    "goal_generator_config": {"filled_prop": 1},
+                    "goal_generator_config": {},
                     "goal_transforms": [
                         {"transform": "add_grass", "config": {"mode": "concatenate"}},
                         {"transform": "mirror", "config": {}},
@@ -343,7 +340,7 @@ def test_mirror_building_agent():
                 "video_dir": None,
             },
         },
-        [(LayerBuilderAgent, {}), (MirrorBuildingAgent, {})],
+        [(PriorityQueueAgent, {}), (MirrorBuildingAgent, {})],
         force_get_set_state=False,
     )
     episode_info = evaluator.rollout()
@@ -363,7 +360,7 @@ def test_mirror_building_agent_in_malmo():
                 TransformedGoalGenerator,
                 {
                     "goal_generator": "random",
-                    "goal_generator_config": {"filled_prop": 1},
+                    "goal_generator_config": {},
                     "goal_transforms": [
                         {"transform": "add_grass", "config": {"mode": "concatenate"}},
                         {"transform": "mirror", "config": {}},

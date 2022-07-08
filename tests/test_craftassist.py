@@ -2,7 +2,7 @@ import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import PriorityQueueAgent
-from mbag.environment.goals import CraftAssistGoalGenerator
+from mbag.environment.goals import TransformedGoalGenerator
 
 
 def test_goal_generator():
@@ -12,10 +12,16 @@ def test_goal_generator():
             "num_players": 1,
             "horizon": 500,
             "goal_generator": (
-                CraftAssistGoalGenerator,
+                TransformedGoalGenerator,
                 {
-                    "data_dir": "data/craftassist",
-                    "train": True,
+                    "goal_generator": "craftassist",
+                    "goal_generator_config": {
+                        "data_dir": "data/craftassist",
+                        "train": True,
+                    },
+                    "goal_transforms": [
+                        {"transform": "randomly_place"},
+                    ],
                 },
             ),
             "goal_visibility": [True],
@@ -44,10 +50,16 @@ def test_goal_generator_in_malmo():
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": (
-                CraftAssistGoalGenerator,
+                TransformedGoalGenerator,
                 {
-                    "data_dir": "data/craftassist",
-                    "train": True,
+                    "goal_generator": "craftassist",
+                    "goal_generator_config": {
+                        "data_dir": "data/craftassist",
+                        "train": True,
+                    },
+                    "goal_transforms": [
+                        {"transform": "randomly_place"},
+                    ],
                 },
             ),
             "goal_visibility": [True],

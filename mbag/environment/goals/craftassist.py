@@ -45,6 +45,16 @@ class CraftAssistGoalGenerator(GoalGenerator):
         with open(block_map_fname, "r") as block_map_file:
             self.block_map = json.load(block_map_file)
 
+        limited_block_map_fname = os.path.join(
+            os.path.dirname(__file__), "limited_block_map.json"
+        )
+        with open(limited_block_map_fname, "r") as block_map_file:
+            limited_block_map: Dict[str, str] = json.load(block_map_file)
+
+        for key, value in self.block_map.items():
+            if value is not None:
+                self.block_map[key] = limited_block_map[value[0]], value[1]
+
     def _load_house_ids(self):
         self.house_ids = []
         print(
@@ -72,16 +82,17 @@ class CraftAssistGoalGenerator(GoalGenerator):
             success = True
 
             house_id = random.choice(self.house_ids)
-            house_data = np.load(
-                os.path.join(
-                    self.config["data_dir"],
-                    "houses",
-                    "train" if self.config["train"] else "test",
-                    house_id,
-                    "schematic.npy",
-                ),
-                "r",
+            schematic_fname = os.path.join(
+                self.config["data_dir"],
+                "houses",
+                "train" if self.config["train"] else "test",
+                house_id,
+                "schematic.npy",
             )
+            if not os.path.exists(schematic_fname):
+                success = False
+                continue
+            house_data = np.load(schematic_fname, "r").transpose((1, 0, 2, 3))
 
             # First, check if structure is too big.
             structure_size = house_data.shape[:3]
@@ -120,13 +131,8 @@ class CraftAssistGoalGenerator(GoalGenerator):
                     else:
                         success = False
 
-            # Randomly place structure within world.
-            goal = GoalGenerator.randomly_place_structure(structure, size)
-
-            # Add a layer of dirt at the bottom of the structure wherever there's still
-            # air.
-            goal = GoalGenerator.add_grass(goal)
+            self._fill_auto_with_real_blocks(structure)
 
         logger.info(f"chose house {house_id}")
 
-        return goal
+        return structure
