@@ -1,6 +1,4 @@
-import pytest
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
-
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import PriorityQueueAgent
 

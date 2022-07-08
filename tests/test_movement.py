@@ -1,5 +1,3 @@
-import pytest
-
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
     LayerBuilderAgent,

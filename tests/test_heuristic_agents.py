@@ -1,7 +1,6 @@
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.types import MbagAction
-import pytest
 import numpy as np
 import logging
 from numpy.testing import assert_array_equal
