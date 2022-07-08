@@ -347,8 +347,6 @@ def test_mirror_building_agent():
         force_get_set_state=False,
     )
     episode_info = evaluator.rollout()
-    print(episode_info.last_obs[0][0][0])
-    print(episode_info.last_obs[0][0][2])
     assert episode_info.cumulative_reward > 50
 
 
