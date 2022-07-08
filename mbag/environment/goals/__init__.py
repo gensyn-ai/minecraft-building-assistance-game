@@ -1,6 +1,6 @@
 from typing import Dict, Type
 
-from .goal_generator import GoalGenerator
+from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
 from .grabcraft import (
     GrabcraftGoalGenerator,
@@ -37,6 +37,7 @@ __all__ = [
     "ALL_GOAL_GENERATORS",
     "ALL_GOAL_TRANSFORMS",
     "GoalGenerator",
+    "GoalGeneratorConfig",
     "GoalTransform",
     "TransformedGoalGenerator",
     "BasicGoalGenerator",

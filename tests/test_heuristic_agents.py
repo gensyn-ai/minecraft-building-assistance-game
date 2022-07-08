@@ -27,7 +27,8 @@ def test_layer_builder_agent():
             "world_size": (5, 5, 5),
             "num_players": 1,
             "horizon": 50,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -53,7 +54,8 @@ def test_pq_agent_basic():
             "world_size": (5, 5, 5),
             "num_players": 1,
             "horizon": 50,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -80,7 +82,8 @@ def test_pq_agent_overhangs():
                 "world_size": (8, 8, 8),
                 "num_players": num_players,
                 "horizon": 100,
-                "goal_generator": (SimpleOverhangGoalGenerator, {}),
+                "goal_generator": SimpleOverhangGoalGenerator,
+                "goal_generator_config": {},
                 "goal_visibility": [True] * num_players,
                 "malmo": {
                     "use_malmo": False,
@@ -151,7 +154,8 @@ def test_malmo_pq():
             "world_size": (8, 8, 8),
             "num_players": 1,
             "horizon": 100,
-            "goal_generator": (SimpleOverhangGoalGenerator, {}),
+            "goal_generator": SimpleOverhangGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
@@ -177,7 +181,8 @@ def test_rllib_heuristic_agents():
         "world_size": (8, 8, 8),
         "num_players": 1,
         "horizon": 100,
-        "goal_generator": (BasicGoalGenerator, {}),
+        "goal_generator": BasicGoalGenerator,
+        "goal_generator_config": {},
         "goal_visibility": [True],
         "malmo": {
             "use_malmo": False,
@@ -323,17 +328,14 @@ def test_mirror_building_agent():
             "world_size": (10, 10, 10),
             "num_players": 2,
             "horizon": 50,
-            "goal_generator": (
-                TransformedGoalGenerator,
-                {
-                    "goal_generator": "random",
-                    "goal_generator_config": {"filled_prop": 1},
-                    "goal_transforms": [
-                        {"transform": "add_grass", "config": {"mode": "concatenate"}},
-                        {"transform": "mirror", "config": {}},
-                    ],
-                },
-            ),
+            "goal_generator_config": {
+                "goal_generator": "random",
+                "goal_generator_config": {"filled_prop": 1},
+                "goal_transforms": [
+                    {"transform": "add_grass", "config": {"mode": "concatenate"}},
+                    {"transform": "mirror", "config": {}},
+                ],
+            },
             "goal_visibility": [True, False],
             "malmo": {
                 "use_malmo": False,
@@ -356,17 +358,14 @@ def test_mirror_building_agent_in_malmo():
             "world_size": (10, 10, 10),
             "num_players": 2,
             "horizon": 100,
-            "goal_generator": (
-                TransformedGoalGenerator,
-                {
-                    "goal_generator": "random",
-                    "goal_generator_config": {"filled_prop": 1},
-                    "goal_transforms": [
-                        {"transform": "add_grass", "config": {"mode": "concatenate"}},
-                        {"transform": "mirror", "config": {}},
-                    ],
-                },
-            ),
+            "goal_generator_config": {
+                "goal_generator": "random",
+                "goal_generator_config": {"filled_prop": 1},
+                "goal_transforms": [
+                    {"transform": "add_grass", "config": {"mode": "concatenate"}},
+                    {"transform": "mirror", "config": {}},
+                ],
+            },
             "goal_visibility": [True, False],
             "malmo": {
                 "use_malmo": True,

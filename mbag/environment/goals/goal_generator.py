@@ -1,16 +1,19 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Mapping
 import numpy as np
 
 from ..types import WorldSize
 from ..blocks import MinecraftBlocks
 
 
-class GoalGenerator(ABC):
-    default_config: Any = {}
-    config: Any
+GoalGeneratorConfig = Mapping[str, Any]
 
-    def __init__(self, config: dict):
+
+class GoalGenerator(ABC):
+    default_config: GoalGeneratorConfig = {}
+    config: GoalGeneratorConfig
+
+    def __init__(self, config: GoalGeneratorConfig):
         self.config = dict(self.default_config)
         self.config.update(config)
 

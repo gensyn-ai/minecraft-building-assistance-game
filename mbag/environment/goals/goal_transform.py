@@ -1,6 +1,6 @@
 from typing import TypedDict, List
 
-from .goal_generator import GoalGenerator
+from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize
 
@@ -13,7 +13,7 @@ class GoalTransform(GoalGenerator):
     modify them or ask for more goals if necessary.
     """
 
-    def __init__(self, config: dict, goal_generator: GoalGenerator):
+    def __init__(self, config: GoalGeneratorConfig, goal_generator: GoalGenerator):
         super().__init__(config)
         self.goal_generator = goal_generator
 
@@ -23,12 +23,12 @@ class GoalTransform(GoalGenerator):
 
 class GoalTransformSpec(TypedDict, total=False):
     transform: str
-    config: dict
+    config: GoalGeneratorConfig
 
 
 class TransformedGoalGeneratorConfig(TypedDict):
     goal_generator: str
-    goal_generator_config: dict
+    goal_generator_config: GoalGeneratorConfig
     goal_transforms: List[GoalTransformSpec]
 
 
@@ -39,7 +39,7 @@ class TransformedGoalGenerator(GoalGenerator):
 
     config: TransformedGoalGeneratorConfig
 
-    def __init__(self, config: dict):
+    def __init__(self, config: GoalGeneratorConfig):
         super().__init__(config)
 
         from . import ALL_GOAL_GENERATORS, ALL_GOAL_TRANSFORMS
