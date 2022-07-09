@@ -15,6 +15,7 @@ def test_goal_generator():
                     "train": True,
                 },
                 "goal_transforms": [
+                    {"transform": "min_size_filter", "config": {"min_size": (5, 5, 5)}},
                     {"transform": "randomly_place"},
                 ],
             },
@@ -49,6 +50,7 @@ def test_goal_generator_in_malmo():
                     "train": True,
                 },
                 "goal_transforms": [
+                    {"transform": "min_size_filter", "config": {"min_size": (5, 5, 5)}},
                     {"transform": "randomly_place"},
                 ],
             },

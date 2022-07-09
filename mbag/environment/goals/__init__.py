@@ -7,7 +7,7 @@ from .grabcraft import (
 )
 from .simple import BasicGoalGenerator, RandomGoalGenerator
 from .craftassist import CraftAssistGoalGenerator
-from .filters import SingleConnectedComponentFilter, DensityFilter
+from .filters import SingleConnectedComponentFilter, DensityFilter, MinSizeFilter
 from .transforms import (
     RandomlyPlaceTransform,
     AddGrassTransform,
@@ -26,6 +26,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
 ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
     "single_cc_filter": SingleConnectedComponentFilter,
     "density_filter": DensityFilter,
+    "min_size_filter": MinSizeFilter,
     "randomly_place": RandomlyPlaceTransform,
     "add_grass": AddGrassTransform,
     "crop": CropTransform,
