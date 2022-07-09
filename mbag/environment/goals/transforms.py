@@ -2,13 +2,17 @@
 Various GoalTransforms which alter a goal.
 """
 
-from typing import TypedDict
-import random
+from typing import Tuple, TypedDict, cast
 from typing_extensions import Literal
+import random
+import numpy as np
+import logging
 
 from ..types import WorldSize
 from ..blocks import MinecraftBlocks
 from .goal_transform import GoalTransform
+
+logger = logging.getLogger(__name__)
 
 
 class RandomlyPlaceTransform(GoalTransform):
@@ -142,6 +146,109 @@ class CropTransform(GoalTransform):
                     continue
 
                 return crop
+
+
+class SeamCarvingTransformConfig(TypedDict):
+    position_coefficient: float
+    density_coefficient: float
+
+
+class SeamCarvingTransform(GoalTransform):
+    """
+    Turns larger goals into smaller ones by removing slices strategically so as
+    to maintain the structure of the goal while making it smaller.
+    """
+
+    default_config: SeamCarvingTransformConfig = {
+        "position_coefficient": 1,
+        "density_coefficient": 1,
+    }
+    config: SeamCarvingTransformConfig
+
+    def _get_relative_positions(self, size: WorldSize) -> np.ndarray:
+        return cast(
+            np.ndarray,
+            np.stack(
+                np.meshgrid(*[np.linspace(0, 1, size[axis]) for axis in range(3)]),
+                axis=-1,
+            ).transpose((1, 0, 2, 3)),
+        )
+
+    def _slice(self, axis: int, index: int, arr: np.ndarray) -> np.ndarray:
+        return np.delete(arr, [index], axis=axis)
+
+    def _slice_cost(
+        self,
+        axis: int,
+        index: int,
+        goal: MinecraftBlocks,
+        original_positions: np.ndarray,
+    ) -> float:
+        density = float(
+            np.take(goal.blocks != MinecraftBlocks.AIR, np.array([index]), axis=axis)
+            .astype(float)
+            .mean()
+        )
+
+        position_mse_before = float(
+            np.sqrt(
+                np.mean(
+                    (original_positions - self._get_relative_positions(goal.size)) ** 2
+                )
+            )
+        )
+        original_positions_sliced = self._slice(axis, index, original_positions)
+        position_mse_after = float(
+            np.sqrt(
+                np.mean(
+                    (
+                        original_positions_sliced
+                        - self._get_relative_positions(
+                            cast(WorldSize, original_positions_sliced.shape)
+                        )
+                    )
+                    ** 2
+                )
+            )
+        )
+        position_mse_delta = position_mse_after - position_mse_before
+
+        cost = (
+            self.config["density_coefficient"] * density
+            + self.config["position_coefficient"] * position_mse_delta
+        )
+        logger.debug(
+            f"axis {axis} slice {index:02d}: "
+            f"cost={cost:.2f}\t"
+            f"density={density:.2f} position_mse_delta={position_mse_delta:.2f}"
+        )
+        return cost
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        # Generate a goal with effectively no size limits so we can slice it down.
+        goal = self.goal_generator.generate_goal((100, 100, 100))
+        original_positions = self._get_relative_positions(goal.size)
+
+        while True:
+            too_big_axes = [axis for axis in range(3) if goal.size[axis] > size[axis]]
+            if len(too_big_axes) == 0:
+                break
+
+            best_slice: Tuple[int, int] = (0, 0)
+            best_cost: float = np.inf
+            for axis in too_big_axes:
+                for index in range(goal.size[axis]):
+                    cost = self._slice_cost(axis, index, goal, original_positions)
+                    if cost < best_cost:
+                        best_cost = cost
+                        best_slice = (axis, index)
+            best_axis, best_index = best_slice
+            goal.blocks = self._slice(best_axis, best_index, goal.blocks)
+            goal.block_states = self._slice(best_axis, best_index, goal.block_states)
+            goal.size = cast(WorldSize, goal.blocks.shape)
+            original_positions = self._slice(best_axis, best_index, original_positions)
+
+        return goal
 
 
 class UniformBlockTypeTransformConfig(TypedDict):
