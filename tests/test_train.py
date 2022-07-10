@@ -1,3 +1,7 @@
+from distutils.command.config import config
+import glob
+from multiprocessing import dummy
+import os
 import pytest
 import numpy as np
 from  mbag.rllib.train import ex 
@@ -5,52 +9,48 @@ import tempfile
 import random
 import time
 
-# Make temporary file that will be deleted afterward
-tempdir = tempfile.mkdtemp()
 
-# This seeds the random number generator with the current nanosecond time.
-@pytest.fixture
-def random_seed():
-    random.seed(time.time_ns())
-
-
-def test_single_agent():
-    result = ex.run(
-        config_updates={
-            "log_dir": tempdir,
-            "width": 10,
-            "depth": 10,
-            "height": 10,
-            "kl_target": .01,
-            "horizon": 1,
-            "num_workers": 16,
-            "goal_generator": 'single_wall_grabcraft',
-            "use_extra_features": True,
-            "num_training_iters": 10,
-            "train_batch_size": 100,
-            "sgd_minibatch_size": 10,
-        }).result
-
-
-    # print(result["info"]["learner"]["ppo"].keys())
-    # print(result["info"]["learner"]["ppo"]['learner_stats'].keys())
-    print(result["custom_metrics"])
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
-
-def test_transformer():
-    transformer_config = {
-        "log_dir": tempdir,
-        "width": 10,
-        "depth": 10,
-        "height": 10,
+@pytest.fixture(scope="session")
+def default_config():
+    return {
+        "log_dir": tempfile.mkdtemp(),
+        "width": 6,
+        "depth": 6,
+        "height": 6,
         "kl_target": .01,
         "horizon": 10,
-        "num_workers": 16,
+        "num_workers": 20,
         "goal_generator": 'single_wall_grabcraft',
         "use_extra_features": True,
-        "num_training_iters": 10,
-        "train_batch_size": 1,
-        "sgd_minibatch_size": 1,
+        "num_training_iters": 1,
+        "train_batch_size": 100,
+        "sgd_minibatch_size": 10,
+    }
+
+# This runs once before the tests run.
+@pytest.fixture(scope="session", autouse=True)
+def setup(default_config):
+    # Execute short dummy run and return the file where the checkpoint is stored.
+    checkpoint_dir = tempfile.mkdtemp()
+    ex.run(config_updates = {**default_config, "log_dir": checkpoint_dir})
+
+    global dummy_run
+    dummy_run = glob.glob(checkpoint_dir + "/PPO/self_play/6x6x6/single_wall_grabcraft/*/checkpoint_000001/checkpoint-1")[0]
+    assert os.path.exists(dummy_run)
+
+
+def test_single_agent(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config, 
+            "num_training_iters": 10,
+        }).result
+
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+def test_transformer(default_config):
+    transformer_config = {
+        **default_config,
         "model": "transformer",
         "position_embedding_size": 18,
         "hidden_size": 48,
@@ -64,40 +64,84 @@ def test_transformer():
             "use_separated_transformer": True     
         }).result
 
+    print(result["custom_metrics"])
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
-    # result = ex.run(
-    #     config_updates={
-    #         **transformer_config,
-    #         "num_layers":1,
-    #         "use_separated_transformer": False,     
-    #     }).result
-
-    # assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
-
-def test_cross_play():
     result = ex.run(
         config_updates={
-            "log_dir": tempdir,
-            "width": 10,
-            "depth": 10,
-            "height": 10,
-            "kl_target": .01,
-            "horizon": 1,
-            "num_workers": 16,
-            "goal_generator": 'single_wall_grabcraft',
-            "use_extra_features": True,
-            "num_training_iters": 10,
-            "train_batch_size": 100,
-            "sgd_minibatch_size": 10,
+            **transformer_config,
+            "num_layers":1,
+            "use_separated_transformer": False,     
         }).result
 
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
-"""
-other tests:
-    - use transformer
-    - train both concurrently
-    - distillation
-    - retrieve a saved policy and train that
-    - self play
-"""
+def test_cross_play(default_config):
+    tempdir = tempfile.mkdtemp()
+
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "multiagent_mode": "cross_play", 
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "own_reward_prop": 1,
+            "checkpoint_to_load_policies": dummy_run,
+            "load_policies_mapping": {"ppo": "ppo_0"},
+            "policies_to_train": ["ppo_1"],
+        }
+    ).result
+
+    print(result["custom_metrics"])
+    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+
+def test_policy_retrieval(default_config):
+    tempdir = tempfile.mkdtemp()
+
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "checkpoint_path": dummy_run,
+    }).result
+
+    # TODO for some reasong this fails because custom_metrics is empty, seems like a bug. I haven't been able to track it down though.
+    # I tried to track this down, and it looks like trainer doesn't store custom metrics if we call
+    # trainer.restore(checkpoint_path) before we call trainer.train(). Not quite sure what to do about that right now.
+    print(result["custom_metrics"].keys())
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+def test_distillation(default_config):
+    tempdir = tempfile.mkdtemp()
+
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "checkpoint_to_load_policies": dummy_run,
+            "run": "distillation_prediction",
+    }).result
+
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "distillation_prediction",
+            "heuristic": "mirror_builder",
+            "checkpoint_to_load_policies": dummy_run,
+    }).result
+
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+def test_train_together(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "checkpoint_to_load_policies": dummy_run,
+            "multiagent_mode": "cross_play",
+            "load_policies_mapping": {"ppo": "ppo_0"},
+            "policies_to_train": ["ppo_0", "ppo_1"],
+    }).result
+
+    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
+    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
