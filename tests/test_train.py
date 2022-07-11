@@ -41,6 +41,7 @@ def setup(default_config):
     assert os.path.exists(dummy_run)
 
 
+@pytest.mark.uses_rllib
 def test_single_agent(default_config):
     result = ex.run(
         config_updates={
@@ -52,6 +53,7 @@ def test_single_agent(default_config):
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
+@pytest.mark.uses_rllib
 def test_transformer(default_config):
     result = ex.run(
         config_updates={
@@ -82,6 +84,7 @@ def test_transformer(default_config):
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
+@pytest.mark.uses_rllib
 def test_cross_play(default_config):
     result = ex.run(
         config_updates={
@@ -100,6 +103,7 @@ def test_cross_play(default_config):
     assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
 
 
+@pytest.mark.uses_rllib
 def test_policy_retrieval(default_config):
     result = ex.run(
         config_updates={
@@ -111,6 +115,7 @@ def test_policy_retrieval(default_config):
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
+@pytest.mark.uses_rllib
 def test_distillation(default_config):
     result = ex.run(
         config_updates={
@@ -134,6 +139,7 @@ def test_distillation(default_config):
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
+@pytest.mark.uses_rllib
 def test_train_together(default_config):
     result = ex.run(
         config_updates={
