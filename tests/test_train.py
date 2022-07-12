@@ -17,12 +17,13 @@ def default_config():
         "height": 6,
         "kl_target": 0.01,
         "horizon": 10,
-        "num_workers": 20,
+        "num_workers": 10,
         "goal_generator": "single_wall_grabcraft",
         "use_extra_features": True,
         "num_training_iters": 2,
-        "train_batch_size": 100,
-        "sgd_minibatch_size": 10,
+        "train_batch_size": 50,
+        "sgd_minibatch_size": 5,
+        "rollout_fragment_length": 10,
     }
 
 
@@ -60,9 +61,9 @@ def test_transformer(default_config):
             **default_config,
             "model": "transformer",
             "position_embedding_size": 6,
-            "hidden_size": 48,
+            "hidden_size": 36,
             "num_layers": 3,
-            "num_heads": 2,
+            "num_heads": 1,
             "use_separated_transformer": True,
         }
     ).result
@@ -74,9 +75,9 @@ def test_transformer(default_config):
             **default_config,
             "model": "transformer",
             "position_embedding_size": 6,
-            "hidden_size": 48,
+            "hidden_size": 36,
             "num_layers": 1,
-            "num_heads": 2,
+            "num_heads": 1,
             "use_separated_transformer": False,
         }
     ).result
