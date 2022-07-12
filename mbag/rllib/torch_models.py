@@ -777,7 +777,7 @@ class MbagTransformerModel(MbagTorchModel):
         super().__init__(
             obs_space, action_space, num_outputs, model_config, name, **kwargs
         )
-        
+
         assert self._get_in_channels() <= self.hidden_size
 
         # Initialize positional embeddings along each dimension.

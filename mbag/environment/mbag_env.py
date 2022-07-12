@@ -177,6 +177,7 @@ CURRENT_PLAYER = 1
 OTHER_PLAYER = 2
 NO_INTERACTION = -1
 
+
 class MbagEnv(object):
     config: MbagConfigDict
     current_blocks: MinecraftBlocks
@@ -265,7 +266,7 @@ class MbagEnv(object):
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
-        
+
         self.last_interacted = np.zeros(self.config["world_size"])
         self.last_interacted[:] = NO_INTERACTION
 
@@ -610,7 +611,7 @@ class MbagEnv(object):
                 self._add_player_location_to_world_obs(
                     world_obs, other_player_location, other_player_index + OTHER_PLAYER
                 )
-        
+
         f = np.vectorize(self._observation_from_player_perspective)
         world_obs[LAST_INTERACTED] = f(self.last_interacted, player_index)
 
