@@ -62,6 +62,10 @@ class MbagCallbacks(DefaultCallbacks):
             # Log whether the action was correct. We do this by checking whether the goal similarity metric
             # changed as a result of the action
             if self.prev_goal_similarity is not None:
+                # Explanation for this conditional statement:
+                # If we place a block and the goal similarity goes up, we have placed the correct block.
+                # If we break a block and the reward doesn't go down, then we haven't removed a block
+                # that was correct, so we removed an incorrect block, which means we did good by breaking the block.
                 if (
                     info_dict["action_type"] == MbagAction.PLACE_BLOCK
                     and info_dict["goal_similarity"] > self.prev_goal_similarity
