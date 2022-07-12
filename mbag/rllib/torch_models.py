@@ -16,6 +16,7 @@ from mbag.environment.types import (
     CURRENT_BLOCKS,
     GOAL_BLOCKS,
     PLAYER_LOCATIONS,
+    LAST_INTERACTED,
     MbagWorldObsArray,
 )
 
@@ -135,7 +136,7 @@ class MbagTorchModel(MbagModel, nn.Module):
 
         # We have in-planes for current blocks, player locations, and
         # goal blocks if mask_goal is False.
-        return 2 if self.mask_goal else 3  # TODO: update if we add more
+        return 3 if self.mask_goal else 4  # TODO: update if we add more
 
     def _get_in_channels(self) -> int:
         """Get the number of channels in the embedded observation."""
@@ -217,6 +218,8 @@ class MbagTorchModel(MbagModel, nn.Module):
             embedded_obs_pieces.append(
                 (world_obs[:, 0] == world_obs[:, 2]).float()[..., None]
             )
+        last_interacted = self.player_id_embedding(world_obs[:, LAST_INTERACTED])
+        embedded_obs_pieces.append(last_interacted)
         embedded_obs = torch.cat(embedded_obs_pieces, dim=-1)
 
         return embedded_obs.permute(0, 4, 1, 2, 3)
@@ -774,7 +777,7 @@ class MbagTransformerModel(MbagTorchModel):
         super().__init__(
             obs_space, action_space, num_outputs, model_config, name, **kwargs
         )
-
+        
         assert self._get_in_channels() <= self.hidden_size
 
         # Initialize positional embeddings along each dimension.
@@ -793,7 +796,7 @@ class MbagTransformerModel(MbagTorchModel):
         self.position_embedding.data[
             ..., dim_embedding_size : dim_embedding_size * 2
         ] = self._get_position_embedding(
-            self.position_embedding.size()[0],
+            self.position_embedding.size()[1],
             dim_embedding_size,
         )[
             None, :, None
@@ -801,7 +804,7 @@ class MbagTransformerModel(MbagTorchModel):
         self.position_embedding.data[
             ..., dim_embedding_size * 2 : dim_embedding_size * 3
         ] = self._get_position_embedding(
-            self.position_embedding.size()[0],
+            self.position_embedding.size()[2],
             dim_embedding_size,
         )[
             None, None, :
