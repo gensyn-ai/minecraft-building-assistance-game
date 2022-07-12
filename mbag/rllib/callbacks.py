@@ -11,6 +11,8 @@ from mbag.rllib.rllib_env import MbagMultiAgentEnv
 
 
 class MbagCallbacks(DefaultCallbacks):
+    prev_goal_similarity = None
+
     def on_episode_start(
         self,
         *,
@@ -44,17 +46,37 @@ class MbagCallbacks(DefaultCallbacks):
             info_dict: MbagInfoDict = episode.last_info_for(agent_id)
             episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
 
+            # Log what action the agent made
             action_type_name = MbagAction.ACTION_TYPE_NAMES[info_dict["action_type"]]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
             # If the action_key hasn't been logged yet, set up an entry for each actiontype
             if action_key not in episode.custom_metrics:
-                for action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
+                for _action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
                     episode.custom_metrics[
-                        f"{policy_id}/num_{action_type_name.lower()}"
+                        f"{policy_id}/num_{_action_type_name.lower()}"
                     ] = 0
 
             episode.custom_metrics[action_key] += 1
+
+            # Log whether the action was correct. We do this by checking whether the goal similarity metric
+            # changed as a result of the action
+            if self.prev_goal_similarity is not None:
+                if (
+                    info_dict["action_type"] == MbagAction.PLACE_BLOCK
+                    and info_dict["goal_similarity"] > self.prev_goal_similarity
+                ) or (
+                    info_dict["action_type"] == MbagAction.BREAK_BLOCK
+                    and info_dict["goal_similarity"] >= self.prev_goal_similarity
+                ):
+                    action_correct_key = (
+                        f"{policy_id}/num_correct_{action_type_name.lower()}"
+                    )
+                    if action_correct_key not in episode.custom_metrics:
+                        episode.custom_metrics[action_correct_key] = 0
+                    episode.custom_metrics[action_correct_key] += 1
+
+            self.prev_goal_similarity = info_dict["goal_similarity"]
 
     def on_episode_end(
         self,
@@ -85,21 +107,16 @@ class MbagCallbacks(DefaultCallbacks):
                 "own_reward_prop"
             ]
 
-            episode.custom_metrics[f"{policy_id}/percent_noop"] = info_dict[
-                "action_type"
-            ]
-            total_actions = sum(
-                [
-                    episode.custom_metrics[
-                        f"{policy_id}/num_{action_type_name.lower()}"
-                    ]
-                    for action_type_name in MbagAction.ACTION_TYPE_NAMES.values()
-                ]
-            )
-            for action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
-                num_actions = episode.custom_metrics[
-                    f"{policy_id}/num_{action_type_name.lower()}"
-                ]
+            for action_type in [MbagAction.BREAK_BLOCK, MbagAction.PLACE_BLOCK]:
+                action_type_name = MbagAction.ACTION_TYPE_NAMES[action_type]
+                num_correct = episode.custom_metrics.get(
+                    f"{policy_id}/num_correct_{action_type_name.lower()}", 0
+                )
+                total = episode.custom_metrics.get(
+                    f"{policy_id}/num_{action_type_name.lower()}", 0
+                )
+
+                percent_correct = num_correct / total if total != 0 else 0
                 episode.custom_metrics[
-                    f"{policy_id}/percent_{action_type_name.lower()}"
-                ] = (num_actions / total_actions)
+                    f"{policy_id}/{action_type_name.lower()}_accuracy"
+                ] = percent_correct
