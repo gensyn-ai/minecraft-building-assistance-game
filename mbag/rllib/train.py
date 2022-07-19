@@ -28,7 +28,7 @@ from .training_utils import (
     load_trainer_config,
 )
 from .policies import MBAG_POLICIES, MbagAgentPolicy
-from .distillation_prediction import DEFAULT_CONFIG as DISTILLATION_DEFAULT_CONFIG
+from .distillation_prediction import DistillationPredictionTrainer
 
 from sacred import Experiment
 from sacred.config.custom_containers import DogmaticDict
@@ -284,17 +284,22 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "train_batch_size": train_batch_size,
             "sgd_minibatch_size": sgd_minibatch_size,
             "num_sgd_iter": num_sgd_iter,
-            "vf_loss_coeff": vf_loss_coeff,
             "compress_observations": compress_observations,
             "rollout_fragment_length": rollout_fragment_length,
-            "grad_clip": grad_clip,
             "seed": seed,
-            "entropy_coeff_schedule": [
-                (0, entropy_coeff_start),
-                (entropy_coeff_horizon, entropy_coeff_end),
-            ],
             "framework": "torch",
         }
+        if "PPO" in run or run == "distillation_prediction":
+            config.update(
+                {
+                    "vf_loss_coeff": vf_loss_coeff,
+                    "grad_clip": grad_clip,
+                    "entropy_coeff_schedule": [
+                        (0, entropy_coeff_start),
+                        (entropy_coeff_horizon, entropy_coeff_end),
+                    ],
+                }
+            )
         if "PPO" in run:
             config.update(
                 {
@@ -362,14 +367,17 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         {"model": model_config},
                     )
                     policies_to_train.append(distill_policy_id)
-            config["multiagent"][
+            config[
                 "distillation_mapping_fn"
             ] = lambda policy_id: f"{policy_id}_distilled"
             config["multiagent"]["policies_to_train"] = policies_to_train
 
             # Remove extra config parameters.
+            distillation_default_config = (
+                DistillationPredictionTrainer.get_default_config()
+            )
             for key in list(config.keys()):
-                if key not in DISTILLATION_DEFAULT_CONFIG:
+                if key not in distillation_default_config:
                     del config[key]
 
         del env

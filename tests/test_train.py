@@ -133,7 +133,6 @@ def test_distillation(default_config):
             **default_config,
             "run": "distillation_prediction",
             "heuristic": "mirror_builder",
-            "checkpoint_to_load_policies": dummy_run,
         }
     ).result
 
