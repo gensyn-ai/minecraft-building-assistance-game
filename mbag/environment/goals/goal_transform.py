@@ -50,6 +50,10 @@ class TransformedGoalGenerator(GoalGenerator):
         )
         goal_generator = self.base_goal_generator
         self.goal_transforms: List[GoalTransform] = []
+        # Recursively applies each goal transform in self.config["goal_transforms"]
+        # to the base generator. E.g. if self.config["goal_transforms"] is
+        # [{"transform": "foo"}, {"transform": "bar"}], this sets the new goal
+        # generator to BarTransform(FooTransform(base_generator)).
         for transform_spec in self.config["goal_transforms"]:
             transform_class = ALL_GOAL_TRANSFORMS[transform_spec["transform"]]
             goal_generator = transform_class(

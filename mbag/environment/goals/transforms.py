@@ -72,13 +72,13 @@ class AddGrassTransform(GoalTransform):
             )
             goal.blocks[:, 1:, :] = smaller_goal.blocks
             goal.block_states[:, 1:, :] = smaller_goal.block_states
-        else:
+            goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["grass"]
+        elif mode == "replace":
             goal = self.goal_generator.generate_goal(size)
-
-        bottom_layer = goal.blocks[:, 0, :]
-        if mode == "replace":
-            bottom_layer[:] = MinecraftBlocks.NAME2ID["grass"]
-        else:
+            goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["grass"]
+        elif mode == "surround":
+            goal = self.goal_generator.generate_goal(size)
+            bottom_layer = goal.blocks[:, 0, :]
             bottom_layer[
                 bottom_layer == MinecraftBlocks.NAME2ID["air"]
             ] = MinecraftBlocks.NAME2ID["grass"]
