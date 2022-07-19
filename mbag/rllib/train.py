@@ -13,7 +13,7 @@ from ray.rllib.utils.typing import (
     TrainerConfigDict,
 )
 
-from mbag.environment.goals.filters import DensityFilterConfig
+from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
     TransformedGoalGeneratorConfig,
@@ -76,10 +76,17 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         crop_density_threshold = 0.25
         wall = False
         mirror = False
+        min_width, min_height, min_depth = width // 2, height // 2, depth // 2
         if uniform_block_type:
             goal_transforms.append({"transform": "uniform_block_type"})
         if force_single_cc:
             goal_transforms.append({"transform": "single_cc_filter"})
+        min_size_config: MinSizeFilterConfig = {
+            "min_size": (min_width, min_height, min_depth)
+        }
+        goal_transforms.append(
+            {"transform": "min_size_filter", "config": min_size_config}
+        )
         if crop or wall:
             crop_config: CropTransformConfig = {
                 "density_threshold": 1000 if wall else crop_density_threshold,

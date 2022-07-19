@@ -9,20 +9,32 @@ from ..blocks import MinecraftBlocks
 from .goal_transform import GoalTransform
 
 
-class SingleConnectedComponentFilter(GoalTransform):
+class GoalFilter(GoalTransform):
+    """
+    A special case of a GoalTransform that just generates goals until one passes the
+    filter(size, goal) method.
+    """
+
+    def filter(self, size: WorldSize, goal: MinecraftBlocks) -> bool:
+        raise NotImplementedError()
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        success = False
+        while not success:
+            goal = super().generate_goal(size)
+            success = self.filter(size, goal)
+        return goal
+
+
+class SingleConnectedComponentFilter(GoalFilter):
     """
     Filters out any structures which do not consist of a single connected component
     attached to the ground. Structures which pass this filter are able to be built in
     Minecraft without any scaffolding which makes construction easier.
     """
 
-    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        is_single_cc = False
-        while not is_single_cc:
-            goal = super().generate_goal(size)
-            is_single_cc = goal.is_single_cc()
-
-        return goal
+    def filter(self, size: WorldSize, goal: MinecraftBlocks) -> bool:
+        return goal.is_single_cc()
 
 
 class DensityFilterConfig(TypedDict):
@@ -30,7 +42,7 @@ class DensityFilterConfig(TypedDict):
     max_density: float
 
 
-class DensityFilter(GoalTransform):
+class DensityFilter(GoalFilter):
     """
     Filters structures with density outside of a specified range.
     """
@@ -41,13 +53,31 @@ class DensityFilter(GoalTransform):
     }
     config: DensityFilterConfig
 
-    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        valid_density = False
-        while not valid_density:
-            goal = super().generate_goal(size)
-            valid_density = (
-                self.config["min_density"]
-                <= goal.density()
-                <= self.config["max_density"]
-            )
-        return goal
+    def filter(self, size: WorldSize, goal: MinecraftBlocks) -> bool:
+        return (
+            self.config["min_density"] <= goal.density() <= self.config["max_density"]
+        )
+
+
+class MinSizeFilterConfig(TypedDict):
+    min_size: WorldSize
+
+
+class MinSizeFilter(GoalFilter):
+    """
+    Filters structures which are not at least the given size.
+    """
+
+    default_config: MinSizeFilterConfig = {
+        "min_size": (1, 1, 1),
+    }
+    config: MinSizeFilterConfig
+
+    def filter(self, size: WorldSize, goal: MinecraftBlocks) -> bool:
+        goal_width, goal_height, goal_depth = goal.size
+        min_width, min_height, min_depth = self.config["min_size"]
+        return (
+            goal_width >= min_width
+            and goal_height >= min_height
+            and goal_depth >= min_depth
+        )
