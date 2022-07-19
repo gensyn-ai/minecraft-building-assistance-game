@@ -7,7 +7,7 @@ from ..types import WorldSize
 
 class GoalTransform(GoalGenerator):
     """
-    GoalTransforms are filters or transformations that can be applied to generated
+    GoalTransforms are transformations that can be applied to generated
     goals. A GoalTransform can reject certain goals, alter a goal, and so on. It
     takes as input a GoalGenerator and should call this to get input goals; then, it
     modify them or ask for more goals if necessary.
