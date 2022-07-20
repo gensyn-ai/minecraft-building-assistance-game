@@ -55,9 +55,20 @@ def test_mapping():
         + 125 * MinecraftBlocks.NUM_BLOCKS,  # GIVE_BLOCK
         3,
     )
-    assert mapping[:mapping_all_abilities.shape[0]].tolist() == mapping_all_abilities.tolist()
-    assert mapping[1 + 125 * (MinecraftBlocks.NUM_BLOCKS + 1)].tolist() == [MbagAction.MOVE_POS_X, 0, 0]
-    assert mapping[6 + 125 * (MinecraftBlocks.NUM_BLOCKS + 1)].tolist() == [MbagAction.MOVE_NEG_Z, 0, 0]
+    assert (
+        mapping[: mapping_all_abilities.shape[0]].tolist()
+        == mapping_all_abilities.tolist()
+    )
+    assert mapping[1 + 125 * (MinecraftBlocks.NUM_BLOCKS + 1)].tolist() == [
+        MbagAction.MOVE_POS_X,
+        0,
+        0,
+    ]
+    assert mapping[6 + 125 * (MinecraftBlocks.NUM_BLOCKS + 1)].tolist() == [
+        MbagAction.MOVE_NEG_Z,
+        0,
+        0,
+    ]
 
 
 def test_mask():
