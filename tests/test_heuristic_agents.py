@@ -128,7 +128,7 @@ def test_pq_agent_grabcraft():
             * num_players,
         )
         episode_info = evaluator.rollout()
-        (last_obs,) = episode_info.last_obs[0]
+        (last_obs, _) = episode_info.last_obs[0]
         if not np.all(last_obs[0] == last_obs[2]):
             for layer in range(12):
                 if not np.all(last_obs[0, :, layer] == last_obs[2, :, layer]):
@@ -294,23 +294,24 @@ def test_mirror_building_agent_get_action():
 
     dim = (4, 4, 4, 4)
     a = np.zeros(dim)
+    obs = (a, np.zeros(MinecraftBlocks.NUM_BLOCKS))
 
     # Does it do nothing if the map is empty?
-    assert agent.get_action((a,)) == (MbagAction.NOOP, 0, 0)
+    assert agent.get_action(obs) == (MbagAction.NOOP, 0, 0)
 
     # Does it copy to the right?
     a[0, 0, 0, 0] = MinecraftBlocks.BEDROCK
-    assert str(agent.get_action((a,))) == str(
+    assert str(agent.get_action(obs)) == str(
         (MbagAction.PLACE_BLOCK, 48, MinecraftBlocks.BEDROCK)
     )
 
     # Does it do nothing if there are differnt blocks on opposite sides?
     a[0, 3, 0, 0] = MinecraftBlocks.NAME2ID["grass"]
-    assert str(agent.get_action((a,))) == str((MbagAction.NOOP, 0, 0))
+    assert str(agent.get_action(obs)) == str((MbagAction.NOOP, 0, 0))
 
     # Does it copy to the left?
     a[0, 0, 0, 0] = MinecraftBlocks.AIR
-    assert str(agent.get_action((a,))) == str(
+    assert str(agent.get_action(obs)) == str(
         (MbagAction.PLACE_BLOCK, 0, MinecraftBlocks.NAME2ID["grass"])
     )
 

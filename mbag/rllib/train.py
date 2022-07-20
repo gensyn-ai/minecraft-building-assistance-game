@@ -21,6 +21,7 @@ from .torch_models import (
     MbagTransformerModelConfig,
 )
 from .rllib_env import MbagMultiAgentEnv
+from .choice_env import ChoiceRewardWrapper
 from .callbacks import MbagCallbacks
 from .training_utils import (
     build_logger_creator,
@@ -44,6 +45,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
     def sacred_config(_log):  # noqa
         # Environment
+        environment_name = "MBAG-v1"
         goal_generator = "random"
         goal_subset = "train"
         make_uniform = None
@@ -53,14 +55,17 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         width = 5
         depth = 5
         noop_reward = 0
+        get_resources_reward = 0
         action_reward = 0
         place_wrong_reward = -1
         teleportation = True
         flying = True
+        inf_blocks = True
         goal_visibility = [True] * num_players
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
+        choice_wrapper = False
 
         goal_generator_config = {"subset": goal_subset}
         if make_uniform is not None:
@@ -86,13 +91,19 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "place_wrong": place_wrong_reward,
                 "own_reward_prop": own_reward_prop,
                 "own_reward_prop_horizon": own_reward_prop_horizon,
+                "get_resources": get_resources_reward,
             },
             "abilities": {
                 "teleportation": teleportation,
                 "flying": flying,
+                "inf_blocks": inf_blocks,
             },
         }
-        env = MbagMultiAgentEnv(**environment_params)
+        env = (
+            MbagMultiAgentEnv(**environment_params)
+            if not choice_wrapper
+            else ChoiceRewardWrapper(**environment_params)
+        )
 
         # Training
         run = "PPO"
@@ -102,7 +113,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
         train_batch_size = 5000
-        sgd_minibatch_size = 500
+        sgd_minibatch_size = 512
         rollout_fragment_length = horizon
         num_training_iters = 500  # noqa: F841
         lr = 1e-3
@@ -267,7 +278,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
 
         config: TrainerConfigDict = {  # noqa: F841
-            "env": "MBAG-v1",
+            "env": environment_name,
             "env_config": environment_params,
             "multiagent": {
                 "policies": policies,

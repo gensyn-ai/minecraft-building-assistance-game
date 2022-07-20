@@ -17,6 +17,7 @@ from mbag.environment.types import (
     GOAL_BLOCKS,
     PLAYER_LOCATIONS,
     LAST_INTERACTED,
+    MbagInventoryObs,
     MbagWorldObsArray,
 )
 
@@ -141,6 +142,8 @@ class MbagTorchModel(MbagModel, nn.Module):
     def _get_in_channels(self) -> int:
         """Get the number of channels in the embedded observation."""
         in_channels = self._get_in_planes() * self.embedding_size
+        # Add inventory observation as extra input channels.
+        in_channels += MinecraftBlocks.NUM_BLOCKS
         if self.use_extra_features:
             in_channels += 1
         return in_channels
@@ -198,7 +201,9 @@ class MbagTorchModel(MbagModel, nn.Module):
             nn.Linear(self._get_head_in_channels(), 1, bias=True),
         )
 
-    def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
+    def _get_embedded_obs(
+        self, world_obs: MbagWorldObsArray, inventory_obs: MbagInventoryObs
+    ):
         """
         Transform a raw observation into the input for the network backbone.
         """
@@ -212,6 +217,11 @@ class MbagTorchModel(MbagModel, nn.Module):
             world_obs[:, PLAYER_LOCATIONS]
         )
         embedded_obs_pieces.append(embedded_player_locations)
+        embedded_obs_pieces.append(
+            self._inventory_obs[:, None, None, None, :].expand(
+                *embedded_obs_pieces[0].size()[:-1], -1
+            )
+        )
         if self.use_extra_features:
             # Feature for if goal block is the same as the current block at each
             # location.
@@ -225,8 +235,12 @@ class MbagTorchModel(MbagModel, nn.Module):
         return embedded_obs.permute(0, 4, 1, 2, 3)
 
     def forward(self, input_dict, state, seq_lens):
-        self._world_obs = input_dict["obs"][0].long()
-        self._embedded_obs = self._get_embedded_obs(self._world_obs)
+        self._world_obs, self._inventory_obs = input_dict["obs"]
+        self._world_obs = self._world_obs.long()
+        self._inventory_obs = self._inventory_obs.long()
+        self._embedded_obs = self._get_embedded_obs(
+            self._world_obs, self._inventory_obs
+        )
 
         if self.vf_share_layers:
             self._backbone_out = self.backbone(self._embedded_obs)
@@ -393,6 +407,7 @@ class UNet3d(nn.Module):
     def forward(self, inputs: torch.Tensor, *extra_fc_inputs):
         activations = [inputs]
         for down_layer in self.down_layers:
+            print(activations[-1].size())
             activations.append(down_layer(activations[-1]))
 
         fc_layer_inputs = activations[-1].flatten(start_dim=1)
@@ -400,9 +415,20 @@ class UNet3d(nn.Module):
         outputs = outputs.reshape(activations[-1].size())
 
         for layer_index, up_layer in reversed(list(enumerate(self.up_layers))):
-            layer_inputs = torch.cat([activations[layer_index + 1], outputs], dim=1)
+            w, h, d = outputs.size()[-3:]
+            layer_activations = F.pad(activations[layer_index + 1], (0, 2) * 3)[
+                ..., :w, :h, :d
+            ]
+            layer_inputs = torch.cat([layer_activations, outputs], dim=1)
             outputs = up_layer(layer_inputs)
-        final_layer_inputs = torch.cat([activations[0], outputs], dim=1)
+
+        w, h, d = outputs.size()[-3:]
+        layer_activations = F.pad(activations[0], (0, 2) * 3)[..., :w, :h, :d]
+        final_layer_inputs = torch.cat([layer_activations, outputs], dim=1)
+
+        w, h, d = inputs.size()[-3:]
+        final_layer_inputs = final_layer_inputs[..., :w, :h, :d]
+
         return self.final_layer(final_layer_inputs)
 
 
@@ -858,8 +884,10 @@ class MbagTransformerModel(MbagTorchModel):
                 Permute(0, 4, 1, 2, 3),
             )
 
-    def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
-        embedded_obs = super()._get_embedded_obs(world_obs)
+    def _get_embedded_obs(
+        self, world_obs: MbagWorldObsArray, inventory_obs: MbagInventoryObs
+    ):
+        embedded_obs = super()._get_embedded_obs(world_obs, inventory_obs)
         batch_size = embedded_obs.size()[0]
         embedded_obs = self._pad_to_hidden_size(
             torch.cat(

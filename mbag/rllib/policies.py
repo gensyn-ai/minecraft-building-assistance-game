@@ -116,7 +116,7 @@ def add_supervised_loss_to_policy(
             loss = super().loss(model, dist_class, train_batch)
             assert not isinstance(loss, list)
 
-            (world_obs,) = restore_original_dimensions(
+            world_obs, inventory_obs = restore_original_dimensions(
                 train_batch[SampleBatch.OBS],
                 obs_space=self.observation_space,
                 tensorlib=torch,
@@ -154,7 +154,7 @@ def add_supervised_loss_to_policy(
                     place_block_loss = place_block_loss.sum()
                 else:
                     place_block_loss = place_block_loss.mean()
-                loss = loss + place_block_loss
+                loss = loss + place_block_mask.float().mean() * place_block_loss
                 model.tower_stats["place_block_loss"] = place_block_loss
 
             return loss
