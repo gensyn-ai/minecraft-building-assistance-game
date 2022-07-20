@@ -9,6 +9,57 @@ from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
 from mbag.environment.types import MbagAction, CURRENT_BLOCKS, PLAYER_LOCATIONS
 
 
+def test_mapping():
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config["world_size"] = (5, 5, 5)
+
+    config["abilities"] = {
+        "teleportation": True,
+        "flying": True,
+        "inf_blocks": True,
+    }
+    mapping = MbagActionDistribution.get_action_mapping(config)
+    assert mapping.shape == (
+        1  # NOOP
+        + 125 * MinecraftBlocks.NUM_BLOCKS  # PLACE_BLOCK
+        + 125,  # BREAK_BLOCK
+        3,
+    )
+    assert mapping[0].tolist() == [MbagAction.NOOP, 0, 0]
+    assert mapping[1].tolist() == [MbagAction.PLACE_BLOCK, 0, 0]
+    assert mapping[2].tolist() == [MbagAction.PLACE_BLOCK, 1, 0]
+    assert mapping[1 + 125].tolist() == [MbagAction.PLACE_BLOCK, 0, 1]
+    assert mapping[1 + 125 * MinecraftBlocks.NUM_BLOCKS].tolist() == [
+        MbagAction.BREAK_BLOCK,
+        0,
+        0,
+    ]
+    assert mapping[2 + 125 * MinecraftBlocks.NUM_BLOCKS].tolist() == [
+        MbagAction.BREAK_BLOCK,
+        1,
+        0,
+    ]
+
+    config["abilities"] = {
+        "teleportation": False,
+        "flying": True,
+        "inf_blocks": False,
+    }
+    mapping_all_abilities = mapping
+    mapping = MbagActionDistribution.get_action_mapping(config)
+    assert mapping.shape == (
+        1  # NOOP
+        + 125 * MinecraftBlocks.NUM_BLOCKS  # PLACE_BLOCK
+        + 125  # BREAK_BLOCK
+        + 6  # movement actions
+        + 125 * MinecraftBlocks.NUM_BLOCKS,  # GIVE_BLOCK
+        3,
+    )
+    assert mapping[:mapping_all_abilities.shape[0]].tolist() == mapping_all_abilities.tolist()
+    assert mapping[1 + 125 * (MinecraftBlocks.NUM_BLOCKS + 1)].tolist() == [MbagAction.MOVE_POS_X, 0, 0]
+    assert mapping[6 + 125 * (MinecraftBlocks.NUM_BLOCKS + 1)].tolist() == [MbagAction.MOVE_NEG_Z, 0, 0]
+
+
 def test_mask():
     env = MbagEnv(
         {"abilities": {"teleportation": True, "inf_blocks": True, "flying": True}}

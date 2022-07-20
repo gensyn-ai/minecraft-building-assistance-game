@@ -95,6 +95,45 @@ class MbagActionDistribution(object):
         return action_types
 
     @staticmethod
+    def get_action_mapping(config: MbagConfigDict) -> np.ndarray:
+        """
+        Given env config, returns a numpy array of shape (N, 3) which maps flat
+        actions to actions with (action_type, block_location_index, block_id)
+        components.
+        """
+
+        mapping_parts: List[np.ndarray] = []
+        valid_action_types = MbagActionDistribution.get_valid_action_types(config)
+        for action_type, channel in MbagActionDistribution.ACTION_TYPE2CHANNEL.items():
+            if action_type in valid_action_types:
+                num_block_ids = (
+                    MinecraftBlocks.NUM_BLOCKS
+                    if action_type in MbagAction.BLOCK_ID_ACTION_TYPES
+                    else 1
+                )
+                width, height, depth = config["world_size"]
+                num_block_location_indices = (
+                    width * height * depth
+                    if action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES
+                    else 1
+                )
+                block_ids_grid, block_location_grid = np.meshgrid(
+                    np.arange(num_block_ids),
+                    np.arange(num_block_location_indices),
+                    indexing="ij",
+                )
+
+                mapping_part = np.empty(
+                    (num_block_ids * num_block_location_indices, 3), dtype=int
+                )
+                mapping_part[:, 0] = action_type
+                mapping_part[:, 1] = block_location_grid.flat
+                mapping_part[:, 2] = block_ids_grid.flat
+                mapping_parts.append(mapping_part)
+
+        return np.concatenate(mapping_parts, axis=0)
+
+    @staticmethod
     def to_flat(
         config: MbagConfigDict, probs: np.ndarray, reduction=np.sum
     ) -> np.ndarray:
