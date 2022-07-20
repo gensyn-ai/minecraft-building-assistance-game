@@ -1,9 +1,5 @@
-from typing import cast, Tuple
-from ray.rllib.env import MultiAgentEnv
-from ray.rllib.utils.typing import MultiAgentDict
 from ray.tune.registry import register_env
 
-from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from .rllib_env import MbagMultiAgentEnv
 from mbag.agents.action_distributions import MbagActionDistribution
 
@@ -40,9 +36,7 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
             np.array([action.block_location]),
         )
 
-        return (
-            np.count_unique(location_choices).size + np.count_unique(item_choices).size
-        )
+        return int(np.unique(location_choices).size + np.unique(item_choices).size)
 
 
 register_env(

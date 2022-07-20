@@ -21,6 +21,10 @@ class GrabcraftGoalConfig(TypedDict):
     subset: Literal["train", "val", "test"]
     force_single_cc: bool
     use_limited_block_set: bool
+    # If this is true, then all blocks are the same type.
+    make_uniform: bool
+    # If make_uniform is set to True, then this determines what block_id the structure is.
+    uniform_block: int
 
 
 class StructureMetadata(TypedDict):
@@ -56,6 +60,8 @@ class GrabcraftGoalGenerator(GoalGenerator):
         "subset": "train",
         "force_single_cc": False,
         "use_limited_block_set": True,
+        "make_uniform": False,
+        "uniform_block": MinecraftBlocks.NAME2ID["grass"],
     }
 
     config: GrabcraftGoalConfig
@@ -184,12 +190,7 @@ class GrabcraftGoalGenerator(GoalGenerator):
                 if not goal.is_single_cc():
                     success = False
 
-            # Add a layer of dirt at the bottom of the structure wherever there's still
-            # air.
-            bottom_layer = goal.blocks[:, 0, :]
-            bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-                "dirt"
-            ]
+            goal = GoalGenerator.add_grass(goal)
 
         return goal
 
@@ -249,6 +250,10 @@ class GrabcraftGoalGenerator(GoalGenerator):
 
         if self.config["use_limited_block_set"]:
             self._fill_auto_with_real_blocks(structure)
+        if self.config["make_uniform"]:
+            structure = GoalGenerator.make_uniform(
+                structure, self.config["uniform_block"]
+            )
 
         metadata = self.structure_metadata[structure_id]
         logger.info(f"chose structure {structure_id} ({metadata['title']})")
@@ -281,6 +286,8 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         ],
         "density_threshold": 0.25,
         "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
+        "make_uniform": GrabcraftGoalGenerator.default_config["make_uniform"],
+        "uniform_block": GrabcraftGoalGenerator.default_config["uniform_block"],
     }
 
     config: CroppedGrabcraftGoalConfig
@@ -336,12 +343,7 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         # Randomly place structure within world.
         goal = GoalGenerator.randomly_place_structure(crop, size)
 
-        # Add a layer of dirt at the bottom of the structure wherever there's still
-        # air.
-        bottom_layer = goal.blocks[:, 0, :]
-        bottom_layer[bottom_layer == MinecraftBlocks.AIR] = MinecraftBlocks.NAME2ID[
-            "dirt"
-        ]
+        goal = GoalGenerator.add_grass(goal)
 
         if save_crop:
             self.save_crop_as_json(structure_id, crop.size, location)
@@ -399,3 +401,150 @@ class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
             os.path.join(save_dir, str(structure_id) + "_crop.metadata.json"), "w+"
         ) as f:
             f.write(metadata_json_str)
+
+
+class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
+    min_density: float
+    mirror_wall: bool
+    choose_densest: bool
+    # enable for testing purposes to make it always give you the same wall
+    test_wall: bool
+    # Makes it so that there is only grass at the bottom layer, so that the agent will never have to destroy any blocks.
+    force_bottom_grass: bool
+
+
+class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
+    # How often the generator tries to generate a random wall from the specfications before giving up.
+    MAX_TRIES = 10000
+
+    default_config: SingleWallGrabcraftGoalConfig = {
+        "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
+        "subset": GrabcraftGoalGenerator.default_config["subset"],
+        "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
+        "use_limited_block_set": GrabcraftGoalGenerator.default_config[
+            "use_limited_block_set"
+        ],
+        "min_density": 0.8,
+        "mirror_wall": True,
+        "choose_densest": False,
+        "make_uniform": GrabcraftGoalGenerator.default_config["make_uniform"],
+        "uniform_block": GrabcraftGoalGenerator.default_config["uniform_block"],
+        "test_wall": False,
+        "force_bottom_grass": False,
+    }
+
+    config: SingleWallGrabcraftGoalConfig
+
+    def _generate_wall(
+        self,
+        structure: MinecraftBlocks,
+        wall_size: WorldSize,
+        location: Tuple[int, int, int],
+    ) -> MinecraftBlocks:
+        wall = MinecraftBlocks(wall_size)
+        wall.blocks[:] = MinecraftBlocks.AIR
+        wall.block_states[:] = 0
+        wall.fill_from_crop(structure, location)
+
+        return wall
+
+    def _generate_wall_crops(
+        self, size: WorldSize, structure: MinecraftBlocks
+    ) -> List[MinecraftBlocks]:
+        """
+        Generate a list of wall crops for a structure.
+
+                    ^
+                ` y |
+                    |
+                    |
+                    |
+                    | _ _ _ _ _ _ _>
+                    /               x
+                `  /
+                z /
+                v
+        If this is the plane on which the house exists, we go along the z-axis to choose the "wall" of the house
+        with the highest density.
+        """
+        wall_size = (
+            min(size[0], structure.size[0]),
+            min(size[1], structure.size[1]),
+            1,
+        )
+
+        # If the building is bigger than the world size, we choose among multiple possible x-values
+        xs = list(range(structure.size[0] - wall_size[0] + 1))
+        # Start from bottom
+        y = 0
+
+        walls = [
+            self._generate_wall(structure, wall_size, (x, y, z))
+            for z in range(structure.size[2])
+            for x in xs
+        ]
+
+        if self.config["mirror_wall"]:
+            for wall in walls:
+                wall.mirror_x_axis()
+
+        if self.config["force_single_cc"]:
+            walls = [wall for wall in walls if wall.is_single_cc()]
+
+        if self.config["min_density"] > 0:
+            walls = [
+                wall for wall in walls if wall.density() >= self.config["min_density"]
+            ]
+
+        return walls
+
+    def _generate_wall_crop(
+        self, size: WorldSize, structure: MinecraftBlocks
+    ) -> Optional[MinecraftBlocks]:
+        walls = self._generate_wall_crops(size, structure)
+        if len(walls) == 0:
+            return None
+        if self.config["choose_densest"]:
+            wall = max(walls, key=lambda x: x.density())
+        else:
+            wall = random.choice(walls)
+
+        return wall
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        crop = None
+        tries = 0
+        while crop is None and tries < self.MAX_TRIES:
+
+            structure_id = (
+                random.choice(list(self.structure_metadata.keys()))
+                if not self.config["test_wall"]
+                else "5861"
+            )
+            structure = self._get_structure(structure_id)
+            if structure is not None:
+                crop = self._generate_wall_crop(size, structure)
+            tries += 1
+
+        if crop is None:
+            raise Exception("Unable to generate wall from specifications.")
+        else:
+            # Randomly place structure within world.
+            goal = GoalGenerator.randomly_place_structure(crop, size)
+            goal = GoalGenerator.add_grass(goal)
+            if self.config["force_bottom_grass"]:
+                goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["grass"]
+
+            return goal
+
+    def get_sample_size(self, size: WorldSize):
+        sum = 0
+        for k in self.structure_metadata.keys():
+            structure = self._get_structure(k)
+            walls = (
+                self._generate_wall_crops(size, structure)
+                if structure is not None
+                else []
+            )
+            sum += len(walls)
+        return sum

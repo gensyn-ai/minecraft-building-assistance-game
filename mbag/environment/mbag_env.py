@@ -32,6 +32,11 @@ from .types import (
     FacingDirection,
     MbagInventoryObs,
     num_world_obs_channels,
+    CURRENT_BLOCKS,
+    CURRENT_BLOCK_STATES,
+    GOAL_BLOCKS,
+    GOAL_BLOCK_STATES,
+    LAST_INTERACTED,
 )
 from .goals import ALL_GOAL_GENERATORS
 from .goals.goal_generator import GoalGenerator
@@ -183,6 +188,11 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "abilities": {"teleportation": True, "flying": True, "inf_blocks": True},
 }
 
+NO_ONE = 0
+CURRENT_PLAYER = 1
+OTHER_PLAYER = 2
+NO_INTERACTION = -1
+
 
 class MbagEnv(object):
     config: MbagConfigDict
@@ -192,6 +202,7 @@ class MbagEnv(object):
     player_directions: List[FacingDirection]
     player_inventories: List[MbagInventory]
     palette_x: int
+    last_interacted: np.ndarray
     timestep: int
     global_timestep: int
 
@@ -213,6 +224,7 @@ class MbagEnv(object):
         self.config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
         self.config["malmo"].update(config.get("malmo", {}))
         passed_rewards_config = config.get("rewards", {})
+
         if isinstance(passed_rewards_config, list):
             rewards_configs = []
             for incomplete_rewards_config in passed_rewards_config:
@@ -282,11 +294,15 @@ class MbagEnv(object):
         self.global_timestep = global_timestep
 
     def reset(self) -> List[MbagObs]:
+        """Reset Minecraft environment and return player observations for each player."""
         self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
+
+        self.last_interacted = np.zeros(self.config["world_size"])
+        self.last_interacted[:] = NO_INTERACTION
 
         self.goal_blocks = self._generate_goal()
 
@@ -346,6 +362,8 @@ class MbagEnv(object):
         infos: List[MbagInfoDict] = []
 
         for player_index, player_action_tuple in enumerate(action_tuples):
+            # For each player, if they are acting this timestep, step the player,
+            # otherwise execute NOOP.
             if self.timestep % self.config["timestep_skip"][player_index] == 0:
                 player_reward, player_info = self._step_player(
                     player_index, player_action_tuple
@@ -364,7 +382,6 @@ class MbagEnv(object):
         if self.config["malmo"]["use_malmo"]:
             time.sleep(self.malmo_client.ACTION_DELAY)
             self._update_state_from_malmo()
-
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -505,6 +522,7 @@ class MbagEnv(object):
             ).sum(),
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
+            "action_type": action.action_type if not noop else MbagAction.NOOP,
         }
 
         return reward, info
@@ -553,6 +571,8 @@ class MbagEnv(object):
                 place_break_result[0][1],
                 place_break_result[0][2],
             )
+
+        self.last_interacted[action.block_location] = player_index
 
         if self.config["malmo"]["use_malmo"]:
             player_location, click_location = place_break_result
@@ -606,7 +626,7 @@ class MbagEnv(object):
                     player_index, f"hotbar.{hotbar_slot + 1} 0"
                 )
                 time.sleep(0.1)  # Give time to swap item to hand and teleport.
-                self.malmo_client.send_command(player_index, f"use 1")
+                self.malmo_client.send_command(player_index, "use 1")
                 time.sleep(0.1)  # Give time to place block.
                 if self.config["abilities"]["inf_blocks"]:
                     self.malmo_client.send_command(
@@ -825,11 +845,16 @@ class MbagEnv(object):
     def _is_valid_player_space(
         self, player_location: WorldLocation, player_index: int
     ) -> bool:
+        """
+        Check to see if the player is able to place a block from their current position.
+        """
+
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
             int(np.floor(player_location[1])),
             int(np.floor(player_location[2])),
         )
+        # Check if block is out of bounds.
         for i in range(3):
             if (
                 proposed_block[i] < 0
@@ -896,19 +921,18 @@ class MbagEnv(object):
 
     def _get_player_obs(self, player_index: int) -> MbagObs:
         world_obs = np.zeros(self.world_obs_shape, np.uint8)
-        world_obs[0] = self.current_blocks.blocks
-        world_obs[1] = self.current_blocks.block_states
-
+        world_obs[CURRENT_BLOCKS] = self.current_blocks.blocks
+        world_obs[CURRENT_BLOCK_STATES] = self.current_blocks.block_states
         if self.config["goal_visibility"][player_index]:
-            world_obs[2] = self.goal_blocks.blocks
-            world_obs[3] = self.goal_blocks.block_states
+            world_obs[GOAL_BLOCKS] = self.goal_blocks.blocks
+            world_obs[GOAL_BLOCK_STATES] = self.goal_blocks.block_states
 
         # Add locations to the observation if the locations are actually meaningful
         # (i.e., if players do not have teleportation abilities).
         if not self.config["abilities"]["teleportation"]:
             # Current player location is marked with 1 in the observation.
             self._add_player_location_to_world_obs(
-                world_obs, self.player_locations[player_index], 1
+                world_obs, self.player_locations[player_index], CURRENT_PLAYER
             )
             # Now other player locations are marked starting with 2.
             for other_player_index, other_player_location in enumerate(
@@ -916,8 +940,11 @@ class MbagEnv(object):
                 + self.player_locations[player_index + 1 :]
             ):
                 self._add_player_location_to_world_obs(
-                    world_obs, other_player_location, other_player_index + 2
+                    world_obs, other_player_location, other_player_index + OTHER_PLAYER
                 )
+
+        f = np.vectorize(self._observation_from_player_perspective)
+        world_obs[LAST_INTERACTED] = f(self.last_interacted, player_index)
 
         return (world_obs, self._get_inventory_obs(player_index))
 
@@ -933,6 +960,14 @@ class MbagEnv(object):
         ):
             assert world_obs[4, x, y, z] == 0, "players are overlapping"
             world_obs[4, x, y, z] = marker
+
+    def _observation_from_player_perspective(self, x: Optional[int], player_index: int):
+        if x == NO_INTERACTION:
+            return NO_ONE
+        elif player_index == x:
+            return CURRENT_PLAYER
+        else:
+            return player_index + OTHER_PLAYER
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         if isinstance(self.config["rewards"], list):
