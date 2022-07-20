@@ -3,8 +3,6 @@ from ray.tune.registry import register_env
 from .rllib_env import MbagMultiAgentEnv
 from mbag.agents.action_distributions import MbagActionDistribution
 
-import numpy as np
-
 
 class ChoiceRewardWrapper(MbagMultiAgentEnv):
     def __init__(self, **config):
@@ -25,18 +23,10 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
 
     def calculate_choices(self, world_obs, inventory_obs, action) -> int:
         obs_batch = world_obs[None], inventory_obs[None]
-        location_choices = MbagActionDistribution.get_action_type_location_unique(
+        flat_mask = MbagActionDistribution.get_mask_flat(
             self.mbag_env.wrapped_env.config, obs_batch
         )
-
-        item_choices = MbagActionDistribution.get_block_id_unique(
-            self.mbag_env.wrapped_env.config,
-            obs_batch,
-            np.array([action.action_type]),
-            np.array([action.block_location]),
-        )
-
-        return int(np.unique(location_choices).size + np.unique(item_choices).size)
+        return int(flat_mask.astype(int).sum())
 
 
 register_env(
