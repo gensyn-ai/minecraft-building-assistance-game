@@ -7,7 +7,7 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import PolicyID
 
 from mbag.environment.types import MbagAction, MbagInfoDict
-from mbag.rllib.rllib_env import MbagMultiAgentEnv
+from mbag.rllib.rllib_env import unwrap_mbag_env
 
 
 class MbagCallbacks(DefaultCallbacks):
@@ -20,9 +20,11 @@ class MbagCallbacks(DefaultCallbacks):
         episode: Episode,
         **kwargs,
     ) -> None:
-        def update_env_global_timestep(env: MbagMultiAgentEnv):
+        def update_env_global_timestep(env):
             if worker.global_vars is not None:
-                env.wrapped_env.update_global_timestep(worker.global_vars["timestep"])
+                unwrap_mbag_env(env).update_global_timestep(
+                    worker.global_vars["timestep"]
+                )
 
         worker.foreach_env(update_env_global_timestep)
 

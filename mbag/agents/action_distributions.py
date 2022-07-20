@@ -226,6 +226,11 @@ class MbagActionDistribution(object):
             )
         ] = False
 
+        # Can't place air or bedrock.
+        for block_id in range(MinecraftBlocks.NUM_BLOCKS):
+            if block_id not in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                mask[:, MbagActionDistribution.PLACE_BLOCK][:, block_id] = False
+
         # Next, we can only place in locations that are next to a solid block and
         # currently occupied by air.
         solid_blocks = (
@@ -248,7 +253,9 @@ class MbagActionDistribution(object):
         ] = False
 
         # Next, we can only give blocks to locations with players in them
-        mask[:, MbagActionDistribution.GIVE_BLOCK] &= world_obs[:, PLAYER_LOCATIONS] > 0
+        mask[:, MbagActionDistribution.GIVE_BLOCK] &= (
+            world_obs[:, None, PLAYER_LOCATIONS] > 0
+        )
 
         if not config["abilities"]["teleportation"]:
             # If we can't teleport, then we can only place or break blocks up to 3 blocks away

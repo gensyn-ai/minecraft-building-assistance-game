@@ -10,8 +10,14 @@ from typing_extensions import TypedDict
 from gym import spaces
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.utils.numpy import convert_to_numpy
 
+from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.mbag_env import (
+    MbagConfigDict,
+    DEFAULT_CONFIG as DEFAULT_ENV_CONFIG,
+)
 from mbag.environment.types import (
     CURRENT_BLOCKS,
     GOAL_BLOCKS,
@@ -36,6 +42,8 @@ class MbagModel(ABC, TorchModelV2):
 
 
 class MbagModelConfig(TypedDict, total=False):
+    env_config: MbagConfigDict
+    """Environment configuration."""
     embedding_size: int
     """Block ID embedding size."""
     use_extra_features: bool
@@ -46,26 +54,31 @@ class MbagModelConfig(TypedDict, total=False):
     """Whether to add fake state to this model so that it's treated as recurrent."""
     hidden_size: int
     """Size of hidden layers."""
-    num_block_id_layers: int
-    """Number of extra layers for the block ID head."""
+    num_action_layers: int
+    """Number of extra layers for the action head."""
+    num_value_layers: int
+    """Number of extra layers for the value head."""
 
 
 DEFAULT_CONFIG: MbagModelConfig = {
+    "env_config": DEFAULT_ENV_CONFIG,
     "embedding_size": 8,
     "use_extra_features": False,
     "mask_goal": False,
     "fake_state": False,
     "hidden_size": 16,
-    "num_block_id_layers": 1,
+    "num_action_layers": 1,
+    "num_value_layers": 1,
 }
 
 
 class MbagTorchModel(MbagModel, nn.Module):
     """
     This base class implements common functionality for PyTorch MBAG models such
-    as block type embedding, separate policy and value networks, the value head,
-    and the block ID head.
+    as block type embedding, separate policy and value networks and the value head.
     """
+
+    MASK_LOGIT = 1e-8
 
     _logits: torch.Tensor
 
@@ -88,21 +101,16 @@ class MbagTorchModel(MbagModel, nn.Module):
         self.world_obs_space: spaces.Box = obs_space[0]
         self.world_size = self.world_obs_space.shape[-3:]
 
-        assert isinstance(action_space, spaces.Tuple)
-        self.action_type_space: spaces.Discrete = action_space[0]
-        self.block_location_space: spaces.Discrete = action_space[1]
-        self.block_id_space: spaces.Discrete = action_space[2]
-
-        assert self.block_location_space.n == np.prod(self.world_obs_space.shape[-3:])
-
         extra_config = copy.deepcopy(DEFAULT_CONFIG)
         extra_config.update(cast(MbagModelConfig, kwargs))
+        self.env_config = extra_config["env_config"]
         self.embedding_size = extra_config["embedding_size"]
         self.use_extra_features = extra_config["use_extra_features"]
         self.mask_goal = extra_config["mask_goal"]
         self.fake_state: bool = extra_config["fake_state"]
         self.hidden_size = extra_config["hidden_size"]
-        self.num_block_id_layers = extra_config["num_block_id_layers"]
+        self.num_action_layers = extra_config["num_action_layers"]
+        self.num_value_layers = extra_config["num_value_layers"]
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -121,13 +129,8 @@ class MbagTorchModel(MbagModel, nn.Module):
             self.action_backbone = self._construct_backbone()
             self.value_backbone = self._construct_backbone(is_value_network=True)
 
-        self.block_id_head = self._construct_block_id_head()
-
-        self.value_head = nn.Sequential(
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
-            nn.Flatten(),
-            nn.Linear(self._get_head_in_channels(), 1, bias=True),
-        )
+        self.action_head = self._construct_action_head()
+        self.value_head = self._construct_value_head()
 
     def _get_in_planes(self) -> int:
         """
@@ -154,7 +157,7 @@ class MbagTorchModel(MbagModel, nn.Module):
         the value and block ID heads.
         """
 
-        raise NotImplementedError()
+        return self.hidden_size
 
     def _construct_backbone(self, is_value_network=False) -> nn.Module:
         """
@@ -168,26 +171,27 @@ class MbagTorchModel(MbagModel, nn.Module):
 
         raise NotImplementedError()
 
-    def _construct_block_id_head(self) -> nn.Module:
+    def _construct_action_head(self) -> nn.Module:
         """
-        Construct the head which selects the block ID part of the action conditional
-        on the other action parts (see MbagAutoregressiveActionDistribution).
+        Construct the head which outputs the action distribution logits.
         """
 
-        block_id_in_channels = self._get_head_in_channels()
-        block_id_layers: List[nn.Module] = []
-        for layer_index in range(self.num_block_id_layers):
-            block_id_layers.append(
-                nn.Linear(
-                    block_id_in_channels if layer_index == 0 else self.hidden_size,
-                    self.block_id_space.n
-                    if layer_index == self.num_block_id_layers - 1
+        action_head_layers: List[nn.Module] = []
+        for layer_index in range(self.num_action_layers):
+            action_head_layers.append(
+                nn.Conv3d(
+                    self._get_head_in_channels()
+                    if layer_index == 0
                     else self.hidden_size,
+                    MbagActionDistribution.NUM_CHANNELS
+                    if layer_index == self.num_action_layers - 1
+                    else self.hidden_size,
+                    kernel_size=1,
                 )
             )
-            if layer_index < self.num_block_id_layers - 1:
-                block_id_layers.append(nn.LeakyReLU())
-        return nn.Sequential(*block_id_layers)
+            if layer_index < self.num_action_layers - 1:
+                action_head_layers.append(nn.LeakyReLU())
+        return nn.Sequential(*action_head_layers)
 
     def _construct_value_head(self) -> nn.Module:
         """
@@ -195,11 +199,22 @@ class MbagTorchModel(MbagModel, nn.Module):
         outputs a one-dimensional value estimate.
         """
 
-        return nn.Sequential(
+        value_head_layers: List[nn.Module] = [
             nn.AdaptiveAvgPool3d((1, 1, 1)),
             nn.Flatten(),
-            nn.Linear(self._get_head_in_channels(), 1, bias=True),
-        )
+        ]
+        for layer_index in range(self.num_value_layers):
+            value_head_layers.append(
+                nn.Linear(
+                    self._get_head_in_channels()
+                    if layer_index == 0
+                    else self.hidden_size,
+                    1 if layer_index == self.num_value_layers - 1 else self.hidden_size,
+                )
+            )
+            if layer_index < self.num_value_layers - 1:
+                value_head_layers.append(nn.LeakyReLU())
+        return nn.Sequential(*value_head_layers)
 
     def _get_embedded_obs(
         self, world_obs: MbagWorldObsArray, inventory_obs: MbagInventoryObs
@@ -244,22 +259,29 @@ class MbagTorchModel(MbagModel, nn.Module):
 
         if self.vf_share_layers:
             self._backbone_out = self.backbone(self._embedded_obs)
-            self._backbone_out_shape = self._backbone_out.size()[1:]
-            self._logits = self._backbone_out.flatten(start_dim=1)
         else:
-            backbone_out = self.action_backbone(self._embedded_obs)
-            self._backbone_out_shape = backbone_out.size()[1:]
-            self._logits = backbone_out.flatten(start_dim=1)
+            self._backbone_out = self.action_backbone(self._embedded_obs)
+        self._backbone_out_shape = self._backbone_out.size()[1:]
         assert self._backbone_out_shape[0] == self._get_head_in_channels()
 
-        return self._logits, state
+        self._logits = self.action_head(self._backbone_out)
+        self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
+            self.env_config, self._logits
+        )
+        numpy_mask = MbagActionDistribution.get_mask_flat(
+            self.env_config, convert_to_numpy(input_dict["obs"])
+        )
+        mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
+        self._flat_logits[~mask] = MbagTorchModel.MASK_LOGIT
+
+        return self._flat_logits, state
 
     @property
     def logits(self) -> torch.Tensor:
-        return self._logits
+        return self._flat_logits
 
     def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.block_id_head(head_input))
+        raise NotImplementedError()
 
     def value_function(self):
         if self.vf_share_layers:
@@ -446,11 +468,13 @@ class MbagConvolutionalModelConfig(MbagModelConfig, total=False):
 
 
 CONV_DEFAULT_CONFIG: MbagConvolutionalModelConfig = {
+    "env_config": DEFAULT_CONFIG["env_config"],
     "embedding_size": DEFAULT_CONFIG["embedding_size"],
     "use_extra_features": DEFAULT_CONFIG["use_extra_features"],
     "mask_goal": DEFAULT_CONFIG["mask_goal"],
     "hidden_size": DEFAULT_CONFIG["hidden_size"],
-    "num_block_id_layers": DEFAULT_CONFIG["num_block_id_layers"],
+    "num_action_layers": DEFAULT_CONFIG["num_action_layers"],
+    "num_value_layers": DEFAULT_CONFIG["num_value_layers"],
     "fake_state": DEFAULT_CONFIG["fake_state"],
     "num_conv_1_layers": 0,
     "num_layers": 3,
@@ -485,7 +509,6 @@ class MbagConvolutionalModel(MbagTorchModel):
         self.use_resnet = extra_config["use_resnet"]
         self.filter_size = extra_config["filter_size"]
         self.hidden_channels = extra_config["hidden_channels"]
-        self.num_block_id_layers = extra_config["num_block_id_layers"]
         self.num_unet_layers = extra_config["num_unet_layers"]
         self.unet_grow_factor = extra_config["unet_grow_factor"]
         self.unet_use_bn = extra_config["unet_use_bn"]
@@ -508,17 +531,10 @@ class MbagConvolutionalModel(MbagTorchModel):
                 in_channels = self._get_in_channels()
             else:
                 in_channels = self.hidden_channels
-            if layer_index == self.num_conv_1_layers + self.num_layers - 1 and (
-                self.num_unet_layers == 0 or not include_unet
-            ):
-                out_channels = self.action_type_space.n + self.hidden_channels
-            else:
-                out_channels = self.hidden_channels
 
             if (
                 self.use_resnet
                 and in_channels == self.hidden_channels
-                and out_channels == self.hidden_channels
                 and layer_index + 2 < num_layers
             ):
                 backbone_layers.append(ResidualBlock(channels=self.hidden_channels))
@@ -527,7 +543,7 @@ class MbagConvolutionalModel(MbagTorchModel):
                 backbone_layers.append(
                     nn.Conv3d(
                         in_channels=in_channels,
-                        out_channels=out_channels,
+                        out_channels=self.hidden_channels,
                         kernel_size=filter_size,
                         stride=1,
                         padding=(filter_size - 1) // 2,
@@ -539,7 +555,7 @@ class MbagConvolutionalModel(MbagTorchModel):
             self.unet = UNet3d(
                 self.world_obs_space.shape[1],
                 self.hidden_channels,
-                self.action_type_space.n + self.hidden_channels,
+                self.hidden_channels,
                 self.num_unet_layers,
                 grow_factor=self.unet_grow_factor,
                 use_bn=self.unet_use_bn,
@@ -549,20 +565,16 @@ class MbagConvolutionalModel(MbagTorchModel):
             backbone_layers = backbone_layers[:-1]  # Remove last ReLU.
         return nn.Sequential(*backbone_layers)
 
-    def _get_head_in_channels(self) -> int:
-        return int(self.action_type_space.n) + self.hidden_channels
-
 
 ModelCatalog.register_custom_model("mbag_convolutional_model", MbagConvolutionalModel)
 
 
 class MbagRecurrentConvolutionalModelConfig(MbagConvolutionalModelConfig):
-    num_value_layers: int
+    pass
 
 
 RECURRENT_CONV_DEFAULT_CONFIG: MbagRecurrentConvolutionalModelConfig = {
     **CONV_DEFAULT_CONFIG,  # type: ignore
-    "num_value_layers": 0,
 }
 
 
@@ -764,11 +776,13 @@ class MbagTransformerModelConfig(MbagModelConfig, total=False):
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
+    "env_config": DEFAULT_CONFIG["env_config"],
     "embedding_size": DEFAULT_CONFIG["embedding_size"],
     "use_extra_features": DEFAULT_CONFIG["use_extra_features"],
     "mask_goal": DEFAULT_CONFIG["mask_goal"],
     "hidden_size": DEFAULT_CONFIG["hidden_size"],
-    "num_block_id_layers": DEFAULT_CONFIG["num_block_id_layers"],
+    "num_action_layers": DEFAULT_CONFIG["num_action_layers"],
+    "num_value_layers": DEFAULT_CONFIG["num_value_layers"],
     "fake_state": DEFAULT_CONFIG["fake_state"],
     "position_embedding_size": 12,
     "num_layers": 3,
@@ -903,9 +917,6 @@ class MbagTransformerModel(MbagTorchModel):
             return embedded_obs
         else:
             return embedded_obs.flatten(start_dim=2).transpose(1, 2)
-
-    def _get_head_in_channels(self) -> int:
-        return self.hidden_size
 
 
 ModelCatalog.register_custom_model("mbag_transformer_model", MbagTransformerModel)

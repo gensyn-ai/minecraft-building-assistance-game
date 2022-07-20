@@ -5,9 +5,9 @@ from mbag.agents.action_distributions import MbagActionDistribution
 
 
 class ChoiceRewardWrapper(MbagMultiAgentEnv):
-    def __init__(self, **config):
+    def __init__(self, config):
         # self.choice_reward_weight = config.pop("choice_reward_weight")
-        self.mbag_env = MbagMultiAgentEnv(**config)
+        self.mbag_env = MbagMultiAgentEnv(config)
 
     def reset(self):
         return self.mbag_env.reset()
@@ -24,7 +24,7 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
     def calculate_choices(self, world_obs, inventory_obs, action) -> int:
         obs_batch = world_obs[None], inventory_obs[None]
         flat_mask = MbagActionDistribution.get_mask_flat(
-            self.mbag_env.wrapped_env.config, obs_batch
+            self.mbag_env.env.config, obs_batch
         )
         return int(flat_mask.astype(int).sum())
 

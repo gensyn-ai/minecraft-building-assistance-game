@@ -12,6 +12,8 @@ from ray.rllib.utils.typing import (
     MultiAgentPolicyConfigDict,
     TrainerConfigDict,
 )
+from ray.tune.registry import _global_registry, ENV_CREATOR
+from ray.rllib.env import MultiAgentEnv
 
 from mbag.environment.goals import ALL_GOAL_GENERATORS
 from mbag.environment.mbag_env import MbagConfigDict
@@ -20,8 +22,6 @@ from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
     MbagTransformerModelConfig,
 )
-from .rllib_env import MbagMultiAgentEnv
-from .choice_env import ChoiceRewardWrapper
 from .callbacks import MbagCallbacks
 from .training_utils import (
     build_logger_creator,
@@ -44,8 +44,14 @@ torch.autograd.set_detect_anomaly(True)
 def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
     def sacred_config(_log):  # noqa
+        run = "PPO"
+
         # Environment
-        environment_name = "MBAG-v1"
+        environment_name = (
+            "MBAGFlatActionsAlphaZero-v1"
+            if run == "AlphaZero"
+            else "MBAGFlatActions-v1"
+        )
         goal_generator = "random"
         goal_subset = "train"
         make_uniform = None
@@ -65,7 +71,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
-        choice_wrapper = False
 
         goal_generator_config = {"subset": goal_subset}
         if make_uniform is not None:
@@ -99,14 +104,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "inf_blocks": inf_blocks,
             },
         }
-        env = (
-            MbagMultiAgentEnv(**environment_params)
-            if not choice_wrapper
-            else ChoiceRewardWrapper(**environment_params)
+        env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, environment_name)(
+            environment_params
         )
 
         # Training
-        run = "PPO"
         num_workers = 2
         num_aggregation_workers = min(1, num_workers)
         input = "sampler"
@@ -145,22 +147,22 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         filter_size = 3
         hidden_channels = 16
         hidden_size = hidden_channels
-        num_block_id_layers = 2
+        num_action_layers = 2
+        num_value_layers = 2
         num_heads = 4
         use_separated_transformer = False
         use_resnet = False
         num_unet_layers = 0
         unet_grow_factor = 2
         unet_use_bn = False
-        num_value_layers = 0
         model_config = {
             "custom_model": f"mbag_{model}_model",
-            "custom_action_dist": "mbag_autoregressive",
             "max_seq_len": max_seq_len,
             "vf_share_layers": vf_share_layers,
         }
         if model in ["convolutional", "recurrent_convolutional"]:
             conv_config: MbagRecurrentConvolutionalModelConfig = {
+                "env_config": environment_params,
                 "embedding_size": embedding_size,
                 "use_extra_features": use_extra_features,
                 "mask_goal": mask_goal,
@@ -169,7 +171,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "use_resnet": use_resnet,
                 "filter_size": filter_size,
                 "hidden_channels": hidden_channels,
-                "num_block_id_layers": num_block_id_layers,
+                "num_action_layers": num_action_layers,
+                "num_value_layers": num_value_layers,
                 "num_unet_layers": num_unet_layers,
                 "unet_grow_factor": unet_grow_factor,
                 "unet_use_bn": unet_use_bn,
@@ -178,6 +181,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             model_config["custom_model_config"] = conv_config
         elif model == "transformer":
             transformer_config: MbagTransformerModelConfig = {
+                "env_config": environment_params,
                 "embedding_size": embedding_size,
                 "use_extra_features": use_extra_features,
                 "mask_goal": mask_goal,
@@ -185,7 +189,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "num_layers": num_layers,
                 "num_heads": num_heads,
                 "hidden_size": hidden_size,
-                "num_block_id_layers": num_block_id_layers,
+                "num_action_layers": num_action_layers,
+                "num_value_layers": num_value_layers,
                 "use_separated_transformer": use_separated_transformer,
             }
             model_config["custom_model_config"] = transformer_config

@@ -76,7 +76,8 @@ def test_mask():
         {"abilities": {"teleportation": True, "inf_blocks": True, "flying": True}}
     )
     world_obs, inventory_obs = env.reset()[0]
-    world_obs[CURRENT_BLOCKS, 1, 2, 1] = MinecraftBlocks.NAME2ID["planks"]
+    planks = MinecraftBlocks.NAME2ID["planks"]
+    world_obs[CURRENT_BLOCKS, 1, 2, 1] = planks
     obs_batch = world_obs[None], inventory_obs[None]
 
     mask = MbagActionDistribution.get_mask(env.config, obs_batch)
@@ -86,11 +87,21 @@ def test_mask():
     assert np.all(mask[0, MbagActionDistribution.GIVE_BLOCK] == False)
 
     # Can place a block next to other blocks.
-    assert mask[0, MbagAction.PLACE_BLOCK, 1, 2, 2] == True
+    assert mask[0, MbagActionDistribution.PLACE_BLOCK][planks, 1, 2, 2] == True
     # Can't place a block where there is one.
-    assert mask[0, MbagAction.PLACE_BLOCK, 1, 1, 1] == False
+    assert mask[0, MbagActionDistribution.PLACE_BLOCK][planks, 1, 1, 1] == False
     # Can't place a block floating in midair.
-    assert mask[0, MbagAction.PLACE_BLOCK, 1, 4, 1] == False
+    assert mask[0, MbagActionDistribution.PLACE_BLOCK][planks, 1, 4, 1] == False
+
+    # Can't place bedrock or air.
+    assert (
+        mask[0, MbagActionDistribution.PLACE_BLOCK][MinecraftBlocks.AIR, 1, 2, 2]
+        == False
+    )
+    assert (
+        mask[0, MbagActionDistribution.PLACE_BLOCK][MinecraftBlocks.BEDROCK, 1, 2, 2]
+        == False
+    )
 
     # Can't break bedrock or air.
     assert mask[0, MbagActionDistribution.BREAK_BLOCK, 1, 0, 1] == False
