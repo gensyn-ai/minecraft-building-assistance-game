@@ -11,8 +11,6 @@ from mbag.rllib.rllib_env import MbagMultiAgentEnv
 
 
 class MbagCallbacks(DefaultCallbacks):
-    prev_goal_similarity = None
-
     def on_episode_start(
         self,
         *,
@@ -50,37 +48,20 @@ class MbagCallbacks(DefaultCallbacks):
             action_type_name = MbagAction.ACTION_TYPE_NAMES[info_dict["action_type"]]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
-            # If the action_key hasn't been logged yet, set up an entry for each actiontype
-            if action_key not in episode.custom_metrics:
-                for _action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
-                    episode.custom_metrics[
-                        f"{policy_id}/num_{_action_type_name.lower()}"
-                    ] = 0
+            episode.custom_metrics[action_key] = (
+                episode.custom_metrics.get(action_key, 0) + 1
+            )
 
-            episode.custom_metrics[action_key] += 1
-
-            # Log whether the action was correct. We do this by checking whether the goal similarity metric
-            # changed as a result of the action
-            if self.prev_goal_similarity is not None:
-                # Explanation for this conditional statement:
-                # If we place a block and the goal similarity goes up, we have placed the correct block.
-                # If we break a block and the reward doesn't go down, then we haven't removed a block
-                # that was correct, so we removed an incorrect block, which means we did good by breaking the block.
-                if (
-                    info_dict["action_type"] == MbagAction.PLACE_BLOCK
-                    and info_dict["goal_similarity"] > self.prev_goal_similarity
-                ) or (
-                    info_dict["action_type"] == MbagAction.BREAK_BLOCK
-                    and info_dict["goal_similarity"] >= self.prev_goal_similarity
-                ):
-                    action_correct_key = (
-                        f"{policy_id}/num_correct_{action_type_name.lower()}"
-                    )
-                    if action_correct_key not in episode.custom_metrics:
-                        episode.custom_metrics[action_correct_key] = 0
-                    episode.custom_metrics[action_correct_key] += 1
-
-            self.prev_goal_similarity = info_dict["goal_similarity"]
+            if info_dict["action_type"] in [
+                MbagAction.PLACE_BLOCK,
+                MbagAction.BREAK_BLOCK,
+            ]:
+                action_correct_key = (
+                    f"{policy_id}/num_correct_{action_type_name.lower()}"
+                )
+                episode.custom_metrics[action_correct_key] = (
+                    episode.custom_metrics.get(action_correct_key, 0) + 1
+                )
 
     def on_episode_end(
         self,

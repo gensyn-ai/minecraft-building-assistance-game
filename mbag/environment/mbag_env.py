@@ -359,6 +359,8 @@ class MbagEnv(object):
         reward: float = 0
 
         noop: bool = True
+        # marks if an action 'correct' meaning it directly contributed to the goal
+        action_correct: bool = False
 
         if action.action_type == MbagAction.NOOP:
             pass
@@ -437,6 +439,9 @@ class MbagEnv(object):
                 new_block, goal_block, partial_credit=True, player_index=player_index
             )
             reward = new_goal_similarity - prev_goal_similarity
+            correct_action = (
+                action.action_type == MbagAction.PLACE_BLOCK and reward > 0
+            ) or (action.action_type == MbagAction.BREAK_BLOCK and reward >= 0)
         elif action.action_type in [
             MbagAction.MOVE_POS_X,
             MbagAction.MOVE_NEG_X,
@@ -495,6 +500,7 @@ class MbagEnv(object):
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "action_type": action.action_type if not noop else MbagAction.NOOP,
+            "action_correct": action_correct,
         }
 
         return reward, info
