@@ -500,7 +500,7 @@ class MbagEnv(object):
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "action_type": action.action_type if not noop else MbagAction.NOOP,
-            "action_correct": action_correct,
+            "action_correct": action_correct and not noop,
         }
 
         return reward, info
