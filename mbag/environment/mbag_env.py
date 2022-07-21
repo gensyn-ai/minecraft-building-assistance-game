@@ -439,7 +439,7 @@ class MbagEnv(object):
                 new_block, goal_block, partial_credit=True, player_index=player_index
             )
             reward = new_goal_similarity - prev_goal_similarity
-            correct_action = (
+            action_correct = (
                 action.action_type == MbagAction.PLACE_BLOCK and reward > 0
             ) or (action.action_type == MbagAction.BREAK_BLOCK and reward >= 0)
         elif action.action_type in [

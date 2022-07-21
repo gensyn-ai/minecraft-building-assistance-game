@@ -52,10 +52,7 @@ class MbagCallbacks(DefaultCallbacks):
                 episode.custom_metrics.get(action_key, 0) + 1
             )
 
-            if info_dict["action_type"] in [
-                MbagAction.PLACE_BLOCK,
-                MbagAction.BREAK_BLOCK,
-            ]:
+            if info_dict["action_correct"]:
                 action_correct_key = (
                     f"{policy_id}/num_correct_{action_type_name.lower()}"
                 )
