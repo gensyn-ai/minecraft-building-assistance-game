@@ -1,3 +1,5 @@
+from functools import reduce
+from operator import mul
 from typing import Dict, List, Tuple, cast
 import warnings
 import torch
@@ -81,7 +83,7 @@ class MbagTorchModel(MbagModel, nn.Module):
             self, obs_space, action_space, num_outputs, model_config, name
         )
         nn.Module.__init__(self)
-
+        
         obs_space = obs_space.original_space
         assert isinstance(obs_space, spaces.Tuple)
         self.world_obs_space: spaces.Box = obs_space[0]
@@ -122,11 +124,9 @@ class MbagTorchModel(MbagModel, nn.Module):
 
         self.block_id_head = self._construct_block_id_head()
 
-        self.value_head = nn.Sequential(
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
-            nn.Flatten(),
-            nn.Linear(self._get_head_in_channels(), 1, bias=True),
-        )
+        self.value_head = self._construct_value_head()
+
+        self.goal_head = self._construct_goal_head()
 
     def _get_in_planes(self) -> int:
         """
@@ -198,6 +198,19 @@ class MbagTorchModel(MbagModel, nn.Module):
             nn.Linear(self._get_head_in_channels(), 1, bias=True),
         )
 
+    def _construct_goal_head(self) -> nn.Module:
+        """
+        Construct the head which takes in the output of the value backbone and
+        outputs a goal estimate.
+        """
+        num_blocks = len(MinecraftBlocks.ID2NAME)
+        
+        return nn.Sequential(
+            nn.Conv3d(self._get_head_in_channels(), self.hidden_size, 1),
+            nn.LeakyReLU(),
+            nn.Conv3d(self.hidden_size, num_blocks, 1),
+        )
+
     def _get_embedded_obs(self, world_obs: MbagWorldObsArray):
         """
         Transform a raw observation into the input for the network backbone.
@@ -233,9 +246,9 @@ class MbagTorchModel(MbagModel, nn.Module):
             self._backbone_out_shape = self._backbone_out.size()[1:]
             self._logits = self._backbone_out.flatten(start_dim=1)
         else:
-            backbone_out = self.action_backbone(self._embedded_obs)
-            self._backbone_out_shape = backbone_out.size()[1:]
-            self._logits = backbone_out.flatten(start_dim=1)
+            self._backbone_out = self.action_backbone(self._embedded_obs)
+            self._backbone_out_shape = self._backbone_out.size()[1:]
+            self._logits = self._backbone_out.flatten(start_dim=1)
         assert self._backbone_out_shape[0] == self._get_head_in_channels()
 
         return self._logits, state
@@ -252,6 +265,9 @@ class MbagTorchModel(MbagModel, nn.Module):
             return self.value_head(self._backbone_out).squeeze(1)
         else:
             return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+    
+    def goal_function(self):
+        return self.goal_head(self._backbone_out)
 
     def get_initial_state(self):
         if self.fake_state:
@@ -646,6 +662,9 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
             return self.value_head(self.rnn.get_outputs()).squeeze(1)
         else:
             return self.conv_model.value_function()
+    
+    def goal_function(self):
+        return self.goal_head(self.rnn.get_outputs()).squeeze(1)
 
     def forward(
         self,
