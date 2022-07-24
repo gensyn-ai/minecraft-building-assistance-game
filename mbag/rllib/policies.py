@@ -99,6 +99,8 @@ class MbagAgentPolicy(Policy):
 
 def add_supervised_loss_to_policy(
     policy_class: Type[TorchPolicy],
+    goal_loss_coeff: float,
+    place_block_loss_coeff: float,
     sum_loss: bool = False,
 ) -> Type[TorchPolicy]:
     """
@@ -139,7 +141,6 @@ def add_supervised_loss_to_policy(
             
             goal = world_obs[:, GOAL_BLOCKS].long()         
             ce = nn.CrossEntropyLoss()
-            goal_loss_coeff = .5
             loss = goal_loss_coeff * ce(log_odds, goal)
             
             model.tower_stats["predict_goal_loss"] = loss
@@ -191,7 +192,6 @@ def add_supervised_loss_to_policy(
                 dim=1,
             )
             if torch.any(place_block_mask):
-                place_block_loss_coeff = 1
                 place_block_loss = place_block_loss_coeff * place_block_loss[place_block_mask]
                 if sum_loss:
                     place_block_loss = place_block_loss.sum()
@@ -224,14 +224,16 @@ def add_supervised_loss_to_policy(
     MbagPolicy.__name__ = "Mbag" + policy_class.__name__
     return MbagPolicy
 
+def get_mbag_policies(goal_loss_coeff, place_block_loss_coeff):
+    MbagPPOTorchPolicy = add_supervised_loss_to_policy(PPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff)
+    MbagAPPOTorchPolicy = add_supervised_loss_to_policy(AsyncPPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff)
+    MbagVTraceTorchPolicy = add_supervised_loss_to_policy(VTraceTorchPolicy, goal_loss_coeff, place_block_loss_coeff, sum_loss=True)
 
-MbagPPOTorchPolicy = add_supervised_loss_to_policy(PPOTorchPolicy)
-MbagAPPOTorchPolicy = add_supervised_loss_to_policy(AsyncPPOTorchPolicy)
-MbagVTraceTorchPolicy = add_supervised_loss_to_policy(VTraceTorchPolicy, sum_loss=True)
 
-
-MBAG_POLICIES = {
-    "PPO": MbagPPOTorchPolicy,
-    "APPO": MbagAPPOTorchPolicy,
-    "IMPALA": MbagVTraceTorchPolicy,
-}
+    mbag_policies = {
+        "PPO": MbagPPOTorchPolicy,
+        "APPO": MbagAPPOTorchPolicy,
+        "IMPALA": MbagVTraceTorchPolicy,
+    }
+    
+    return mbag_policies
