@@ -1,4 +1,3 @@
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.torch_policy import TorchPolicy
 from typing import Dict, List, Tuple, Type, cast
 import gym
@@ -19,6 +18,8 @@ from mbag.environment.types import MbagAction, MbagActionTuple, MbagObs
 from mbag.agents.mbag_agent import MbagAgent
 from .torch_action_distributions import MbagAutoregressiveActionDistribution
 from mbag.environment.types import GOAL_BLOCKS
+from mbag.rllib.torch_models import MbagTorchModel
+
 
 class MbagAgentPolicy(Policy):
     """
@@ -110,46 +111,45 @@ def add_supervised_loss_to_policy(
     class MbagPolicy(policy_class):  # type: ignore
         def loss(
             self,
-            model: TorchModelV2,
+            model: MbagTorchModel,
             dist_class: Type[MbagAutoregressiveActionDistribution],
             train_batch: SampleBatch,
         ) -> TensorType:
             loss = super().loss(model, dist_class, train_batch)
             assert not isinstance(loss, list)
-            
-            
+
             loss += self.place_block_loss(model, dist_class, train_batch)
             loss += self.predict_goal_loss(model, train_batch)
-            
+
             return loss
-        
+
         def predict_goal_loss(
             self,
-            model: TorchModelV2,
+            model: MbagTorchModel,
             train_batch: SampleBatch,
         ) -> TensorType:
             if not hasattr(model, "_backbone_out"):
                 model(train_batch)
             log_odds = model.goal_function()
-            
+
             # get goal from world observation
             (world_obs,) = restore_original_dimensions(
                 train_batch[SampleBatch.OBS],
                 obs_space=self.observation_space,
                 tensorlib=torch,
             )
-            
-            goal = world_obs[:, GOAL_BLOCKS].long()         
+
+            goal = world_obs[:, GOAL_BLOCKS].long()
             ce = nn.CrossEntropyLoss()
             loss = goal_loss_coeff * ce(log_odds, goal)
-            
+
             model.tower_stats["predict_goal_loss"] = loss
-            
+
             return loss
-        
+
         def place_block_loss(
             self,
-            model: TorchModelV2,
+            model: MbagTorchModel,
             dist_class: Type[MbagAutoregressiveActionDistribution],
             train_batch: SampleBatch,
         ) -> TensorType:
@@ -157,7 +157,6 @@ def add_supervised_loss_to_policy(
             Add loss to minimize the cross-entropy between the block ID for a "place block" action
             and the goal block at that location, if there is any goal block there.
             """
-
 
             (world_obs,) = restore_original_dimensions(
                 train_batch[SampleBatch.OBS],
@@ -175,10 +174,10 @@ def add_supervised_loss_to_policy(
             ]
             if hasattr(model, "logits"):
                 # Don't recompute logits if we don't have to.
-                logits = model.logits  # type: ignore
+                logits = model.logits
             else:
                 logits, state = model(train_batch)
-            action_dist = dist_class(logits, model)
+            action_dist = dist_class(logits, model)  # type: ignore
             place_block_loss = -action_dist._block_id_distribution(
                 actions[:, 0],
                 actions[:, 1],
@@ -192,7 +191,9 @@ def add_supervised_loss_to_policy(
                 dim=1,
             )
             if torch.any(place_block_mask):
-                place_block_loss = place_block_loss_coeff * place_block_loss[place_block_mask]
+                place_block_loss = (
+                    place_block_loss_coeff * place_block_loss[place_block_mask]
+                )
                 if sum_loss:
                     place_block_loss = place_block_loss.sum()
                 else:
@@ -209,13 +210,13 @@ def add_supervised_loss_to_policy(
                 )
             except AssertionError:
                 info[loss_name] = torch.nan
-        
+
         def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
             info = super().extra_grad_info(train_batch)
-            
+
             self.log_mean_loss(info, "place_block_loss")
             self.log_mean_loss(info, "predict_goal_loss")
-            
+
             return cast(
                 Dict[str, TensorType],
                 convert_to_numpy(info),
@@ -224,16 +225,22 @@ def add_supervised_loss_to_policy(
     MbagPolicy.__name__ = "Mbag" + policy_class.__name__
     return MbagPolicy
 
-def get_mbag_policies(goal_loss_coeff, place_block_loss_coeff):
-    MbagPPOTorchPolicy = add_supervised_loss_to_policy(PPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff)
-    MbagAPPOTorchPolicy = add_supervised_loss_to_policy(AsyncPPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff)
-    MbagVTraceTorchPolicy = add_supervised_loss_to_policy(VTraceTorchPolicy, goal_loss_coeff, place_block_loss_coeff, sum_loss=True)
 
+def get_mbag_policies(goal_loss_coeff, place_block_loss_coeff):
+    MbagPPOTorchPolicy = add_supervised_loss_to_policy(
+        PPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff
+    )
+    MbagAPPOTorchPolicy = add_supervised_loss_to_policy(
+        AsyncPPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff
+    )
+    MbagVTraceTorchPolicy = add_supervised_loss_to_policy(
+        VTraceTorchPolicy, goal_loss_coeff, place_block_loss_coeff, sum_loss=True
+    )
 
     mbag_policies = {
         "PPO": MbagPPOTorchPolicy,
         "APPO": MbagAPPOTorchPolicy,
         "IMPALA": MbagVTraceTorchPolicy,
     }
-    
+
     return mbag_policies

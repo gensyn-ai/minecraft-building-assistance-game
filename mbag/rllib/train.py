@@ -27,7 +27,7 @@ from .training_utils import (
     load_policies_from_checkpoint,
     load_trainer_config,
 )
-from .policies import get_mbag_policies, MbagAgentPolicy
+from mbag.rllib.policies import get_mbag_policies, MbagAgentPolicy
 from .distillation_prediction import DEFAULT_CONFIG as DISTILLATION_DEFAULT_CONFIG
 
 from sacred import Experiment
@@ -119,8 +119,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         clip_param = 0.05
         num_sgd_iter = 6
         compress_observations = True
-        goal_loss_coeff, place_block_loss_coeff = .5, 1
-        
+        goal_loss_coeff, place_block_loss_coeff = 0.5, 1
+
         mbag_policies = get_mbag_policies(goal_loss_coeff, place_block_loss_coeff)
 
         # Model

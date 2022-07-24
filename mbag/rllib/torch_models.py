@@ -1,5 +1,3 @@
-from functools import reduce
-from operator import mul
 from typing import Dict, List, Tuple, cast
 import warnings
 import torch
@@ -83,7 +81,7 @@ class MbagTorchModel(MbagModel, nn.Module):
             self, obs_space, action_space, num_outputs, model_config, name
         )
         nn.Module.__init__(self)
-        
+
         obs_space = obs_space.original_space
         assert isinstance(obs_space, spaces.Tuple)
         self.world_obs_space: spaces.Box = obs_space[0]
@@ -204,7 +202,7 @@ class MbagTorchModel(MbagModel, nn.Module):
         outputs a goal estimate.
         """
         num_blocks = len(MinecraftBlocks.ID2NAME)
-        
+
         return nn.Sequential(
             nn.Conv3d(self._get_head_in_channels(), self.hidden_size, 1),
             nn.LeakyReLU(),
@@ -265,7 +263,7 @@ class MbagTorchModel(MbagModel, nn.Module):
             return self.value_head(self._backbone_out).squeeze(1)
         else:
             return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
-    
+
     def goal_function(self):
         return self.goal_head(self._backbone_out)
 
@@ -662,9 +660,6 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
             return self.value_head(self.rnn.get_outputs()).squeeze(1)
         else:
             return self.conv_model.value_function()
-    
-    def goal_function(self):
-        return self.goal_head(self.rnn.get_outputs()).squeeze(1)
 
     def forward(
         self,
