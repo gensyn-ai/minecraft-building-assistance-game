@@ -227,20 +227,20 @@ def add_supervised_loss_to_policy(
 
 
 def get_mbag_policies(goal_loss_coeff, place_block_loss_coeff):
-    MbagPPOTorchPolicy = add_supervised_loss_to_policy(
+    mbag_ppo_torch_policy = add_supervised_loss_to_policy(
         PPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff
     )
-    MbagAPPOTorchPolicy = add_supervised_loss_to_policy(
+    mbag_appo_torch_policy = add_supervised_loss_to_policy(
         AsyncPPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff
     )
-    MbagVTraceTorchPolicy = add_supervised_loss_to_policy(
+    mbag_vtrace_troch_policy = add_supervised_loss_to_policy(
         VTraceTorchPolicy, goal_loss_coeff, place_block_loss_coeff, sum_loss=True
     )
 
     mbag_policies = {
-        "PPO": MbagPPOTorchPolicy,
-        "APPO": MbagAPPOTorchPolicy,
-        "IMPALA": MbagVTraceTorchPolicy,
+        "PPO": mbag_ppo_torch_policy,
+        "APPO": mbag_appo_torch_policy,
+        "IMPALA": mbag_vtrace_troch_policy,
     }
 
     return mbag_policies
