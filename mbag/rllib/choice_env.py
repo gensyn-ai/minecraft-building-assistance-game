@@ -14,15 +14,19 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
 
     def step(self, action_dict):
         obs_dict, reward_dict, done_dict, info_dict = self.mbag_env.step(action_dict)
-        world_obs, inventory_obs = obs_dict[self.mbag_env._agent_id(0)]
+        (
+            world_obs,
+            inventory_obs,
+            timestep,
+        ) = obs_dict[self.mbag_env._agent_id(0)]
         reward_dict[self.mbag_env._agent_id(1)] = self.calculate_choices(
-            world_obs, inventory_obs, action_dict[self.mbag_env._agent_id(0)]
+            world_obs, inventory_obs, timestep, action_dict[self.mbag_env._agent_id(0)]
         )
 
         return obs_dict, reward_dict, done_dict, info_dict
 
-    def calculate_choices(self, world_obs, inventory_obs, action) -> int:
-        obs_batch = world_obs[None], inventory_obs[None]
+    def calculate_choices(self, world_obs, inventory_obs, timestep, action) -> int:
+        obs_batch = world_obs[None], inventory_obs[None], timestep[None]
         flat_mask = MbagActionDistribution.get_mask_flat(
             self.mbag_env.env.config, obs_batch
         )

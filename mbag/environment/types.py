@@ -1,6 +1,7 @@
 from typing import List, Tuple, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
+from numpy.typing import NDArray
 
 
 WorldSize = Tuple[int, int, int]
@@ -37,7 +38,7 @@ PLAYER_LOCATIONS = 4
 LAST_INTERACTED = 5
 num_world_obs_channels = 6
 
-MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs]
+MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs, NDArray[np.int32]]
 
 MbagInventory = np.ndarray
 """
@@ -72,6 +73,18 @@ class MbagAction(object):
     GIVE_BLOCK: MbagActionType = 9
 
     NUM_ACTION_TYPES = 10
+    ACTION_TYPES: List[MbagActionType] = [
+        NOOP,
+        PLACE_BLOCK,
+        BREAK_BLOCK,
+        MOVE_POS_X,
+        MOVE_NEG_X,
+        MOVE_POS_Y,
+        MOVE_NEG_Y,
+        MOVE_POS_Z,
+        MOVE_NEG_Z,
+        GIVE_BLOCK,
+    ]
     ACTION_TYPE_NAMES = {
         NOOP: "NOOP",
         PLACE_BLOCK: "PLACE_BLOCK",

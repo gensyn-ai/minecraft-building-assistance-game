@@ -11,6 +11,11 @@ from gym import spaces
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.contrib.alpha_zero.models.custom_torch_models import (
+    ActorCriticModel,
+)
+from ray.rllib.utils.torch_utils import convert_to_torch_tensor
+from ray.rllib.models.modelv2 import restore_original_dimensions
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
@@ -23,8 +28,6 @@ from mbag.environment.types import (
     GOAL_BLOCKS,
     PLAYER_LOCATIONS,
     LAST_INTERACTED,
-    MbagInventoryObs,
-    MbagWorldObsArray,
 )
 
 
@@ -72,7 +75,7 @@ DEFAULT_CONFIG: MbagModelConfig = {
 }
 
 
-class MbagTorchModel(MbagModel, nn.Module):
+class MbagTorchModel(ActorCriticModel):
     """
     This base class implements common functionality for PyTorch MBAG models such
     as block type embedding, separate policy and value networks and the value head.
@@ -91,12 +94,13 @@ class MbagTorchModel(MbagModel, nn.Module):
         name,
         **kwargs,
     ):
-        TorchModelV2.__init__(
+        ActorCriticModel.__init__(
             self, obs_space, action_space, num_outputs, model_config, name
         )
-        nn.Module.__init__(self)
 
         obs_space = obs_space.original_space
+        if isinstance(obs_space, spaces.Dict):
+            obs_space = obs_space.spaces["obs"]
         assert isinstance(obs_space, spaces.Tuple)
         self.world_obs_space: spaces.Box = obs_space[0]
         self.world_size = self.world_obs_space.shape[-3:]
@@ -147,6 +151,8 @@ class MbagTorchModel(MbagModel, nn.Module):
         in_channels = self._get_in_planes() * self.embedding_size
         # Add inventory observation as extra input channels.
         in_channels += MinecraftBlocks.NUM_BLOCKS
+        # Timestep observation
+        in_channels += 1
         if self.use_extra_features:
             in_channels += 1
         return in_channels
@@ -191,6 +197,17 @@ class MbagTorchModel(MbagModel, nn.Module):
             )
             if layer_index < self.num_action_layers - 1:
                 action_head_layers.append(nn.LeakyReLU())
+
+        # Tamp down probabilities of actions which don't require a block location,
+        # since otherwise these dominate the action distribution at the start of
+        # training.
+        logit_layer = cast(nn.Conv3d, action_head_layers[-1])
+        assert logit_layer.bias is not None
+        # for action_type in MbagAction.ACTION_TYPES:
+        #     if action_type in MbagAction.BLOCK_ID_ACTION_TYPES:
+        #         channel = MbagActionDistribution.ACTION_TYPE2CHANNEL[action_type]
+        #         logit_layer.bias.data[channel] -= np.log(MinecraftBlocks.NUM_BLOCKS)
+
         return nn.Sequential(*action_head_layers)
 
     def _construct_value_head(self) -> nn.Module:
@@ -217,7 +234,10 @@ class MbagTorchModel(MbagModel, nn.Module):
         return nn.Sequential(*value_head_layers)
 
     def _get_embedded_obs(
-        self, world_obs: MbagWorldObsArray, inventory_obs: MbagInventoryObs
+        self,
+        world_obs: torch.Tensor,
+        inventory_obs: torch.Tensor,
+        timestep: torch.Tensor,
     ):
         """
         Transform a raw observation into the input for the network backbone.
@@ -233,8 +253,13 @@ class MbagTorchModel(MbagModel, nn.Module):
         )
         embedded_obs_pieces.append(embedded_player_locations)
         embedded_obs_pieces.append(
-            self._inventory_obs[:, None, None, None, :].expand(
+            inventory_obs[:, None, None, None, :].expand(
                 *embedded_obs_pieces[0].size()[:-1], -1
+            )
+        )
+        embedded_obs_pieces.append(
+            timestep[:, None, None, None, None].expand(
+                *embedded_obs_pieces[0].size()[:-1], 1
             )
         )
         if self.use_extra_features:
@@ -249,12 +274,21 @@ class MbagTorchModel(MbagModel, nn.Module):
 
         return embedded_obs.permute(0, 4, 1, 2, 3)
 
-    def forward(self, input_dict, state, seq_lens):
-        self._world_obs, self._inventory_obs = input_dict["obs"]
+    def forward(self, input_dict, state, seq_lens, mask_logits=True):
+        # Seems like AlphaZero trainer likes to give just observations instead of
+        # an input dict.
+        try:
+            obs = input_dict["obs"]
+        except TypeError:
+            obs = input_dict
+
+        self._world_obs, self._inventory_obs, self._timestep = obs
         self._world_obs = self._world_obs.long()
         self._inventory_obs = self._inventory_obs.long()
         self._embedded_obs = self._get_embedded_obs(
-            self._world_obs, self._inventory_obs
+            self._world_obs,
+            self._inventory_obs,
+            self._timestep,
         )
 
         if self.vf_share_layers:
@@ -268,11 +302,13 @@ class MbagTorchModel(MbagModel, nn.Module):
         self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
             self.env_config, self._logits
         )
-        numpy_mask = MbagActionDistribution.get_mask_flat(
-            self.env_config, convert_to_numpy(input_dict["obs"])
-        )
-        mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
-        self._flat_logits[~mask] = MbagTorchModel.MASK_LOGIT
+
+        if mask_logits:
+            numpy_mask = MbagActionDistribution.get_mask_flat(
+                self.env_config, convert_to_numpy(obs)
+            )
+            mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
+            self._flat_logits[~mask] = MbagTorchModel.MASK_LOGIT
 
         return self._flat_logits, state
 
@@ -294,6 +330,24 @@ class MbagTorchModel(MbagModel, nn.Module):
             return [np.zeros(1)]
         else:
             return super().get_initial_state()
+
+    def compute_priors_and_value(self, input_dict):
+        obs = convert_to_torch_tensor(
+            self.preprocessor.transform(input_dict["obs"])[None]
+        )
+        input_dict = restore_original_dimensions(obs, self.obs_space, "torch")
+
+        with torch.no_grad():
+            model_out = self.forward(input_dict, None, [1], mask_logits=False)
+            logits, _ = model_out
+            value = self.value_function()
+            logits, value = torch.squeeze(logits), torch.squeeze(value)
+            priors = nn.Softmax(dim=-1)(logits)
+
+            priors = priors.cpu().numpy()
+            value = value.cpu().numpy()
+
+            return priors, value
 
 
 class ResidualBlock(nn.Module):
@@ -429,7 +483,6 @@ class UNet3d(nn.Module):
     def forward(self, inputs: torch.Tensor, *extra_fc_inputs):
         activations = [inputs]
         for down_layer in self.down_layers:
-            print(activations[-1].size())
             activations.append(down_layer(activations[-1]))
 
         fc_layer_inputs = activations[-1].flatten(start_dim=1)
@@ -899,9 +952,12 @@ class MbagTransformerModel(MbagTorchModel):
             )
 
     def _get_embedded_obs(
-        self, world_obs: MbagWorldObsArray, inventory_obs: MbagInventoryObs
+        self,
+        world_obs: torch.Tensor,
+        inventory_obs: torch.Tensor,
+        timestep: torch.Tensor,
     ):
-        embedded_obs = super()._get_embedded_obs(world_obs, inventory_obs)
+        embedded_obs = super()._get_embedded_obs(world_obs, inventory_obs, timestep)
         batch_size = embedded_obs.size()[0]
         embedded_obs = self._pad_to_hidden_size(
             torch.cat(

@@ -1,6 +1,3 @@
-from ray.rllib.policy.policy import PolicySpec
-from ray.tune.registry import get_trainable_cls
-from ray.rllib.evaluation import Episode, RolloutWorker
 from typing import Callable, Dict, List, Optional
 from typing_extensions import Literal
 from logging import Logger
@@ -14,6 +11,9 @@ from ray.rllib.utils.typing import (
 )
 from ray.tune.registry import _global_registry, ENV_CREATOR
 from ray.rllib.env import MultiAgentEnv
+from ray.rllib.policy.policy import PolicySpec
+from ray.tune.registry import get_trainable_cls
+from ray.rllib.evaluation import Episode, RolloutWorker
 
 from mbag.environment.goals import ALL_GOAL_GENERATORS
 from mbag.environment.mbag_env import MbagConfigDict
@@ -47,11 +47,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         run = "PPO"
 
         # Environment
-        environment_name = (
-            "MBAGFlatActionsAlphaZero-v1"
-            if run == "AlphaZero"
-            else "MBAGFlatActions-v1"
-        )
+        environment_name = "MBAGFlatActions-v1"
         goal_generator = "random"
         goal_subset = "train"
         make_uniform = None
@@ -124,7 +120,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         gae_lambda = 0.98
         vf_share_layers = False
         vf_loss_coeff = 1e-4
-        entropy_coeff_start = 0.01
+        entropy_coeff_start = 0 if "AlphaZero" in run else 0.01
         entropy_coeff_end = 0
         entropy_coeff_horizon = 1e5
         kl_coeff = 0.2
@@ -132,6 +128,17 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         clip_param = 0.05
         num_sgd_iter = 6
         compress_observations = True
+        use_replay_buffer = True
+        replay_buffer_size = 10
+        use_critic = True
+
+        # MCTS
+        puct_coefficient = 1.0
+        num_simulations = 30
+        temperature = 1.5
+        dirichlet_epsilon = 0.25
+        argmax_tree_policy = False
+        add_dirichlet_noise = True
 
         # Model
         model: Literal[
@@ -297,9 +304,15 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "input_evaluation": [],
             "actions_in_input_normalized": input != "sampler",
             "lr": lr,
+            "gamma": gamma,
             "train_batch_size": train_batch_size,
             "sgd_minibatch_size": sgd_minibatch_size,
             "num_sgd_iter": num_sgd_iter,
+            "vf_loss_coeff": vf_loss_coeff,
+            "entropy_coeff_schedule": [
+                (0, entropy_coeff_start),
+                (entropy_coeff_horizon, entropy_coeff_end),
+            ],
             "compress_observations": compress_observations,
             "rollout_fragment_length": rollout_fragment_length,
             "seed": seed,
@@ -308,24 +321,43 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         if "PPO" in run or run == "distillation_prediction":
             config.update(
                 {
-                    "vf_loss_coeff": vf_loss_coeff,
                     "grad_clip": grad_clip,
-                    "entropy_coeff_schedule": [
-                        (0, entropy_coeff_start),
-                        (entropy_coeff_horizon, entropy_coeff_end),
-                    ],
                 }
             )
         if "PPO" in run:
             config.update(
                 {
-                    "gamma": gamma,
                     "lambda": gae_lambda,
                     "kl_coeff": kl_coeff,
                     "kl_target": kl_target,
                     "clip_param": clip_param,
                 }
             )
+        if "AlphaZero" in run:
+            config.update(
+                {
+                    "ranked_rewards": {"enable": False},
+                    "mcts_config": {
+                        "puct_coefficient": puct_coefficient,
+                        "num_simulations": num_simulations,
+                        "temperature": temperature,
+                        "dirichlet_epsilon": dirichlet_epsilon,
+                        "argmax_tree_policy": argmax_tree_policy,
+                        "add_dirichlet_noise": add_dirichlet_noise,
+                    },
+                    "simple_optimizer": not use_replay_buffer,
+                    "buffer_size": replay_buffer_size,
+                    "use_critic": use_critic,
+                    # "replay_buffer_config": {
+                    #     "type": "ReplayBuffer",
+                    #     "capacity": 10000,
+                    #     "storage_unit": "timesteps",
+                    # },
+                }
+            )
+            for policy_id in config["multiagent"]["policies_to_train"]:
+                policy_config = config["multiagent"]["policies"][policy_id][3]
+                policy_config["env"] = "MBAGAlphaZeroModel-v1"
         if run in ["IMPALA", "APPO"]:
             config.update(
                 {

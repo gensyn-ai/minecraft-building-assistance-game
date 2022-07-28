@@ -1,9 +1,9 @@
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 
+import numpy as np
 import cc3d
 from numpy.typing import NDArray
-import numpy as np
-import random
+from random import Random
 
 from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize
 
@@ -329,6 +329,9 @@ class MinecraftBlocks(object):
                 self.block_states[block_location] = 0
             # TODO: add block to inventory?
 
+        # Make choice of viewpoint/click location deterministic by seeding with the
+        # current blocks.
+        random = Random(hash(self.blocks.data.tobytes()))
         viewpoint, click_location = random.choice(
             cast(Sequence[Tuple[np.ndarray, np.ndarray]], viewpoint_click_candidates)
         )
@@ -463,8 +466,6 @@ class MinecraftBlocks(object):
     def from_malmo_grid(
         cls, size: WorldSize, block_names: List[str]
     ) -> "MinecraftBlocks":
-        # import logging; logger = logging.getLogger(__name__)
-        # logger.info(block_names[:800])
         block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
         blocks = MinecraftBlocks(size)
         np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids

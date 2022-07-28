@@ -1,11 +1,11 @@
-from typing import TYPE_CHECKING, Dict, List, Sequence, Set, Tuple, Union, cast
+from typing import TYPE_CHECKING, Dict, List, Set, Tuple, Union
 import numpy as np
 from scipy import ndimage
 
 if TYPE_CHECKING:
     import torch
 
-from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.mbag_env import CURRENT_PLAYER, MbagConfigDict
 from mbag.environment.types import (
     MbagAction,
     MbagActionType,
@@ -204,7 +204,7 @@ class MbagActionDistribution(object):
         where valid actions are True and invalid actions are False.
         """
 
-        world_obs, inventory_obs = obs
+        world_obs, inventory_obs, timestep = obs
         batch_size, _, width, height, depth = world_obs.shape
 
         mask = np.ones(
@@ -237,10 +237,17 @@ class MbagActionDistribution(object):
             world_obs[:, CURRENT_BLOCKS, :, :, :, None]
             == MbagActionDistribution.SOLID_BLOCK_IDS
         ).any(-1)
+        next_to_solid_filter = np.array(
+            [
+                [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+                [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+                [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+            ]
+        )
         next_to_solid = (
             ndimage.convolve(
                 solid_blocks,
-                np.ones((1, 3, 3, 3)),
+                next_to_solid_filter[None],
                 mode="constant",
             )
             > 0
@@ -259,32 +266,36 @@ class MbagActionDistribution(object):
 
         if not config["abilities"]["teleportation"]:
             # If we can't teleport, then we can only place or break blocks up to 3 blocks away
-            player_locations = (world_obs[:, PLAYER_LOCATIONS, :, :, :, None] > 0).any(
-                -1
+            player_location = world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER
+            batch_indices, player_x, player_y, player_z = np.nonzero(player_location)
+            _, head_filter = np.unique(batch_indices, return_index=True)
+            head_filter[:-1] = head_filter[1:] - 1
+            head_filter[-1] = batch_indices.shape[0] - 1
+            head_x = player_x[head_filter]
+            head_y = player_y[head_filter]
+            head_z = player_z[head_filter]
+
+            world_x, world_y, world_z = np.meshgrid(
+                np.arange(width), np.arange(height), np.arange(depth), indexing="ij"
             )
             reachable_3 = (
-                ndimage.convolve(
-                    player_locations,
-                    np.ones((1, 7, 7, 7)),
-                    mode="constant",
-                )
-                > 0
+                (world_x[None] - head_x[:, None, None, None] <= 3)
+                & (world_y[None] - head_y[:, None, None, None] <= 3)
+                & (world_z[None] - head_z[:, None, None, None] <= 3)
             )
+
             mask[:, MbagActionDistribution.BREAK_BLOCK] &= reachable_3
-            mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable_3
+            mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable_3[:, None]
 
             # If we can't teleport, then we can only give blocks to from one block away from players
             conv_mask = np.ones((1, 3, 4, 3))
             conv_mask[0, 1, 1:2, 1] = 0
             reachable_1 = (
-                ndimage.convolve(
-                    player_locations,
-                    conv_mask,
-                    mode="constant",
-                )
-                > 0
+                (world_x[None] - head_x[:, None, None, None] <= 1)
+                & (world_y[None] - head_y[:, None, None, None] <= 1)
+                & (world_z[None] - head_z[:, None, None, None] <= 1)
             )
-            mask[:, MbagActionDistribution.GIVE_BLOCK] &= reachable_1
+            mask[:, MbagActionDistribution.GIVE_BLOCK] &= reachable_1[:, None]
 
         if not config["abilities"]["inf_blocks"]:
             # If we don't have infinite blocks, we can only place or give blocks we
@@ -307,7 +318,7 @@ class MbagActionDistribution(object):
         return MbagActionDistribution.to_flat(config, mask, reduction=np.all)
 
 
-for action_type in cast(Sequence[MbagActionType], range(MbagAction.NUM_ACTION_TYPES)):
+for action_type in MbagAction.ACTION_TYPES:
     if action_type in MbagAction.BLOCK_ID_ACTION_TYPES:
         for block_id, _ in enumerate(MinecraftBlocks.ID2NAME):
             MbagActionDistribution.CHANNELS.append((action_type, block_id))

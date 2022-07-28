@@ -2,8 +2,7 @@
 RLLib-compatible MBAG environment.
 """
 
-from typing import cast, Tuple
-import numpy as np
+from typing import Union, cast, Tuple
 from gym import spaces
 
 from ray.rllib.env import MultiAgentEnv
@@ -11,19 +10,31 @@ from ray.rllib.utils.typing import MultiAgentDict
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv, MbagStateDict
 
 
-class MbagRllibEnv(MultiAgentEnv):
+class MbagRllibWrapper(MultiAgentEnv):
     action_space: spaces.Space
+    env: Union["MbagRllibWrapper", MbagEnv]
 
     def action_space_sample(self, agent_ids: list = None) -> MultiAgentDict:
         if agent_ids is None:
             agent_ids = list(self._agent_ids)
         return {agent_id: self.action_space.sample() for agent_id in agent_ids}
 
+    def get_state(self) -> MbagStateDict:
+        return self.env.get_state()
 
-class MbagMultiAgentEnv(MbagRllibEnv):
+    def set_state_no_obs(self, state: MbagStateDict) -> None:
+        self.env.set_state_no_obs(state)
+
+    def set_state(self, state: MbagStateDict) -> MultiAgentDict:
+        return cast(MbagRllibWrapper, self.env).set_state(state)
+
+
+class MbagMultiAgentEnv(MbagRllibWrapper):
+    env: MbagEnv
+
     def __init__(self, config):
         super().__init__()
 
@@ -72,42 +83,33 @@ class MbagMultiAgentEnv(MbagRllibEnv):
     def render(self):
         return None
 
+    def set_state(self, state: MbagStateDict) -> MultiAgentDict:
+        obs_list = self.env.set_state(state)
+        return self._list_to_dict(obs_list)
+
 
 register_env("MBAG-v1", lambda config: MbagMultiAgentEnv(config))
 
 
-class FlatActionSpaceWrapper(MbagRllibEnv):
-    env: MultiAgentEnv
+class FlatActionSpaceWrapper(MbagRllibWrapper):
+    env: MbagRllibWrapper
     action_space: spaces.Space
 
     def __init__(
         self,
-        env: MultiAgentEnv,
+        env,
         config: MbagConfigDict,
-        include_action_mask_in_obs=False,
     ):
         super().__init__()
 
         self.env = env
         self.config = config
         self._agent_ids = self.env._agent_ids
-        self.include_action_mask_in_obs = include_action_mask_in_obs
         self.action_mapping = MbagActionDistribution.get_action_mapping(self.config)
 
         num_flat_actions, _ = self.action_mapping.shape
         self.action_space = spaces.Discrete(num_flat_actions)
-        if include_action_mask_in_obs:
-            self.observation_space = spaces.Dict(
-                {
-                    "obs": self.env.observation_space,
-                    "action_mask": spaces.Box(
-                        np.zeros(num_flat_actions, dtype=bool),
-                        np.ones(num_flat_actions, dtype=bool),
-                    ),
-                }
-            )
-        else:
-            self.observation_space = self.env.observation_space
+        self.observation_space = self.env.observation_space
 
     def reset(self) -> MultiAgentDict:
         return cast(MultiAgentDict, self.env.reset())
@@ -120,15 +122,6 @@ class FlatActionSpaceWrapper(MbagRllibEnv):
             for agent_id, action in flat_action_dict.items()
         }
         obs_dict, reward_dict, done_dict, info_dict = self.env.step(action_dict)
-        if self.include_action_mask_in_obs:
-            for agent_id in obs_dict:
-                obs = obs_dict[agent_id]
-                obs_dict[agent_id] = {
-                    "obs": obs,
-                    "action_mask": MbagActionDistribution.get_mask_flat(
-                        self.config, obs
-                    ),
-                }
         return obs_dict, reward_dict, done_dict, info_dict
 
 
@@ -136,15 +129,9 @@ register_env(
     "MBAGFlatActions-v1",
     lambda config: FlatActionSpaceWrapper(MbagMultiAgentEnv(config), config),
 )
-register_env(
-    "MBAGFlatActionsAlphaZero-v1",
-    lambda config: FlatActionSpaceWrapper(
-        MbagMultiAgentEnv(config), config, include_action_mask_in_obs=True
-    ),
-)
 
 
-def unwrap_mbag_env(env: MultiAgentEnv) -> MbagEnv:
+def unwrap_mbag_env(env: Union[MbagRllibWrapper, MbagEnv]) -> MbagEnv:
     while not isinstance(env, MbagEnv):
         env = env.env
     return env

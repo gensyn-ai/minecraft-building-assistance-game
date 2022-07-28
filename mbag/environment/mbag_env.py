@@ -194,6 +194,16 @@ OTHER_PLAYER = 2
 NO_INTERACTION = -1
 
 
+class MbagStateDict(TypedDict):
+    current_blocks: MinecraftBlocks
+    goal_blocks: MinecraftBlocks
+    player_locations: List[WorldLocation]
+    player_directions: List[FacingDirection]
+    player_inventories: List[MbagInventory]
+    last_interacted: np.ndarray
+    timestep: int
+
+
 class MbagEnv(object):
     config: MbagConfigDict
     current_blocks: MinecraftBlocks
@@ -254,6 +264,7 @@ class MbagEnv(object):
                     (MinecraftBlocks.NUM_BLOCKS,),
                     dtype=int,
                 ),
+                spaces.Box(0, self.config["horizon"], (), dtype=np.int32),
             )
         )
 
@@ -946,7 +957,11 @@ class MbagEnv(object):
         f = np.vectorize(self._observation_from_player_perspective)
         world_obs[LAST_INTERACTED] = f(self.last_interacted, player_index)
 
-        return (world_obs, self._get_inventory_obs(player_index))
+        return (
+            world_obs,
+            self._get_inventory_obs(player_index),
+            np.array(self.timestep, dtype=np.int32),
+        )
 
     def _add_player_location_to_world_obs(
         self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
@@ -1107,3 +1122,35 @@ class MbagEnv(object):
             self.timestep >= self.config["horizon"]
             or self.current_blocks == self.goal_blocks
         )
+
+    def get_state(self) -> MbagStateDict:
+        return {
+            "current_blocks": self.current_blocks.copy(),
+            "goal_blocks": self.goal_blocks.copy(),
+            "player_locations": list(self.player_locations),
+            "player_directions": list(self.player_directions),
+            "player_inventories": [
+                inventory.copy() for inventory in self.player_inventories
+            ],
+            "last_interacted": self.last_interacted.copy(),
+            "timestep": self.timestep,
+        }
+
+    def set_state_no_obs(self, state: MbagStateDict) -> None:
+        self.current_blocks = state["current_blocks"].copy()
+        self.goal_blocks = state["goal_blocks"].copy()
+        self.player_locations = list(state["player_locations"])
+        self.player_directions = list(state["player_directions"])
+        self.player_inventories = [
+            inventory.copy() for inventory in state["player_inventories"]
+        ]
+        self.last_interacted = state["last_interacted"].copy()
+        self.timestep = state["timestep"]
+
+    def set_state(self, state: MbagStateDict) -> List[MbagObs]:
+        self.set_state_no_obs(state)
+
+        return [
+            self._get_player_obs(player_index)
+            for player_index in range(self.config["num_players"])
+        ]

@@ -42,12 +42,11 @@ def sacred_config():
         "env_config": {"malmo": {}},
         "multiagent": {},
         "num_gpus": 1 if torch.cuda.is_available() else 0,
+        "disable_env_checking": True,
     }
     extra_config_updates = {}  # noqa: F841
 
     record_video = False  # noqa: F841
-    if record_video:
-        num_workers = 0
 
 
 @ex.automain
@@ -77,6 +76,7 @@ def main(
     out_dir = os.path.join(
         os.path.dirname(checkpoint), f"rollouts_{experiment_name}{time_str}"
     )
+    os.makedirs(out_dir, exist_ok=True)
     config_updates["output"] = out_dir
 
     if policy_ids is not None:

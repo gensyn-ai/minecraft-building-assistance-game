@@ -75,10 +75,10 @@ def test_mask():
     env = MbagEnv(
         {"abilities": {"teleportation": True, "inf_blocks": True, "flying": True}}
     )
-    world_obs, inventory_obs = env.reset()[0]
+    world_obs, inventory_obs, timestep = env.reset()[0]
     planks = MinecraftBlocks.NAME2ID["planks"]
     world_obs[CURRENT_BLOCKS, 1, 2, 1] = planks
-    obs_batch = world_obs[None], inventory_obs[None]
+    obs_batch = world_obs[None], inventory_obs[None], timestep[None]
 
     mask = MbagActionDistribution.get_mask(env.config, obs_batch)
 
@@ -123,14 +123,18 @@ def test_mask_no_teleportation_no_inf_blocks():
             },
         }
     )
-    world_obs, inventory_obs = env.reset()[0]
+    world_obs, inventory_obs, timestep = env.reset()[0]
 
     # Suppose the player has dirt in their inventory.
     dirt = MinecraftBlocks.NAME2ID["dirt"]
     planks = MinecraftBlocks.NAME2ID["planks"]
     inventory_obs[dirt] += 1
 
-    obs_batch = world_obs[None], inventory_obs[None]
+    obs_batch = (
+        world_obs[None].repeat(2, 0),
+        inventory_obs[None].repeat(2, 0),
+        timestep[None].repeat(2, 0),
+    )
     mask = MbagActionDistribution.get_mask(env.config, obs_batch)
 
     # Player 1 should be at (0, 2, 0) and player 2 at (1, 2, 0).
@@ -158,10 +162,10 @@ def test_mask_no_teleportation_no_inf_blocks():
     # Can only give blocks we have.
     assert mask[:, MbagActionDistribution.GIVE_BLOCK][0, planks, 1, 2, 0] == False
 
-    world_obs, _ = env.step([(MbagAction.NOOP, 0, 0), (MbagAction.MOVE_POS_X, 0, 0)])[
-        0
-    ][0]
-    obs_batch = world_obs[None], inventory_obs[None]
+    world_obs, _, _ = env.step(
+        [(MbagAction.NOOP, 0, 0), (MbagAction.MOVE_POS_X, 0, 0)]
+    )[0][0]
+    obs_batch = world_obs[None], inventory_obs[None], timestep[None]
     mask = MbagActionDistribution.get_mask(env.config, obs_batch)
 
     # Player 2 should now be at (2, 2, 0).

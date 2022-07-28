@@ -1,5 +1,5 @@
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction
+from mbag.environment.types import MbagAction, MbagObs
 import pytest
 import numpy as np
 import logging
@@ -128,7 +128,7 @@ def test_pq_agent_grabcraft():
             * num_players,
         )
         episode_info = evaluator.rollout()
-        (last_obs, _) = episode_info.last_obs[0]
+        last_obs, _, _ = episode_info.last_obs[0]
         if not np.all(last_obs[0] == last_obs[2]):
             for layer in range(12):
                 if not np.all(last_obs[0, :, layer] == last_obs[2, :, layer]):
@@ -294,7 +294,7 @@ def test_mirror_building_agent_get_action():
 
     dim = (4, 4, 4, 4)
     a = np.zeros(dim)
-    obs = (a, np.zeros(MinecraftBlocks.NUM_BLOCKS))
+    obs: MbagObs = (a, np.zeros(MinecraftBlocks.NUM_BLOCKS), np.array(0))
 
     # Does it do nothing if the map is empty?
     assert agent.get_action(obs) == (MbagAction.NOOP, 0, 0)
