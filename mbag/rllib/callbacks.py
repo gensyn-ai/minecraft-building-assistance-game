@@ -1,4 +1,6 @@
 from typing import Dict, Optional
+import numpy as np
+
 from ray.rllib.contrib.alpha_zero.core.alpha_zero_trainer import (
     AlphaZeroDefaultCallbacks,
 )
@@ -64,17 +66,26 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             info_dict: MbagInfoDict = episode.last_info_for(agent_id)
             episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
 
+            # Log what action the agent made
             action_type_name = MbagAction.ACTION_TYPE_NAMES[info_dict["action_type"]]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
-            # If the action_key hasn't been logged yet, set up an entry for each actiontype
             if action_key not in episode.custom_metrics:
-                for action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
+                for action_name_ in MbagAction.ACTION_TYPE_NAMES.values():
                     episode.custom_metrics[
-                        f"{policy_id}/num_{action_type_name.lower()}"
+                        f"{policy_id}/num_{action_name_.lower()}"
                     ] = 0
-
             episode.custom_metrics[action_key] += 1
+
+            if "{policy_id}/num_correct_place_block" not in episode.custom_metrics:
+                for name in ["place_block", "break_block"]:
+                    episode.custom_metrics[f"{policy_id}/num_correct_{name}"] = 0
+
+            if info_dict["action_correct"]:
+                action_correct_key = (
+                    f"{policy_id}/num_correct_{action_type_name.lower()}"
+                )
+                episode.custom_metrics[action_correct_key] += 1
 
     def on_episode_end(
         self,
@@ -105,21 +116,15 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 "own_reward_prop"
             ]
 
-            episode.custom_metrics[f"{policy_id}/percent_noop"] = info_dict[
-                "action_type"
-            ]
-            total_actions = sum(
-                [
-                    episode.custom_metrics[
-                        f"{policy_id}/num_{action_type_name.lower()}"
-                    ]
-                    for action_type_name in MbagAction.ACTION_TYPE_NAMES.values()
-                ]
-            )
-            for action_type_name in MbagAction.ACTION_TYPE_NAMES.values():
-                num_actions = episode.custom_metrics[
-                    f"{policy_id}/num_{action_type_name.lower()}"
-                ]
+            for action_type in [MbagAction.BREAK_BLOCK, MbagAction.PLACE_BLOCK]:
+                action_type_name = MbagAction.ACTION_TYPE_NAMES[action_type]
+                num_correct = episode.custom_metrics.get(
+                    f"{policy_id}/num_correct_{action_type_name.lower()}", 0
+                )
+                total = episode.custom_metrics.get(
+                    f"{policy_id}/num_{action_type_name.lower()}", 0
+                )
+                percent_correct = num_correct / total if total != 0 else np.nan
                 episode.custom_metrics[
-                    f"{policy_id}/percent_{action_type_name.lower()}"
-                ] = (num_actions / total_actions)
+                    f"{policy_id}/{action_type_name.lower()}_accuracy"
+                ] = percent_correct
