@@ -132,7 +132,7 @@ def add_supervised_loss_to_policy(
             loss = super().loss(model, dist_class, train_batch)
             assert not isinstance(loss, list)
 
-            world_obs, inventory_obs = restore_original_dimensions(
+            world_obs, inventory_obs, _ = restore_original_dimensions(
                 train_batch[SampleBatch.OBS],
                 obs_space=self.observation_space,
                 tensorlib=torch,
