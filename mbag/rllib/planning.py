@@ -53,7 +53,7 @@ class MbagEnvModel(gym.Env):
 
         self.env = env
         self.config = config
-        self.player_index = player_index
+        self.set_player_index(player_index)
         self.agent_id = f"player_{player_index}"
         self.include_action_mask_in_obs = include_action_mask_in_obs
 
@@ -71,6 +71,10 @@ class MbagEnvModel(gym.Env):
             )
         else:
             self.observation_space = self.env.observation_space
+
+    def set_player_index(self, player_index: int):
+        self.player_index = player_index
+        self.agent_id = f"player_{player_index}"
 
     def _store_last_obs_dict(self, obs_dict):
         self.last_obs_dict = obs_dict

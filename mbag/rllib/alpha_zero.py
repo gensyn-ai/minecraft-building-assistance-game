@@ -1,6 +1,7 @@
 import torch
 import numpy as np
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
+import logging
+from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
 from ray.rllib.policy.torch_policy import TorchPolicy, EntropyCoeffSchedule
 from ray.rllib.contrib.alpha_zero.core.alpha_zero_policy import AlphaZeroPolicy
@@ -18,7 +19,7 @@ from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.models.modelv2 import restore_original_dimensions
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.types import MbagInfoDict, MbagAction
+from mbag.environment.types import MbagActionTuple, MbagInfoDict, MbagAction
 from .rllib_env import unwrap_mbag_env
 from .planning import MbagEnvModel
 from .torch_models import RewardPredictorMixin
@@ -27,6 +28,9 @@ from .torch_models import RewardPredictorMixin
 MCTS_POLICIES = "mcts_policies"
 ALL_REWARDS = "all_rewards"
 OTHER_AGENT_REWARDS = "other_agent_rewards"
+
+
+logger = logging.getLogger(__name__)
 
 
 class MbagRootParentNode(RootParentNode):
@@ -193,6 +197,12 @@ class MbagMCTSNode(Node):
             else:
                 break
 
+    def get_mbag_action(self, flat_action: int) -> MbagAction:
+        return MbagAction(
+            cast(MbagActionTuple, tuple(self.action_mapping[flat_action])),
+            self.env.config["world_size"],
+        )
+
 
 class MbagMCTS(MCTS):
     def __init__(self, model, mcts_param, gamma: float, use_critic=True):
@@ -246,6 +256,50 @@ class MbagMCTS(MCTS):
                 np.random.choice(np.arange(node.action_space_size), p=tree_policy)
             )
 
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                [
+                    (
+                        node.get_mbag_action(action),
+                        child.reward,
+                        node.child_Q()[action],
+                        node.child_U()[action],
+                        child.number_visits,
+                    )
+                    for action, child in node.children.items()
+                ]
+            )
+
+            child = node.children[action]
+            logger.debug(
+                "\t".join(
+                    map(
+                        str,
+                        [
+                            node.get_mbag_action(action),
+                            child.reward,
+                            node.child_Q()[action],
+                            node.child_U()[action],
+                            node.child_priors[action],
+                            child.number_visits,
+                            tree_policy[action],
+                        ],
+                    )
+                )
+            )
+
+            self.model.eval()
+            _, value = self.model.compute_priors_and_value(node.obs)
+            logger.debug(f"{value} {node.total_value / node.number_visits}")
+
+            plan = []
+            current = node
+            while len(current.children) > 0:
+                plan_action = int(np.argmax(current.child_number_visits))
+                current = current.children[plan_action]
+                plan.append((node.get_mbag_action(plan_action), current.reward))
+            logger.debug(plan)
+
         return tree_policy, action, node.children[action]
 
 
@@ -258,12 +312,10 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             obs_space, action_space, action_space.n, config["model"], "torch"
         )
 
-        player_index = 0  # TODO: how do we get this?
-
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
             env = env_creator(config["env_config"])
-            return MbagEnvModel(env, config["env_config"], player_index=player_index)
+            return MbagEnvModel(env, config["env_config"])
 
         def mcts_creator():
             return MbagMCTS(model, config["mcts_config"], config["gamma"])
@@ -286,6 +338,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
     ):
+        player_index = int(input_dict[SampleBatch.AGENT_INDEX])
+        self.env.set_player_index(player_index)
+
         with torch.no_grad():
             actions = []
             for i, episode in enumerate(episodes):
