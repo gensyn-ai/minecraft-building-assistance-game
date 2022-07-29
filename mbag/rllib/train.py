@@ -167,7 +167,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "max_seq_len": max_seq_len,
             "vf_share_layers": vf_share_layers,
         }
-        if model in ["convolutional", "recurrent_convolutional"]:
+        if "convolutional" in model:
             conv_config: MbagRecurrentConvolutionalModelConfig = {
                 "env_config": environment_params,
                 "embedding_size": embedding_size,
@@ -186,7 +186,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "num_value_layers": num_value_layers,
             }
             model_config["custom_model_config"] = conv_config
-        elif model == "transformer":
+        elif "transformer" in model:
             transformer_config: MbagTransformerModelConfig = {
                 "env_config": environment_params,
                 "embedding_size": embedding_size,
@@ -355,9 +355,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     # },
                 }
             )
-            for policy_id in config["multiagent"]["policies_to_train"]:
-                policy_config = config["multiagent"]["policies"][policy_id][3]
-                policy_config["env"] = "MBAGAlphaZeroModel-v1"
         if run in ["IMPALA", "APPO"]:
             config.update(
                 {

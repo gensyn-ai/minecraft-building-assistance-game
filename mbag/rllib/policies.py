@@ -17,6 +17,7 @@ from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import MbagAction, MbagActionTuple, MbagObs
 from mbag.agents.mbag_agent import MbagAgent
+from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
 from .torch_action_distributions import MbagAutoregressiveActionDistribution
 from .torch_models import MbagTorchModel
 
@@ -198,6 +199,4 @@ def add_supervised_loss_to_policy(
 MbagPPOTorchPolicy = add_supervised_loss_to_policy(PPOTorchPolicy)
 
 
-MBAG_POLICIES = {
-    "PPO": MbagPPOTorchPolicy,
-}
+MBAG_POLICIES = {"PPO": MbagPPOTorchPolicy, "MbagAlphaZero": MbagAlphaZeroPolicy}

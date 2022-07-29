@@ -1,9 +1,9 @@
-from typing import Optional, TypedDict, Union
+from typing import Dict, Optional, TypedDict, Union
 import gym
 import numpy as np
 from gym import spaces
-from ray.rllib.utils.typing import MultiAgentDict
 from ray.tune.registry import register_env
+from ray.rllib.utils.typing import AgentID
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
@@ -40,6 +40,7 @@ class MbagEnvModel(gym.Env):
 
     action_space: spaces.Discrete
     last_obs: Union[MbagObs, MbagObsWithMask]
+    last_obs_dict: Dict[AgentID, MbagObs]
 
     def __init__(
         self,
@@ -71,12 +72,8 @@ class MbagEnvModel(gym.Env):
         else:
             self.observation_space = self.env.observation_space
 
-    def _store_last_obs_dict(self, obs_dict: MultiAgentDict):
-        # For now, don't store, just make sure there aren't any other players.
-        if set(obs_dict.keys()) != {self.agent_id}:
-            raise RuntimeError(
-                f"Expected just {self.agent_id} but received {', '.join(obs_dict.keys())}"
-            )
+    def _store_last_obs_dict(self, obs_dict):
+        self.last_obs_dict = obs_dict
 
     def _process_obs(self, obs: MbagObs):
         if self.include_action_mask_in_obs:
@@ -99,6 +96,10 @@ class MbagEnvModel(gym.Env):
 
     def step(self, action):
         action_dict = {self.agent_id: action}
+        for other_agent_id in self.last_obs_dict:
+            if other_agent_id != self.agent_id:
+                action_dict[other_agent_id] = 0  # NOOP for now
+
         obs_dict, reward_dict, done_dict, info_dict = self.env.step(action_dict)
         self._store_last_obs_dict(obs_dict)
         return (
