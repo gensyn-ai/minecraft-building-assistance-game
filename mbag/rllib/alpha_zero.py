@@ -14,10 +14,11 @@ from ray.tune.registry import _global_registry, ENV_CREATOR, register_trainable
 from ray.rllib.evaluation import SampleBatch
 from ray.rllib.utils.typing import TensorType, AgentID
 from ray.rllib.utils.torch_utils import explained_variance
+from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.models.modelv2 import restore_original_dimensions
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.types import MbagInfoDict
+from mbag.environment.types import MbagInfoDict, MbagAction
 from .rllib_env import unwrap_mbag_env
 from .planning import MbagEnvModel
 from .torch_models import RewardPredictorMixin
@@ -28,7 +29,7 @@ ALL_REWARDS = "all_rewards"
 OTHER_AGENT_REWARDS = "other_agent_rewards"
 
 
-class DenseRewardRootParentNode(RootParentNode):
+class MbagRootParentNode(RootParentNode):
     def __init__(self, env):
         super().__init__(env)
         self.action_mapping = MbagActionDistribution.get_action_mapping(
@@ -36,14 +37,27 @@ class DenseRewardRootParentNode(RootParentNode):
         )
 
 
-class DenseRewardMCTSNode(Node):
-    mcts: "DenseRewardMCTS"
-    children: Dict[int, "DenseRewardMCTSNode"]
+class MbagMCTSNode(Node):
+    env: MbagEnvModel
+    mcts: "MbagMCTS"
+    children: Dict[int, "MbagMCTSNode"]
     action_mapping: np.ndarray
-    parent: Union["DenseRewardMCTSNode", DenseRewardRootParentNode]
+    parent: Union["MbagMCTSNode", MbagRootParentNode]
 
-    def __init__(self, action, obs, done, reward, state, mcts, parent=None):
+    def __init__(
+        self,
+        action,
+        obs,
+        done,
+        info: Optional[MbagInfoDict],
+        reward,
+        state,
+        mcts,
+        parent=None,
+    ):
         super().__init__(action, obs, done, reward, state, mcts, parent)
+
+        self.info = info
 
         self.min_value = np.inf
         self.max_value = -np.inf
@@ -145,17 +159,18 @@ class DenseRewardMCTSNode(Node):
                 ].sum() * dirichlet_noise
             assert abs(self.child_priors.sum() - 1) < 1e-2
 
-    def get_child(self, action) -> "DenseRewardMCTSNode":
+    def get_child(self, action) -> "MbagMCTSNode":
         if action not in self.children:
             self.env.set_state(self.state)
-            obs, reward, done, _ = self.env.step(action)
+            obs, reward, done, info = self.env.step(action)
             next_state = self.env.get_state()
-            self.children[action] = DenseRewardMCTSNode(
+            self.children[action] = MbagMCTSNode(
                 state=next_state,
                 action=action,
                 parent=self,
                 reward=reward,
                 done=done,
+                info=info,
                 obs=obs,
                 mcts=self.mcts,
             )
@@ -170,22 +185,22 @@ class DenseRewardMCTSNode(Node):
             current.number_visits += 1
             current.total_value += value
             for node in [current, current.parent]:
-                if isinstance(node, DenseRewardMCTSNode):
+                if isinstance(node, MbagMCTSNode):
                     node.min_value = min(node.min_value, value)
                     node.max_value = max(node.max_value, value)
-            if isinstance(current.parent, DenseRewardMCTSNode):
+            if isinstance(current.parent, MbagMCTSNode):
                 current = current.parent
             else:
                 break
 
 
-class DenseRewardMCTS(MCTS):
+class MbagMCTS(MCTS):
     def __init__(self, model, mcts_param, gamma: float, use_critic=True):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
 
-    def compute_action(self, node: DenseRewardMCTSNode):
+    def compute_action(self, node: MbagMCTSNode):
         for _ in range(self.num_sims):
             leaf = node.select()
             if leaf.done:
@@ -195,6 +210,17 @@ class DenseRewardMCTS(MCTS):
                 child_priors, value = self.model.compute_priors_and_value(leaf.obs)
                 if not self.use_critic:
                     value = 0
+
+                if isinstance(self.model, RewardPredictorMixin):
+                    own_reward, other_reward = self.model.predict_reward()
+                    own_reward_flat = MbagActionDistribution.to_flat(
+                        node.env.config, convert_to_numpy(own_reward)
+                    )
+                    if leaf.action is not None and leaf.info is not None:
+                        action = leaf.action
+                        if leaf.info["action_type"] == MbagAction.NOOP:
+                            action = 0
+                        leaf.reward = own_reward_flat[0, action] + float(other_reward)
 
                 leaf.expand(
                     child_priors,
@@ -224,7 +250,7 @@ class DenseRewardMCTS(MCTS):
 
 
 class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
-    mcts: DenseRewardMCTS
+    mcts: MbagMCTS
     env: MbagEnvModel
 
     def __init__(self, obs_space, action_space, config):
@@ -240,7 +266,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             return MbagEnvModel(env, config["env_config"], player_index=player_index)
 
         def mcts_creator():
-            return DenseRewardMCTS(model, config["mcts_config"], config["gamma"])
+            return MbagMCTS(model, config["mcts_config"], config["gamma"])
 
         super().__init__(
             obs_space,
@@ -270,13 +296,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                     env_state = {"env_state": env_state, "buffer_state": None}
                 # create tree root node
                 obs = self.env.set_state(env_state)
-                tree_node = DenseRewardMCTSNode(
+                tree_node = MbagMCTSNode(
                     state=env_state,
                     obs=obs,
                     reward=0,
                     done=False,
+                    info=None,
                     action=None,
-                    parent=DenseRewardRootParentNode(env=self.env),
+                    parent=MbagRootParentNode(env=self.env),
                     mcts=self.mcts,
                 )
 
