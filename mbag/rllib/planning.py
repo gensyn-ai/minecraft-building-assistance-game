@@ -1,4 +1,4 @@
-from typing import TypedDict, Union
+from typing import Optional, TypedDict, Union
 import gym
 import numpy as np
 from gym import spaces
@@ -6,9 +6,21 @@ from ray.rllib.utils.typing import MultiAgentDict
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import MbagConfigDict, MbagStateDict
-from mbag.environment.types import MbagObs
-from .rllib_env import FlatActionSpaceWrapper, MbagMultiAgentEnv, MbagRllibWrapper
+from mbag.environment.types import (
+    CURRENT_BLOCK_STATES,
+    CURRENT_BLOCKS,
+    GOAL_BLOCK_STATES,
+    GOAL_BLOCKS,
+    MbagObs,
+)
+from .rllib_env import (
+    FlatActionSpaceWrapper,
+    MbagMultiAgentEnv,
+    MbagRllibWrapper,
+    unwrap_mbag_env,
+)
 
 
 class MbagObsWithMask(TypedDict):
@@ -120,14 +132,75 @@ class MbagEnvModel(gym.Env):
             self._store_last_obs_dict(obs_dict)
             return self._process_obs(obs_dict[self.agent_id])
 
+    def get_all_rewards(
+        self, obs_batch: MbagObs, player_index: Optional[int] = None
+    ) -> np.ndarray:
+        """
+        Given a batch of observations, get the rewards for all possible actions
+        as an array of shape (batch_size, NUM_CHANNELS, width, height, depth),
+        where NUM_CHANNELS as defined as in MbagActionDistribution.
 
-def create_mbag_env_model(config: MbagConfigDict):
+        The rewards returned here are only valid if the action is not a no-op.
+        If the action is a noop (e.g., if the action is invalid) then the actual
+        reward is 0.
+        """
+
+        if player_index is None:
+            player_index = self.player_index
+
+        world_obs, _, _ = obs_batch
+        batch_size, _, width, height, depth = world_obs.shape
+        env = unwrap_mbag_env(self)
+
+        rewards = np.zeros(
+            (batch_size, MbagActionDistribution.NUM_CHANNELS, width, height, depth)
+        )
+
+        # We only get reward for two actions: BREAK_BLOCK and PLACE_BLOCK.
+        goal = (world_obs[:, GOAL_BLOCKS], world_obs[:, GOAL_BLOCK_STATES])
+        similarity_before = env._get_goal_similarity(
+            (world_obs[:, CURRENT_BLOCKS], world_obs[:, CURRENT_BLOCK_STATES]),
+            goal,
+            partial_credit=True,
+            player_index=player_index,
+        )
+
+        block_states = np.zeros_like(world_obs[:, CURRENT_BLOCK_STATES])
+        for block_id in range(MinecraftBlocks.NUM_BLOCKS):
+            block_ids = np.full_like(world_obs[:, CURRENT_BLOCKS], block_id)
+            similarity_after = env._get_goal_similarity(
+                (block_ids, block_states),
+                goal,
+                partial_credit=True,
+                player_index=player_index,
+            )
+            block_id_reward = similarity_after - similarity_before
+            if block_id == MinecraftBlocks.AIR:
+                rewards[:, MbagActionDistribution.BREAK_BLOCK] = block_id_reward
+            rewards[:, MbagActionDistribution.PLACE_BLOCK][
+                :, block_id
+            ] = block_id_reward
+
+        # TODO: implement shaping reward for gathering resources and lack of reward
+        # for breaking palette blocks
+
+        return rewards
+
+
+def create_mbag_env_model(
+    config: MbagConfigDict, player_index: int = 0, include_action_mask_in_obs=True
+) -> MbagEnvModel:
     # We should never use Malmo in the env model.
     config["malmo"]["use_malmo"] = False
     env = MbagMultiAgentEnv(config)
-    env = FlatActionSpaceWrapper(env, config)
-    env = MbagEnvModel(env, config)
-    return env
+    flat_env = FlatActionSpaceWrapper(env, config)
+    env_model = MbagEnvModel(
+        flat_env,
+        config,
+        player_index=player_index,
+        include_action_mask_in_obs=include_action_mask_in_obs,
+    )
+    return env_model
 
 
 register_env("MBAGAlphaZeroModel-v1", create_mbag_env_model)

@@ -1,0 +1,66 @@
+import numpy as np
+import copy
+
+from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.mbag_env import DEFAULT_CONFIG
+from mbag.environment.types import MbagAction
+from mbag.rllib.planning import create_mbag_env_model
+
+
+def test_get_all_rewards():
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config["world_size"] = (5, 5, 5)
+    config["goal_generator"] = "basic"
+
+    cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
+    wool = MinecraftBlocks.NAME2ID["wool"]
+
+    env = create_mbag_env_model(config, include_action_mask_in_obs=False)
+    obs = env.reset()
+    assert isinstance(obs, tuple)
+    world_obs, inventory_obs, timestep = obs
+
+    obs_batch = (
+        world_obs[None].repeat(2, 0),
+        inventory_obs[None].repeat(2, 0),
+        timestep[None].repeat(2, 0),
+    )
+    rewards = env.get_all_rewards(obs_batch)
+
+    assert rewards.shape == (2, MbagActionDistribution.NUM_CHANNELS, 5, 5, 5)
+    assert np.all(rewards[0] == rewards[1])
+    rewards = rewards[0]
+    for action_type in MbagAction.ACTION_TYPES:
+        if action_type not in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
+            action_type_channel = MbagActionDistribution.ACTION_TYPE2CHANNEL[
+                action_type
+            ]
+            assert np.all(rewards[action_type_channel] == 0)
+
+    # Placing cobblestone should give reward.
+    assert np.all(
+        rewards[MbagActionDistribution.PLACE_BLOCK][cobblestone][1:4, 2, 1:4] == 1
+    )
+    # But only in the middle...
+    assert np.all(
+        rewards[MbagActionDistribution.PLACE_BLOCK][cobblestone][0, 2, :] == -1
+    )
+    # Placing an incorrect block should not give reward.
+    assert np.all(rewards[MbagActionDistribution.PLACE_BLOCK][wool][1:4, 2, 1:4] == 0)
+    # Breaking one of the center dirt blocks should not give reward, but breaking
+    # a different block should give -1 reward.
+    assert np.all(rewards[MbagActionDistribution.BREAK_BLOCK][1:4, 1, 1:4] == 0)
+    assert np.all(rewards[MbagActionDistribution.BREAK_BLOCK][0, 1, :] == -1)
+
+    # Now test with negative place_wrong reward.
+    assert isinstance(config["rewards"], dict)
+    config["rewards"]["place_wrong"] = -1
+    env = create_mbag_env_model(config, include_action_mask_in_obs=False)
+    rewards = env.get_all_rewards(obs_batch)
+    rewards = rewards[0]
+
+    # Now placing an incorrect block should give negative reward.
+    assert np.all(rewards[MbagActionDistribution.PLACE_BLOCK][wool][0, 2, :] == -1)
+    # And, breaking one of the center dirt blocks should give reward.
+    assert np.all(rewards[MbagActionDistribution.BREAK_BLOCK][1:4, 1, 1:4] == 1)
