@@ -7,3 +7,4 @@ exclude = ''
 [tool.pytest.ini_options]
 timeout = 10
 testpaths = ["tests"]
+markers = ["uses_rllib"]

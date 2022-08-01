@@ -28,8 +28,8 @@ from .training_utils import (
     load_policies_from_checkpoint,
     load_trainer_config,
 )
-from .policies import MBAG_POLICIES, MbagAgentPolicy
 from .distillation_prediction import DistillationPredictionTrainer
+from .policies import get_mbag_policies, MbagAgentPolicy
 
 from sacred import Experiment
 from sacred.config.custom_containers import DogmaticDict
@@ -140,6 +140,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         dirichlet_epsilon = 0.25
         argmax_tree_policy = False
         add_dirichlet_noise = True
+        goal_loss_coeff, place_block_loss_coeff = 0.5, 1
+
+        mbag_policies = get_mbag_policies(goal_loss_coeff, place_block_loss_coeff)
 
         # Model
         model: Literal[
@@ -268,7 +271,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 policies[policy_id] = loaded_policy_dict[policy_id]
             elif policy_id.startswith("ppo"):
                 policies[policy_id] = PolicySpec(
-                    MBAG_POLICIES.get(run),
+                    mbag_policies.get(run),
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},
@@ -385,7 +388,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 )
                 distill_policy_id = f"{heuristic}_distilled"
                 policies[distill_policy_id] = PolicySpec(
-                    MBAG_POLICIES.get(run),
+                    mbag_policies.get(run),
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},
@@ -413,7 +416,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         prev_model_config["custom_model_config"]["fake_state"] = True
                     distill_policy_id = f"{policy_id}_distilled"
                     policies[distill_policy_id] = (
-                        MBAG_POLICIES.get(run),
+                        mbag_policies.get(run),
                         env.observation_space,
                         env.action_space,
                         {"model": model_config},

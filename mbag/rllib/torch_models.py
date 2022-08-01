@@ -135,6 +135,7 @@ class MbagTorchModel(ActorCriticModel):
 
         self.action_head = self._construct_action_head()
         self.value_head = self._construct_value_head()
+        self.goal_head = self._construct_goal_head()
 
     def _get_in_planes(self) -> int:
         """
@@ -233,6 +234,19 @@ class MbagTorchModel(ActorCriticModel):
                 value_head_layers.append(nn.LeakyReLU())
         return nn.Sequential(*value_head_layers)
 
+    def _construct_goal_head(self) -> nn.Module:
+        """
+        Construct the head which takes in the output of the value backbone and
+        outputs a goal estimate.
+        """
+        num_blocks = len(MinecraftBlocks.ID2NAME)
+
+        return nn.Sequential(
+            nn.Conv3d(self._get_head_in_channels(), self.hidden_size, 1),
+            nn.LeakyReLU(),
+            nn.Conv3d(self.hidden_size, num_blocks, 1),
+        )
+
     def _get_embedded_obs(
         self,
         world_obs: torch.Tensor,
@@ -324,6 +338,9 @@ class MbagTorchModel(ActorCriticModel):
             return self.value_head(self._backbone_out).squeeze(1)
         else:
             return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+
+    def goal_function(self):
+        return self.goal_head(self._backbone_out)
 
     def get_initial_state(self):
         if self.fake_state:
