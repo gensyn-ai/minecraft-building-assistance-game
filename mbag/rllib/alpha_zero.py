@@ -229,7 +229,7 @@ class MbagMCTS(MCTS):
                         node.env.config, convert_to_numpy(own_reward), reduction=np.mean
                     )[0]
                     leaf.other_reward = float(other_reward)
-    
+
                 leaf.expand(
                     child_priors,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
