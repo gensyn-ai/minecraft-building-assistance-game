@@ -82,7 +82,7 @@ def main(
     if policy_ids is not None:
 
         def policy_mapping_fn(
-            agent_id: str, episode, worker, policy_ids=policy_ids, **kwargs
+            agent_id: str, episode=None, worker=None, policy_ids=policy_ids, **kwargs
         ):
             agent_index = int(agent_id[len("player_") :])
             return policy_ids[agent_index]
@@ -103,15 +103,17 @@ def main(
 
     trainer = load_trainer(checkpoint, run, config_updates)
     evaluation_workers: Optional[WorkerSet] = trainer.evaluation_workers
-    assert evaluation_workers is not None
 
-    # Remove the action_dist_inputs view requirement since it results in massive
-    # (multi-gigabyte) JSON rollout files.
-    def remove_action_dist_inputs_view_requirement(policy: Policy, policy_id: PolicyID):
-        if SampleBatch.ACTION_DIST_INPUTS in policy.view_requirements:
-            del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
+    if evaluation_workers is not None:
+        # Remove the action_dist_inputs view requirement since it results in massive
+        # (multi-gigabyte) JSON rollout files.
+        def remove_action_dist_inputs_view_requirement(
+            policy: Policy, policy_id: PolicyID
+        ):
+            if SampleBatch.ACTION_DIST_INPUTS in policy.view_requirements:
+                del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
 
-    evaluation_workers.foreach_policy(remove_action_dist_inputs_view_requirement)
+        evaluation_workers.foreach_policy(remove_action_dist_inputs_view_requirement)
 
     gym.logger.set_level(gym.logger.INFO)
 
