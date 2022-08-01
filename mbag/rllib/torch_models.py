@@ -81,7 +81,7 @@ class MbagTorchModel(ActorCriticModel):
     as block type embedding, separate policy and value networks and the value head.
     """
 
-    MASK_LOGIT = 1e-8
+    MASK_LOGIT = -1e8
 
     _logits: torch.Tensor
 

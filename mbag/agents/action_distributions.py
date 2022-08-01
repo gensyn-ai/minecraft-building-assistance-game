@@ -144,8 +144,6 @@ class MbagActionDistribution(object):
         action distribution probabilities.
         """
 
-        assert reduction == np.sum or reduction == np.all
-
         batch_size = probs.shape[0]
         valid_action_types = MbagActionDistribution.get_valid_action_types(config)
         flat_pieces: List[np.ndarray] = []

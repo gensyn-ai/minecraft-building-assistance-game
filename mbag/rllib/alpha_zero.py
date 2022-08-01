@@ -47,6 +47,8 @@ class MbagMCTSNode(Node):
     children: Dict[int, "MbagMCTSNode"]
     action_mapping: np.ndarray
     parent: Union["MbagMCTSNode", MbagRootParentNode]
+    own_reward: np.ndarray
+    other_reward: float
 
     def __init__(
         self,
@@ -212,7 +214,7 @@ class MbagMCTS(MCTS):
 
     def compute_action(self, node: MbagMCTSNode):
         for _ in range(self.num_sims):
-            leaf = node.select()
+            leaf: MbagMCTSNode = node.select()
             if leaf.done:
                 value = 0
             else:
@@ -223,19 +225,31 @@ class MbagMCTS(MCTS):
 
                 if isinstance(self.model, RewardPredictorMixin):
                     own_reward, other_reward = self.model.predict_reward()
-                    own_reward_flat = MbagActionDistribution.to_flat(
-                        node.env.config, convert_to_numpy(own_reward)
-                    )
-                    if leaf.action is not None and leaf.info is not None:
-                        action = leaf.action
-                        if leaf.info["action_type"] == MbagAction.NOOP:
-                            action = 0
-                        leaf.reward = own_reward_flat[0, action] + float(other_reward)
-
+                    leaf.own_reward = MbagActionDistribution.to_flat(
+                        node.env.config, convert_to_numpy(own_reward), reduction=np.mean
+                    )[0]
+                    leaf.other_reward = float(other_reward)
+    
                 leaf.expand(
                     child_priors,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
                 )
+
+            if isinstance(self.model, RewardPredictorMixin):
+                if (
+                    leaf.action is not None
+                    and leaf.info is not None
+                    and isinstance(leaf.parent, MbagMCTSNode)
+                ):
+                    action = leaf.action
+                    if leaf.info["action_type"] == MbagAction.NOOP:
+                        action = 0
+                    leaf.reward = (
+                        leaf.parent.own_reward[action] + leaf.parent.other_reward
+                    )
+                else:
+                    leaf.reward = 0
+
             leaf.backup(value)
 
         # Tree policy target (TPT)
@@ -441,8 +455,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         dist: TorchCategorical = dist_class(logits)
 
         # Compute actor and critic losses.
+        dist.logp
         policy_loss = torch.mean(
-            -torch.sum(train_batch[MCTS_POLICIES] * torch.log(dist.dist.probs), dim=-1)
+            -torch.sum(train_batch[MCTS_POLICIES] * dist.dist.logits, dim=-1)
         )
         value_loss = torch.mean(
             (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
@@ -456,14 +471,6 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             + self.config["vf_loss_coeff"] * value_loss
             - self.entropy_coeff * entropy
         )
-
-        model.tower_stats["total_loss"] = total_loss
-        model.tower_stats["policy_loss"] = policy_loss
-        model.tower_stats["vf_loss"] = value_loss
-        model.tower_stats["vf_explained_var"] = explained_variance(
-            train_batch[Postprocessing.VALUE_TARGETS], values
-        )
-        model.tower_stats["entropy"] = entropy
 
         if isinstance(model, RewardPredictorMixin):
             # Compute reward predictor losses.
@@ -489,6 +496,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 other_rewards.flatten(),
             )
             model.tower_stats["reward_predictor_loss"] = reward_predictor_loss
+
+        model.tower_stats["total_loss"] = total_loss
+        model.tower_stats["policy_loss"] = policy_loss
+        model.tower_stats["vf_loss"] = value_loss
+        model.tower_stats["vf_explained_var"] = explained_variance(
+            train_batch[Postprocessing.VALUE_TARGETS], values
+        )
+        model.tower_stats["entropy"] = entropy
 
         return total_loss
 
@@ -525,7 +540,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 class MbagAlphaZeroTrainer(AlphaZeroTrainer):
     @classmethod
     def get_default_config(cls):
-        return {
+        config = {
             **AlphaZeroTrainer.get_default_config(),
             "vf_loss_coeff": 1.0,
             "reward_predictor_loss_coeff": 1.0,
@@ -533,6 +548,8 @@ class MbagAlphaZeroTrainer(AlphaZeroTrainer):
             "entropy_coeff_schedule": 0,
             "use_critic": True,
         }
+        del config["vf_share_layers"]
+        return config
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy

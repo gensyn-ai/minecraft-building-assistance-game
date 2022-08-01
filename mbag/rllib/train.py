@@ -131,6 +131,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         use_replay_buffer = True
         replay_buffer_size = 10
         use_critic = True
+        reward_predictor_loss_coeff = 1.0
 
         # MCTS
         puct_coefficient = 1.0
@@ -164,6 +165,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         unet_use_bn = False
         model_config = {
             "custom_model": f"mbag_{model}_model",
+            "custom_action_dist": "categorical_no_inf",
             "max_seq_len": max_seq_len,
             "vf_share_layers": vf_share_layers,
         }
@@ -226,7 +228,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         if multiagent_mode == "self_play":
             policy_ids = ["ppo"]
             policy_mapping_fn = (
-                lambda agent_id, episode, worker, **kwargs: "ppo"
+                lambda agent_id, episode=None, worker=None, **kwargs: "ppo"
             )  # noqa: E731
         elif multiagent_mode == "cross_play":
             policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
@@ -234,7 +236,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 policy_ids[-1] = heuristic
 
             def policy_mapping_fn(
-                agent_id: str, episode, worker, policy_ids=policy_ids, **kwargs
+                agent_id: str,
+                episode=None,
+                worker=None,
+                policy_ids=policy_ids,
+                **kwargs,
             ):
                 agent_index = int(agent_id[len("player_") :])
                 return policy_ids[agent_index]
@@ -348,6 +354,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     "simple_optimizer": not use_replay_buffer,
                     "buffer_size": replay_buffer_size,
                     "use_critic": use_critic,
+                    "reward_predictor_loss_coeff": reward_predictor_loss_coeff,
                     # "replay_buffer_config": {
                     #     "type": "ReplayBuffer",
                     #     "capacity": 10000,
