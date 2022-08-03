@@ -10,7 +10,7 @@ This section describes how to set up your development environment.
 
 ### Installing dependencies
 
-First, install Python (≥3.8 tested but lower might work). Then, run
+First, install Python (≥3.8 tested but lower might work; if you are running Linux we recommend using Python 3.8). Then, run
 
     pip install -r requirements.txt
 
