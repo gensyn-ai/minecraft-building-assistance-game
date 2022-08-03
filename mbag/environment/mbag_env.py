@@ -16,6 +16,7 @@ import time
 import copy
 import logging
 
+
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
@@ -35,9 +36,12 @@ from .types import (
     GOAL_BLOCK_STATES,
     LAST_INTERACTED,
 )
-from .goals import ALL_GOAL_GENERATORS
-from .goals.goal_generator import GoalGenerator
-from .goals.simple import RandomGoalGenerator
+from .goals import (
+    ALL_GOAL_GENERATORS,
+    GoalGenerator,
+    TransformedGoalGenerator,
+    GoalGeneratorConfig,
+)
 
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
@@ -118,11 +122,8 @@ class MbagConfigDict(TypedDict, total=False):
     horizon: int
     world_size: WorldSize
 
-    # TODO: deprecate tuple version of this
-    goal_generator: Union[
-        Tuple[Union[Type[GoalGenerator], str], dict], Type[GoalGenerator], str
-    ]
-    goal_generator_config: dict
+    goal_generator: Union[Type[GoalGenerator], str]
+    goal_generator_config: GoalGeneratorConfig
 
     goal_visibility: List[bool]
     """
@@ -152,8 +153,14 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
     "horizon": 50,
     "world_size": (5, 5, 5),
-    "goal_generator": RandomGoalGenerator,
-    "goal_generator_config": {},
+    "goal_generator": TransformedGoalGenerator,
+    "goal_generator_config": {
+        "goal_generator": "random",
+        "goal_generator_config": {},
+        "transforms": [
+            {"transform": "add_grass"},
+        ],
+    },
     "goal_visibility": [True, False],
     "timestep_skip": [1] * 10,
     "malmo": {
@@ -234,12 +241,8 @@ class MbagEnv(object):
             )
         )
 
-        if isinstance(self.config["goal_generator"], (tuple, list)):
-            goal_generator, goal_generator_config = self.config["goal_generator"]
-        else:
-            goal_generator = self.config["goal_generator"]
-            goal_generator_config = {}
-        goal_generator_config.update(self.config["goal_generator_config"])
+        goal_generator = self.config["goal_generator"]
+        goal_generator_config = self.config["goal_generator_config"]
         if isinstance(goal_generator, str):
             goal_generator_class = ALL_GOAL_GENERATORS[goal_generator]
         else:
@@ -372,6 +375,8 @@ class MbagEnv(object):
         reward: float = 0
 
         noop: bool = True
+        # marks if an action 'correct' meaning it directly contributed to the goal
+        action_correct: bool = False
 
         if action.action_type == MbagAction.NOOP:
             pass
@@ -451,6 +456,9 @@ class MbagEnv(object):
                 new_block, goal_block, partial_credit=True, player_index=player_index
             )
             reward = new_goal_similarity - prev_goal_similarity
+            action_correct = (
+                action.action_type == MbagAction.PLACE_BLOCK and reward > 0
+            ) or (action.action_type == MbagAction.BREAK_BLOCK and reward >= 0)
         elif action.action_type in [
             MbagAction.MOVE_POS_X,
             MbagAction.MOVE_NEG_X,
@@ -509,6 +517,7 @@ class MbagEnv(object):
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "action_type": action.action_type if not noop else MbagAction.NOOP,
+            "action_correct": action_correct and not noop,
         }
 
         return reward, info

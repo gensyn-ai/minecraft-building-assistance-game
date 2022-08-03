@@ -1,5 +1,3 @@
-import pytest
-
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent
 from mbag.environment.goals.simple import (
@@ -14,7 +12,8 @@ def test_random_goal_generator():
             "world_size": (8, 8, 8),
             "num_players": 1,
             "horizon": 250,
-            "goal_generator": (RandomGoalGenerator, {}),
+            "goal_generator": RandomGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -33,14 +32,14 @@ def test_random_goal_generator():
     assert episode_info.cumulative_reward > 0
 
 
-@pytest.mark.xfail(strict=False)
 def test_random_goal_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
             "world_size": (8, 8, 8),
             "num_players": 1,
             "horizon": 250,
-            "goal_generator": (RandomGoalGenerator, {}),
+            "goal_generator": RandomGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
@@ -65,7 +64,8 @@ def test_simple_overhang_goal_generator():
             "world_size": (8, 8, 8),
             "num_players": 1,
             "horizon": 250,
-            "goal_generator": (SimpleOverhangGoalGenerator, {}),
+            "goal_generator": SimpleOverhangGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -84,14 +84,14 @@ def test_simple_overhang_goal_generator():
     assert episode_info.cumulative_reward > 0
 
 
-@pytest.mark.xfail(strict=False)
 def test_simple_overhang_goal_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
             "world_size": (8, 8, 8),
             "num_players": 1,
             "horizon": 250,
-            "goal_generator": (SimpleOverhangGoalGenerator, {}),
+            "goal_generator": SimpleOverhangGoalGenerator,
+            "goal_generator_config": {},
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,

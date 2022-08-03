@@ -123,3 +123,9 @@ class MbagInfoDict(TypedDict):
     The action that the player effectively took. That is, if the player attempted to
     do something but it didn't actually affect the world, it is logged as NOOP.
     """
+
+    action_correct: bool
+    """
+    Whether an action directly contributed to the goal, either by placing the correct
+    block or breakin an incorrect block.
+    """
