@@ -37,7 +37,7 @@ def setup(default_config):
     global dummy_run
     dummy_run = glob.glob(
         checkpoint_dir
-        + "/PPO/self_play/6x6x6/single_wall_grabcraft/*/checkpoint_000002/checkpoint-2"
+        + "/MbagPPO/self_play/6x6x6/single_wall_grabcraft/*/checkpoint_000002/checkpoint-2"
     )[0]
     assert os.path.exists(dummy_run)
 

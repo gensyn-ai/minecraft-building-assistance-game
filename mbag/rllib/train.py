@@ -27,7 +27,7 @@ from .training_utils import (
     load_policies_from_checkpoint,
     load_trainer_config,
 )
-from mbag.rllib.policies import get_mbag_policies, MbagAgentPolicy
+from mbag.rllib.policies import MbagPPOTorchPolicy, MbagAgentPolicy
 from .distillation_prediction import DEFAULT_CONFIG as DISTILLATION_DEFAULT_CONFIG
 
 from sacred import Experiment
@@ -95,9 +95,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         env = MbagMultiAgentEnv(**environment_params)
 
         # Training
-        run = "PPO"
+        run = "MbagPPO"
         num_workers = 2
-        num_aggregation_workers = min(1, num_workers)
         input = "sampler"
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
@@ -120,8 +119,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         num_sgd_iter = 6
         compress_observations = True
         goal_loss_coeff, place_block_loss_coeff = 0.5, 1
-
-        mbag_policies = get_mbag_policies(goal_loss_coeff, place_block_loss_coeff)
 
         # Model
         model: Literal[
@@ -242,7 +239,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 policies[policy_id] = loaded_policy_dict[policy_id]
             elif policy_id.startswith("ppo"):
                 policies[policy_id] = PolicySpec(
-                    mbag_policies.get(run),
+                    MbagPPOTorchPolicy,
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},
@@ -297,6 +294,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 (entropy_coeff_horizon, entropy_coeff_end),
             ],
             "framework": "torch",
+            "goal_loss_coeff": goal_loss_coeff,
+            "place_block_loss_coeff": place_block_loss_coeff,
         }
         if "PPO" in run:
             config.update(
@@ -308,14 +307,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     "clip_param": clip_param,
                 }
             )
-        if run in ["IMPALA", "APPO"]:
-            config.update(
-                {
-                    "num_aggregation_workers": num_aggregation_workers,
-                }
-            )
-            config["train_batch_size"] = config.pop("sgd_minibatch_size")
-
         # Distillation
         if "distillation_prediction" in run:
             config["checkpoint_to_load_policies"] = checkpoint_to_load_policies
@@ -356,7 +347,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         prev_model_config["custom_model_config"]["fake_state"] = True
                     distill_policy_id = f"{policy_id}_distilled"
                     policies[distill_policy_id] = (
-                        mbag_policies.get(run),
+                        None,
                         env.observation_space,
                         env.action_space,
                         {"model": model_config},
