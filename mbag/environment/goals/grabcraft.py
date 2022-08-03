@@ -3,7 +3,6 @@ import os
 import json
 import random
 import logging
-import numpy as np
 import sys
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
@@ -19,12 +18,6 @@ logger = logging.getLogger(__name__)
 class GrabcraftGoalConfig(TypedDict):
     data_dir: str
     subset: Literal["train", "val", "test"]
-    force_single_cc: bool
-    use_limited_block_set: bool
-    # If this is true, then all blocks are the same type.
-    make_uniform: bool
-    # If make_uniform is set to True, then this determines what block_id the structure is.
-    uniform_block: int
 
 
 class StructureMetadata(TypedDict):
@@ -58,10 +51,6 @@ class GrabcraftGoalGenerator(GoalGenerator):
     default_config: GrabcraftGoalConfig = {
         "data_dir": "data/grabcraft",
         "subset": "train",
-        "force_single_cc": False,
-        "use_limited_block_set": True,
-        "make_uniform": False,
-        "uniform_block": MinecraftBlocks.NAME2ID["grass"],
     }
 
     config: GrabcraftGoalConfig
@@ -107,18 +96,17 @@ class GrabcraftGoalGenerator(GoalGenerator):
                 (block_type,) = block_types
                 self.block_map[generic_block_name] = (block_type, None)
 
-        if self.config["use_limited_block_set"]:
-            limited_block_map_fname = os.path.join(
-                os.path.dirname(__file__), "grabcraft_block_map_limited.json"
-            )
-            with open(limited_block_map_fname, "r") as block_map_file:
-                limited_block_map: Dict[str, str] = json.load(block_map_file)
+        limited_block_map_fname = os.path.join(
+            os.path.dirname(__file__), "limited_block_map.json"
+        )
+        with open(limited_block_map_fname, "r") as block_map_file:
+            limited_block_map: Dict[str, str] = json.load(block_map_file)
 
-            for key in self.block_map:
-                self.block_map[key] = (
-                    limited_block_map[self.block_map[key][0]],
-                    self.block_map[key][1],
-                )
+        for key in self.block_map:
+            self.block_map[key] = (
+                limited_block_map[self.block_map[key][0]],
+                self.block_map[key][1],
+            )
 
     def _load_metadata(self):
         self.structure_metadata = {}
@@ -180,17 +168,8 @@ class GrabcraftGoalGenerator(GoalGenerator):
             ):
                 success = False
                 continue
-
-            # Randomly place structure within world.
-            goal = GoalGenerator.randomly_place_structure(structure, size)
-
-            # If we want to force the structure to be a single connected component,
-            # then check here.
-            if self.config["force_single_cc"]:
-                if not goal.is_single_cc():
-                    success = False
-
-            goal = GoalGenerator.add_grass(goal)
+            else:
+                goal = structure
 
         return goal
 
@@ -248,303 +227,9 @@ class GrabcraftGoalGenerator(GoalGenerator):
                         else:
                             return None
 
-        if self.config["use_limited_block_set"]:
-            self._fill_auto_with_real_blocks(structure)
-        if self.config["make_uniform"]:
-            structure = GoalGenerator.make_uniform(
-                structure, self.config["uniform_block"]
-            )
+        self._fill_auto_with_real_blocks(structure)
 
         metadata = self.structure_metadata[structure_id]
         logger.info(f"chose structure {structure_id} ({metadata['title']})")
 
         return structure
-
-    @staticmethod
-    def _fill_auto_with_real_blocks(structure: MinecraftBlocks) -> None:
-        autos = np.where(structure.blocks == MinecraftBlocks.AUTO)
-        coords_list = np.asarray(autos).T
-        for coords in coords_list:
-            x, y, z = coords[0], coords[1], coords[2]
-            structure.blocks[x, y, z] = structure.block_to_nearest_neighbors((x, y, z))
-
-
-class CroppedGrabcraftGoalConfig(GrabcraftGoalConfig):
-    tethered_to_ground: bool
-    density_threshold: float
-    save_crop_dir: str
-
-
-class CroppedGrabcraftGoalGenerator(GrabcraftGoalGenerator):
-    default_config: CroppedGrabcraftGoalConfig = {
-        "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
-        "subset": GrabcraftGoalGenerator.default_config["subset"],
-        "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
-        "tethered_to_ground": True,
-        "use_limited_block_set": GrabcraftGoalGenerator.default_config[
-            "use_limited_block_set"
-        ],
-        "density_threshold": 0.25,
-        "save_crop_dir": GrabcraftGoalGenerator.default_config["subset"],
-        "make_uniform": GrabcraftGoalGenerator.default_config["make_uniform"],
-        "uniform_block": GrabcraftGoalGenerator.default_config["uniform_block"],
-    }
-
-    config: CroppedGrabcraftGoalConfig
-
-    def _generate_crop(
-        self, size: WorldSize, retries: int = 5
-    ) -> Tuple[str, MinecraftBlocks, Tuple[int, int, int]]:
-        while True:
-            structure_id = random.choice(list(self.structure_metadata.keys()))
-            structure = self._get_structure(structure_id)
-            if structure is None:
-                continue
-            struct_density = structure.density()
-
-            crop_size = (
-                min(size[0], structure.size[0]),
-                min(size[1], structure.size[1]),
-                min(size[2], structure.size[2]),
-            )
-
-            x_range = structure.size[0] - 1
-            y_range = 0 if self.config["tethered_to_ground"] else structure.size[1] - 1
-            z_range = structure.size[2] - 1
-
-            for _ in range(retries):
-                rand_crop = MinecraftBlocks(crop_size)
-                rand_crop.blocks[:] = MinecraftBlocks.AIR
-                rand_crop.block_states[:] = 0
-
-                x, y, z = (
-                    random.randint(0, x_range),
-                    random.randint(0, y_range),
-                    random.randint(0, z_range),
-                )
-                rand_crop.fill_from_crop(structure, (x, y, z))
-
-                if (
-                    abs(rand_crop.density() - struct_density) / struct_density
-                    > self.config["density_threshold"]
-                ):
-                    continue
-
-                if self.config["force_single_cc"] and not rand_crop.is_single_cc():
-                    continue
-
-                return structure_id, rand_crop, (x, y, z)
-
-    def generate_goal(
-        self, size: WorldSize, save_crop: bool = False
-    ) -> MinecraftBlocks:
-        structure_id, crop, location = self._generate_crop(size)
-
-        # Randomly place structure within world.
-        goal = GoalGenerator.randomly_place_structure(crop, size)
-
-        goal = GoalGenerator.add_grass(goal)
-
-        if save_crop:
-            self.save_crop_as_json(structure_id, crop.size, location)
-
-        return goal
-
-    def save_crop_as_json(
-        self, structure_id: str, crop_size: WorldSize, location: Tuple[int, int, int]
-    ) -> None:
-        assert self.config["save_crop_dir"], "No save directory initialized!"
-
-        with open(
-            os.path.join(self.data_dir, f"{structure_id}.json"), "r"
-        ) as structure_file:
-            structure_json: StructureJson = json.load(structure_file)
-        x_start, y_start, z_start = location
-        crop_json: StructureJson = dict()
-
-        for x in range(x_start, x_start + crop_size[0]):
-            for y in range(y_start, y_start + crop_size[1]):
-                for z in range(z_start, z_start + crop_size[2]):
-                    str_x, str_y, str_z = str(x + 1), str(y + 1), str(z + 1)
-                    if (
-                        str_y in structure_json
-                        and str_x in structure_json[str_y]
-                        and str_z in structure_json[str_y][str_x]
-                    ):
-                        real_x, real_y, real_z = (
-                            str(x + 1 - x_start),
-                            str(y + 1 - y_start),
-                            str(z + 1 - z_start),
-                        )
-                        if real_y not in crop_json:
-                            crop_json[real_y] = dict()
-                        if real_x not in crop_json[real_y]:
-                            crop_json[real_y][real_x] = dict()
-                        if real_z not in crop_json[real_y][real_x]:
-                            crop_json[real_y][real_x][real_z] = structure_json[str_y][
-                                str_x
-                            ][str_z]
-                        else:
-                            crop_json[real_y][real_x][real_z] = structure_json[str_y][
-                                str_x
-                            ][str_z]
-
-        crop_json_str = json.dumps(crop_json)
-        self.structure_metadata[structure_id]["id"] = structure_id + "_crop"
-        metadata_json_str = json.dumps(self.structure_metadata[structure_id])
-
-        save_dir = os.path.join(self.config["data_dir"], self.config["save_crop_dir"])
-        with open(os.path.join(save_dir, str(structure_id) + "_crop.json"), "w+") as f:
-            f.write(crop_json_str)
-
-        with open(
-            os.path.join(save_dir, str(structure_id) + "_crop.metadata.json"), "w+"
-        ) as f:
-            f.write(metadata_json_str)
-
-
-class SingleWallGrabcraftGoalConfig(GrabcraftGoalConfig):
-    min_density: float
-    mirror_wall: bool
-    choose_densest: bool
-    # enable for testing purposes to make it always give you the same wall
-    test_wall: bool
-    # Makes it so that there is only grass at the bottom layer, so that the agent will never have to destroy any blocks.
-    force_bottom_grass: bool
-
-
-class SingleWallGrabcraftGenerator(GrabcraftGoalGenerator):
-    # How often the generator tries to generate a random wall from the specfications before giving up.
-    MAX_TRIES = 10000
-
-    default_config: SingleWallGrabcraftGoalConfig = {
-        "data_dir": GrabcraftGoalGenerator.default_config["data_dir"],
-        "subset": GrabcraftGoalGenerator.default_config["subset"],
-        "force_single_cc": GrabcraftGoalGenerator.default_config["force_single_cc"],
-        "use_limited_block_set": GrabcraftGoalGenerator.default_config[
-            "use_limited_block_set"
-        ],
-        "min_density": 0.8,
-        "mirror_wall": True,
-        "choose_densest": False,
-        "make_uniform": GrabcraftGoalGenerator.default_config["make_uniform"],
-        "uniform_block": GrabcraftGoalGenerator.default_config["uniform_block"],
-        "test_wall": False,
-        "force_bottom_grass": False,
-    }
-
-    config: SingleWallGrabcraftGoalConfig
-
-    def _generate_wall(
-        self,
-        structure: MinecraftBlocks,
-        wall_size: WorldSize,
-        location: Tuple[int, int, int],
-    ) -> MinecraftBlocks:
-        wall = MinecraftBlocks(wall_size)
-        wall.blocks[:] = MinecraftBlocks.AIR
-        wall.block_states[:] = 0
-        wall.fill_from_crop(structure, location)
-
-        return wall
-
-    def _generate_wall_crops(
-        self, size: WorldSize, structure: MinecraftBlocks
-    ) -> List[MinecraftBlocks]:
-        """
-        Generate a list of wall crops for a structure.
-
-                    ^
-                ` y |
-                    |
-                    |
-                    |
-                    | _ _ _ _ _ _ _>
-                    /               x
-                `  /
-                z /
-                v
-        If this is the plane on which the house exists, we go along the z-axis to choose the "wall" of the house
-        with the highest density.
-        """
-        wall_size = (
-            min(size[0], structure.size[0]),
-            min(size[1], structure.size[1]),
-            1,
-        )
-
-        # If the building is bigger than the world size, we choose among multiple possible x-values
-        xs = list(range(structure.size[0] - wall_size[0] + 1))
-        # Start from bottom
-        y = 0
-
-        walls = [
-            self._generate_wall(structure, wall_size, (x, y, z))
-            for z in range(structure.size[2])
-            for x in xs
-        ]
-
-        if self.config["mirror_wall"]:
-            for wall in walls:
-                wall.mirror_x_axis()
-
-        if self.config["force_single_cc"]:
-            walls = [wall for wall in walls if wall.is_single_cc()]
-
-        if self.config["min_density"] > 0:
-            walls = [
-                wall for wall in walls if wall.density() >= self.config["min_density"]
-            ]
-
-        return walls
-
-    def _generate_wall_crop(
-        self, size: WorldSize, structure: MinecraftBlocks
-    ) -> Optional[MinecraftBlocks]:
-        walls = self._generate_wall_crops(size, structure)
-        if len(walls) == 0:
-            return None
-        if self.config["choose_densest"]:
-            wall = max(walls, key=lambda x: x.density())
-        else:
-            wall = random.choice(walls)
-
-        return wall
-
-    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        crop = None
-        tries = 0
-        while crop is None and tries < self.MAX_TRIES:
-
-            structure_id = (
-                random.choice(list(self.structure_metadata.keys()))
-                if not self.config["test_wall"]
-                else "5861"
-            )
-            structure = self._get_structure(structure_id)
-            if structure is not None:
-                crop = self._generate_wall_crop(size, structure)
-            tries += 1
-
-        if crop is None:
-            raise Exception("Unable to generate wall from specifications.")
-        else:
-            # Randomly place structure within world.
-            goal = GoalGenerator.randomly_place_structure(crop, size)
-            goal = GoalGenerator.add_grass(goal)
-            if self.config["force_bottom_grass"]:
-                goal.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["grass"]
-
-            return goal
-
-    def get_sample_size(self, size: WorldSize):
-        sum = 0
-        for k in self.structure_metadata.keys():
-            structure = self._get_structure(k)
-            walls = (
-                self._generate_wall_crops(size, structure)
-                if structure is not None
-                else []
-            )
-            sum += len(walls)
-        return sum

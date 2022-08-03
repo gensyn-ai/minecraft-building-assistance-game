@@ -1,10 +1,14 @@
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.types import MbagAction
+import pytest
 import numpy as np
 import logging
 from numpy.testing import assert_array_equal
 
+from mbag.environment.goals.grabcraft import (
+    GrabcraftGoalGenerator,
+)
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
@@ -27,8 +31,7 @@ def test_layer_builder_agent():
             "world_size": (5, 5, 5),
             "num_players": 1,
             "horizon": 50,
-            "goal_generator": BasicGoalGenerator,
-            "goal_generator_config": {},
+            "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -54,8 +57,7 @@ def test_pq_agent_basic():
             "world_size": (5, 5, 5),
             "num_players": 1,
             "horizon": 50,
-            "goal_generator": BasicGoalGenerator,
-            "goal_generator_config": {},
+            "goal_generator": (BasicGoalGenerator, {}),
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -82,8 +84,7 @@ def test_pq_agent_overhangs():
                 "world_size": (8, 8, 8),
                 "num_players": num_players,
                 "horizon": 100,
-                "goal_generator": SimpleOverhangGoalGenerator,
-                "goal_generator_config": {},
+                "goal_generator": (SimpleOverhangGoalGenerator, {}),
                 "goal_visibility": [True] * num_players,
                 "malmo": {
                     "use_malmo": False,
@@ -108,17 +109,11 @@ def test_pq_agent_grabcraft():
                 "world_size": (12, 12, 12),
                 "num_players": num_players,
                 "horizon": 1000,
-                "goal_generator": TransformedGoalGenerator,
+                "goal_generator": GrabcraftGoalGenerator,
                 "goal_generator_config": {
-                    "goal_generator": "grabcraft",
-                    "goal_generator_config": {
-                        "data_dir": "data/grabcraft",
-                        "subset": "train",
-                    },
-                    "goal_transforms": [
-                        {"transform": "single_cc_filter"},
-                        {"transform": "randomly_place"},
-                    ],
+                    "data_dir": "data/grabcraft",
+                    "subset": "train",
+                    "force_single_cc": True,
                 },
                 "goal_visibility": [True] * num_players,
                 "malmo": {
@@ -148,14 +143,14 @@ def test_pq_agent_grabcraft():
         )
 
 
+@pytest.mark.xfail(strict=False)
 def test_malmo_pq():
     evaluator = MbagEvaluator(
         {
             "world_size": (8, 8, 8),
             "num_players": 1,
             "horizon": 100,
-            "goal_generator": SimpleOverhangGoalGenerator,
-            "goal_generator_config": {},
+            "goal_generator": (SimpleOverhangGoalGenerator, {}),
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
@@ -181,8 +176,7 @@ def test_rllib_heuristic_agents():
         "world_size": (8, 8, 8),
         "num_players": 1,
         "horizon": 100,
-        "goal_generator": BasicGoalGenerator,
-        "goal_generator_config": {},
+        "goal_generator": (BasicGoalGenerator, {}),
         "goal_visibility": [True],
         "malmo": {
             "use_malmo": False,
@@ -328,14 +322,17 @@ def test_mirror_building_agent():
             "world_size": (10, 10, 10),
             "num_players": 2,
             "horizon": 50,
-            "goal_generator_config": {
-                "goal_generator": "random",
-                "goal_generator_config": {"filled_prop": 1},
-                "goal_transforms": [
-                    {"transform": "add_grass", "config": {"mode": "concatenate"}},
-                    {"transform": "mirror", "config": {}},
-                ],
-            },
+            "goal_generator": (
+                TransformedGoalGenerator,
+                {
+                    "goal_generator": "random",
+                    "goal_generator_config": {"filled_prop": 1},
+                    "goal_transforms": [
+                        {"transform": "add_grass", "config": {"mode": "concatenate"}},
+                        {"transform": "mirror", "config": {}},
+                    ],
+                },
+            ),
             "goal_visibility": [True, False],
             "malmo": {
                 "use_malmo": False,
@@ -347,23 +344,29 @@ def test_mirror_building_agent():
         force_get_set_state=False,
     )
     episode_info = evaluator.rollout()
+    print(episode_info.last_obs[0][0][0])
+    print(episode_info.last_obs[0][0][2])
     assert episode_info.cumulative_reward > 50
 
 
+# @pytest.mark.xfail(strict=False)
 def test_mirror_building_agent_in_malmo():
     evaluator = MbagEvaluator(
         {
             "world_size": (10, 10, 10),
             "num_players": 2,
             "horizon": 100,
-            "goal_generator_config": {
-                "goal_generator": "random",
-                "goal_generator_config": {"filled_prop": 1},
-                "goal_transforms": [
-                    {"transform": "add_grass", "config": {"mode": "concatenate"}},
-                    {"transform": "mirror", "config": {}},
-                ],
-            },
+            "goal_generator": (
+                TransformedGoalGenerator,
+                {
+                    "goal_generator": "random",
+                    "goal_generator_config": {"filled_prop": 1},
+                    "goal_transforms": [
+                        {"transform": "add_grass", "config": {"mode": "concatenate"}},
+                        {"transform": "mirror", "config": {}},
+                    ],
+                },
+            ),
             "goal_visibility": [True, False],
             "malmo": {
                 "use_malmo": True,

@@ -13,7 +13,12 @@ from ray.rllib.utils.typing import (
     TrainerConfigDict,
 )
 
-from mbag.environment.goals import ALL_GOAL_GENERATORS
+from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
+from mbag.environment.goals.goal_transform import (
+    GoalTransformSpec,
+    TransformedGoalGeneratorConfig,
+)
+from mbag.environment.goals.transforms import CropTransformConfig
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from .torch_models import (
@@ -46,7 +51,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         # Environment
         goal_generator = "random"
         goal_subset = "train"
-        make_uniform = None
         horizon = 50
         num_players = 1
         height = 5
@@ -61,19 +65,58 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
-
         goal_generator_config = {"subset": goal_subset}
-        if make_uniform is not None:
-            goal_generator_config["make_uniform"] = make_uniform
+
+        goal_transforms: List[GoalTransformSpec] = []
+        uniform_block_type = False
+        force_single_cc = True
+        min_density = 0
+        max_density = 1
+        crop = False
+        crop_density_threshold = 0.25
+        wall = False
+        mirror = False
+        min_width, min_height, min_depth = width // 2, height // 2, depth // 2
+        if uniform_block_type:
+            goal_transforms.append({"transform": "uniform_block_type"})
+        if force_single_cc:
+            goal_transforms.append({"transform": "single_cc_filter"})
+        min_size_config: MinSizeFilterConfig = {
+            "min_size": (min_width, min_height, min_depth)
+        }
+        goal_transforms.append(
+            {"transform": "min_size_filter", "config": min_size_config}
+        )
+        if crop or wall:
+            crop_config: CropTransformConfig = {
+                "density_threshold": 1000 if wall else crop_density_threshold,
+                "tethered_to_ground": True,
+                "wall": wall,
+            }
+            goal_transforms.append({"transform": "crop", "config": crop_config})
+        density_config: DensityFilterConfig = {
+            "min_density": min_density,
+            "max_density": max_density,
+        }
+        goal_transforms.append(
+            {"transform": "density_filter", "config": density_config}
+        )
+        goal_transforms.append({"transform": "randomly_place"})
+        goal_transforms.append({"transform": "add_grass"})
+        if mirror:
+            goal_transforms.append({"transform": "mirror"})
+
+        transformed_goal_generator_config: TransformedGoalGeneratorConfig = {
+            "goal_generator": goal_generator,
+            "goal_generator_config": goal_generator_config,
+            "goal_transforms": goal_transforms,
+        }
 
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
-            "goal_generator": (
-                ALL_GOAL_GENERATORS[goal_generator],
-                goal_generator_config,
-            ),
+            "goal_generator_config": transformed_goal_generator_config,
             "malmo": {
                 "use_malmo": False,
                 "player_names": None,
