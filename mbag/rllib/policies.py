@@ -175,11 +175,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
             dim=1,
         )
         if torch.any(place_block_mask):
-            place_block_loss = place_block_loss[place_block_mask]
-            if self.config["sum_loss"]:
-                place_block_loss = place_block_loss.sum()
-            else:
-                place_block_loss = place_block_loss.mean()
+            place_block_loss = place_block_loss[place_block_mask].mean()
             model.tower_stats["place_block_loss"] = place_block_loss
             return place_block_loss
         else:
@@ -210,7 +206,6 @@ class MbagPPOTrainer(PPOTrainer):
             **super().get_default_config(),
             "goal_loss_coeff": 1.0,
             "place_block_loss_coeff": 1.0,
-            "sum_loss": False,
         }
 
     def get_default_policy_class(self, config):
