@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import logging
+from torch import nn
 from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
 from ray.rllib.policy.torch_policy import TorchPolicy, EntropyCoeffSchedule
@@ -10,19 +11,36 @@ from ray.rllib.contrib.alpha_zero.core.mcts import MCTS, Node, RootParentNode
 from ray.rllib.evaluation.postprocessing import discount_cumsum, Postprocessing
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.models import ModelCatalog, ModelV2, ActionDistribution
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.tune.registry import _global_registry, ENV_CREATOR, register_trainable
 from ray.rllib.evaluation import SampleBatch
 from ray.rllib.utils.typing import TensorType, AgentID
 from ray.rllib.utils.torch_utils import explained_variance
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.evaluation.worker_set import WorkerSet
+from ray.rllib.execution.replay_ops import (
+    SimpleReplayBuffer,
+    Replay,
+    StoreToReplayBuffer,
+    WaitUntilTimestepsElapsed,
+)
+from ray.rllib.execution.rollout_ops import ParallelRollouts, ConcatBatches
+from ray.rllib.execution.concurrency_ops import Concurrently
+from ray.rllib.execution.train_ops import TrainOneStep
+from ray.rllib.execution.metric_ops import StandardMetricsReporting
+from ray.rllib.utils.typing import TrainerConfigDict
+from ray.util.iter import LocalIterator
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.types import MbagActionTuple, MbagInfoDict, MbagAction
+from mbag.environment.types import (
+    GOAL_BLOCKS,
+    MbagActionTuple,
+    MbagInfoDict,
+    MbagAction,
+)
 from .rllib_env import unwrap_mbag_env
 from .planning import MbagEnvModel
-from .torch_models import RewardPredictorMixin
+from .torch_models import MbagTorchModel, RewardPredictorMixin
 
 
 MCTS_POLICIES = "mcts_policies"
@@ -47,7 +65,7 @@ class MbagMCTSNode(Node):
     children: Dict[int, "MbagMCTSNode"]
     action_mapping: np.ndarray
     parent: Union["MbagMCTSNode", MbagRootParentNode]
-    own_reward: np.ndarray
+    goal_logits: Optional[np.ndarray]
     other_reward: float
 
     def __init__(
@@ -71,6 +89,9 @@ class MbagMCTSNode(Node):
 
         self.action_type_dirichlet_noise = None
         self.dirichlet_noise = None
+
+        self.goal_logits = None
+        self.other_reward = 0
 
     def child_Q(self):  # noqa: N802
         Q = self.child_total_value / self.child_number_visits  # noqa: N806
@@ -168,7 +189,10 @@ class MbagMCTSNode(Node):
     def get_child(self, action) -> "MbagMCTSNode":
         if action not in self.children:
             self.env.set_state(self.state)
-            obs, reward, done, info = self.env.step(action)
+            assert self.goal_logits is not None
+            obs, reward, done, info = self.env.step(
+                action, goal_logits=self.goal_logits, other_reward=self.other_reward
+            )
             next_state = self.env.get_state()
             self.children[action] = MbagMCTSNode(
                 state=next_state,
@@ -223,32 +247,16 @@ class MbagMCTS(MCTS):
                 if not self.use_critic:
                     value = 0
 
+                leaf.goal_logits = convert_to_numpy(self.model.goal_function())[0]
+
                 if isinstance(self.model, RewardPredictorMixin):
                     own_reward, other_reward = self.model.predict_reward()
-                    leaf.own_reward = MbagActionDistribution.to_flat(
-                        node.env.config, convert_to_numpy(own_reward), reduction=np.mean
-                    )[0]
                     leaf.other_reward = float(other_reward)
 
                 leaf.expand(
                     child_priors,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
                 )
-
-            if isinstance(self.model, RewardPredictorMixin):
-                if (
-                    leaf.action is not None
-                    and leaf.info is not None
-                    and isinstance(leaf.parent, MbagMCTSNode)
-                ):
-                    action = leaf.action
-                    if leaf.info["action_type"] == MbagAction.NOOP:
-                        action = 0
-                    leaf.reward = (
-                        leaf.parent.own_reward[action] + leaf.parent.other_reward
-                    )
-                else:
-                    leaf.reward = 0
 
             leaf.backup(value)
 
@@ -445,7 +453,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         dist_class: Type[ActionDistribution],
         train_batch: SampleBatch,
     ) -> Union[TensorType, List[TensorType]]:
-        assert isinstance(model, TorchModelV2)
+        assert isinstance(model, MbagTorchModel)
 
         # Forward pass in model.
         model_out = model(train_batch, None, [1])
@@ -465,10 +473,22 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         entropy = dist.entropy().mean()
 
+        # Compute goal prediction loss.
+        goal_logits = model.goal_function()
+        world_obs, _, _ = restore_original_dimensions(
+            train_batch[SampleBatch.OBS],
+            obs_space=self.observation_space,
+            tensorlib=torch,
+        )
+        goal = world_obs[:, GOAL_BLOCKS].long()
+        ce = nn.CrossEntropyLoss()
+        goal_loss = ce(goal_logits, goal)
+
         # Compute total loss.
         total_loss = (
             policy_loss
             + self.config["vf_loss_coeff"] * value_loss
+            + self.config["goal_loss_coeff"] * goal_loss
             - self.entropy_coeff * entropy
         )
 
@@ -503,6 +523,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         model.tower_stats["vf_explained_var"] = explained_variance(
             train_batch[Postprocessing.VALUE_TARGETS], values
         )
+        model.tower_stats["goal_loss"] = goal_loss
         model.tower_stats["entropy"] = entropy
 
         return total_loss
@@ -516,6 +537,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             "policy_loss",
             "vf_loss",
             "vf_explained_var",
+            "goal_loss",
             "entropy",
             "own_reward_loss",
             "own_reward_explained_var",
@@ -523,10 +545,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             "other_reward_explained_var",
             "reward_predictor_loss",
         ]:
-            if self.get_tower_stats(metric):
+            try:
                 grad_info[metric] = torch.mean(
                     torch.stack(self.get_tower_stats(metric))
                 ).item()
+            except AssertionError:
+                pass
         return grad_info
 
     def on_global_var_update(self, global_vars):
@@ -544,6 +568,7 @@ class MbagAlphaZeroTrainer(AlphaZeroTrainer):
             **AlphaZeroTrainer.get_default_config(),
             "vf_loss_coeff": 1.0,
             "reward_predictor_loss_coeff": 1.0,
+            "goal_loss_coeff": 1.0,
             "entropy_coeff": 0,
             "entropy_coeff_schedule": 0,
             "use_critic": True,
@@ -553,6 +578,61 @@ class MbagAlphaZeroTrainer(AlphaZeroTrainer):
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy
+
+    @staticmethod
+    def execution_plan(
+        workers: WorkerSet, config: TrainerConfigDict, **kwargs
+    ) -> LocalIterator[dict]:
+        assert (
+            len(kwargs) == 0
+        ), "Alpha zero execution_plan does NOT take any additional parameters"
+
+        rollouts = ParallelRollouts(workers, mode="bulk_sync")
+
+        if config["simple_optimizer"]:
+            train_op = rollouts.combine(
+                ConcatBatches(
+                    min_batch_size=config["train_batch_size"],
+                    count_steps_by=config["multiagent"]["count_steps_by"],
+                )
+            ).for_each(
+                TrainOneStep(
+                    workers,
+                    num_sgd_iter=config["num_sgd_iter"],
+                    sgd_minibatch_size=config["sgd_minibatch_size"],
+                )
+            )
+        else:
+            # TODO: use newer replay buffer API?
+            replay_buffer = SimpleReplayBuffer(config["buffer_size"])
+
+            store_op = rollouts.for_each(
+                StoreToReplayBuffer(local_buffer=replay_buffer)  # type: ignore
+            )
+
+            replay_op = (
+                Replay(local_buffer=replay_buffer)  # type: ignore
+                .filter(WaitUntilTimestepsElapsed(config["learning_starts"]))
+                .combine(
+                    ConcatBatches(
+                        min_batch_size=config["train_batch_size"],
+                        count_steps_by=config["multiagent"]["count_steps_by"],
+                    )
+                )
+                .for_each(
+                    TrainOneStep(
+                        workers,
+                        num_sgd_iter=config["num_sgd_iter"],
+                        sgd_minibatch_size=config["sgd_minibatch_size"],
+                    )
+                )
+            )
+
+            train_op = Concurrently(
+                [store_op, replay_op], mode="round_robin", output_indexes=[1]
+            )
+
+        return StandardMetricsReporting(train_op, workers, config)
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZeroTrainer)

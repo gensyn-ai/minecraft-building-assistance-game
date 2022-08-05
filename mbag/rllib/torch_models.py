@@ -239,12 +239,11 @@ class MbagTorchModel(ActorCriticModel):
         Construct the head which takes in the output of the value backbone and
         outputs a goal estimate.
         """
-        num_blocks = len(MinecraftBlocks.ID2NAME)
 
         return nn.Sequential(
             nn.Conv3d(self._get_head_in_channels(), self.hidden_size, 1),
             nn.LeakyReLU(),
-            nn.Conv3d(self.hidden_size, num_blocks, 1),
+            nn.Conv3d(self.hidden_size, MinecraftBlocks.NUM_BLOCKS, 1),
         )
 
     def _get_embedded_obs(
@@ -304,6 +303,8 @@ class MbagTorchModel(ActorCriticModel):
             self._inventory_obs,
             self._timestep,
         )
+        if self._embedded_obs.requires_grad:
+            self._embedded_obs.retain_grad()  # TODO: remove
 
         if self.vf_share_layers:
             self._backbone_out = self.backbone(self._embedded_obs)

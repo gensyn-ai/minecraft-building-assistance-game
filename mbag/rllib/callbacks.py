@@ -67,7 +67,9 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
 
             # Log what action the agent made
-            action_type_name = MbagAction.ACTION_TYPE_NAMES[info_dict["action_type"]]
+            action_type_name = MbagAction.ACTION_TYPE_NAMES[
+                info_dict["action"].action_type
+            ]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
             if action_key not in episode.custom_metrics:

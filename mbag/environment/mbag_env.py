@@ -465,7 +465,8 @@ class MbagEnv(object):
         self, player_index: int, action_tuple: MbagActionTuple
     ) -> Tuple[float, MbagInfoDict]:
         action = MbagAction(action_tuple, self.config["world_size"])
-        reward: float = 0
+        goal_dependent_reward = 0.0
+        goal_independent_reward = 0.0
 
         noop: bool = True
         # marks if an action 'correct' meaning it directly contributed to the goal
@@ -487,7 +488,7 @@ class MbagEnv(object):
                 # might be worth adding a test to make sure the reward only comes
                 # through if they did
                 new_inventory_obs = self._get_inventory_obs(player_index)
-                reward += (
+                goal_independent_reward += (
                     np.count_nonzero(new_inventory_obs)
                     - np.count_nonzero(prev_inventory_obs)
                 ) * self._get_reward_config_for_player(player_index)["get_resources"]
@@ -506,10 +507,14 @@ class MbagEnv(object):
                     partial_credit=True,
                     player_index=player_index,
                 )
-                reward += new_goal_similarity - prev_goal_similarity
+                goal_dependent_reward += new_goal_similarity - prev_goal_similarity
                 action_correct = (
-                    action.action_type == MbagAction.PLACE_BLOCK and reward > 0
-                ) or (action.action_type == MbagAction.BREAK_BLOCK and reward >= 0)
+                    action.action_type == MbagAction.PLACE_BLOCK
+                    and goal_dependent_reward > 0
+                ) or (
+                    action.action_type == MbagAction.BREAK_BLOCK
+                    and goal_dependent_reward >= 0
+                )
         elif (
             action.action_type in MbagAction.MOVE_ACTION_TYPES
             and not self.config["abilities"]["teleportation"]
@@ -524,9 +529,15 @@ class MbagEnv(object):
             )
 
         if noop:
-            reward += self._get_reward_config_for_player(player_index)["noop"]
+            goal_independent_reward += self._get_reward_config_for_player(player_index)[
+                "noop"
+            ]
         else:
-            reward += self._get_reward_config_for_player(player_index)["action"]
+            goal_independent_reward += self._get_reward_config_for_player(player_index)[
+                "action"
+            ]
+
+        reward = goal_dependent_reward + goal_independent_reward
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -536,9 +547,11 @@ class MbagEnv(object):
                 self.current_blocks[:],
                 self.goal_blocks[:],
             ).sum(),
+            "goal_dependent_reward": goal_dependent_reward,
+            "goal_independent_reward": goal_independent_reward,
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
-            "action_type": action.action_type if not noop else MbagAction.NOOP,
+            "action": action if not noop else MbagAction.noop_action(),
             "action_correct": action_correct and not noop,
         }
 
@@ -925,7 +938,9 @@ class MbagEnv(object):
         current_block_id, current_block_state = current_block
         goal_block_id, goal_block_state = goal_block
 
-        similarity = np.zeros_like(current_block_id, dtype=float)
+        similarity = np.zeros(
+            np.broadcast(current_block_id, goal_block_id).shape, dtype=float
+        )
         if partial_credit:
             # Give partial credit for placing the wrong block type.
             assert player_index is not None

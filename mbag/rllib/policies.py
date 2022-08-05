@@ -10,10 +10,8 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import TensorType, TrainerConfigDict
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.agents.ppo.ppo_torch_policy import PPOTorchPolicy
-from ray.rllib.policy.torch_policy import TorchPolicy
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
@@ -106,7 +104,6 @@ def add_supervised_loss_to_policy(
     policy_class: Type[TorchPolicy],
     goal_loss_coeff: float,
     place_block_loss_coeff: float,
-    sum_loss: bool = False,
 ) -> Type[TorchPolicy]:
     """
     Adds various supervised losses to the policy.
@@ -218,8 +215,9 @@ def add_supervised_loss_to_policy(
                 goal_block_ids.flatten()[place_block_mask],
             )
 
-            loss = loss + place_block_loss
             model.tower_stats["place_block_loss"] = place_block_loss
+
+            return place_block_loss * place_block_loss_coeff
 
         def log_mean_loss(self, info: Dict[str, TensorType], loss_name: str):
             try:

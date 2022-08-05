@@ -13,6 +13,8 @@ from mbag.environment.types import (
     CURRENT_BLOCKS,
     GOAL_BLOCK_STATES,
     GOAL_BLOCKS,
+    MbagAction,
+    MbagInfoDict,
     MbagObs,
 )
 from .rllib_env import (
@@ -98,19 +100,40 @@ class MbagEnvModel(gym.Env):
         self._store_last_obs_dict(obs_dict)
         return self._process_obs(obs_dict[self.agent_id])
 
-    def step(self, action):
+    def step(
+        self,
+        action: int,
+        goal_logits: Optional[np.ndarray] = None,
+        other_reward: float = 0,
+    ):
         action_dict = {self.agent_id: action}
         for other_agent_id in self.last_obs_dict:
             if other_agent_id != self.agent_id:
                 action_dict[other_agent_id] = 0  # NOOP for now
 
         obs_dict, reward_dict, done_dict, info_dict = self.env.step(action_dict)
+        info: MbagInfoDict = info_dict[self.agent_id]
+
+        if goal_logits is not None:
+            goal_dependent_reward = self._get_predicted_goal_dependent_reward(
+                self.last_obs_dict[self.agent_id], info["action"], goal_logits
+            )
+            own_reward = goal_dependent_reward + info["goal_independent_reward"]
+            reward = own_reward + other_reward
+            reward = (
+                info["own_reward_prop"] * own_reward
+                + (1 - info["own_reward_prop"]) * reward
+            )
+        else:
+            reward = reward_dict[self.agent_id]
+
         self._store_last_obs_dict(obs_dict)
+
         return (
             self._process_obs(obs_dict[self.agent_id]),
-            reward_dict[self.agent_id],
+            reward,
             done_dict.get(self.agent_id, done_dict["__all__"]),
-            info_dict[self.agent_id],
+            info,
         )
 
     def get_state(self) -> MbagEnvModelStateDict:
@@ -137,13 +160,74 @@ class MbagEnvModel(gym.Env):
             self._store_last_obs_dict(obs_dict)
             return self._process_obs(obs_dict[self.agent_id])
 
+    def _get_predicted_goal_dependent_reward(
+        self,
+        obs: MbagObs,
+        action: MbagAction,
+        goal_logits: np.ndarray,
+        player_index: Optional[int] = None,
+    ) -> float:
+        """
+        Given the predicted distribution over goal blocks for each location as a logit
+        array of shape (NUM_BLOCKS, width, height, depth), this gives
+        the expected goal-dependent reward for an action.
+
+        Similarly to get_all_rewards, the rewards returned here are only valid if the
+        action is not effectively a no-op.
+        """
+
+        if player_index is None:
+            player_index = self.player_index
+
+        world_obs, _, _ = obs
+        _, width, height, depth = world_obs.shape
+        env = unwrap_mbag_env(self)
+
+        reward = 0.0
+
+        if (
+            action.action_type == MbagAction.PLACE_BLOCK
+            or action.action_type == MbagAction.BREAK_BLOCK
+        ):
+            prev_block = (
+                world_obs[CURRENT_BLOCKS][action.block_location],
+                world_obs[CURRENT_BLOCK_STATES][action.block_location],
+            )
+            new_block_id = (
+                action.block_id
+                if action.action_type == MbagAction.PLACE_BLOCK
+                else MinecraftBlocks.AIR
+            )
+            new_block = np.array(new_block_id), np.array(0)
+            goal_block_ids = np.arange(MinecraftBlocks.NUM_BLOCKS, dtype=np.uint8)
+            goal_blocks = goal_block_ids, np.zeros_like(goal_block_ids)
+
+            goal_block_id_dist = np.exp(
+                goal_logits[(slice(None),) + action.block_location]
+            )
+            goal_block_id_dist /= goal_block_id_dist.sum()
+
+            prev_similarity = env._get_goal_similarity(
+                prev_block, goal_blocks, partial_credit=True, player_index=player_index
+            )
+            new_similarity = env._get_goal_similarity(
+                new_block, goal_blocks, partial_credit=True, player_index=player_index
+            )
+            reward = float(
+                np.sum((new_similarity - prev_similarity) * goal_block_id_dist)
+            )
+
+        # TODO: implement lack of reward for breaking palette blocks
+
+        return reward
+
     def get_all_rewards(
         self, obs_batch: MbagObs, player_index: Optional[int] = None
     ) -> np.ndarray:
         """
         Given a batch of observations, get the rewards for all possible actions
         as an array of shape (batch_size, NUM_CHANNELS, width, height, depth),
-        where NUM_CHANNELS as defined as in MbagActionDistribution.
+        where NUM_CHANNELS is as defined as in MbagActionDistribution.
 
         The rewards returned here are only valid if the action is not a no-op.
         If the action is a noop (e.g., if the action is invalid) then the actual
@@ -186,8 +270,7 @@ class MbagEnvModel(gym.Env):
                 :, block_id
             ] = block_id_reward
 
-        # TODO: implement shaping reward for gathering resources and lack of reward
-        # for breaking palette blocks
+        # TODO: implement lack of reward for breaking palette blocks
 
         return rewards
 

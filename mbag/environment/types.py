@@ -133,6 +133,10 @@ class MbagAction(object):
     def __repr__(self):
         return f"MbagAction<{self}>"
 
+    @classmethod
+    def noop_action(cls):
+        return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
+
 
 class MbagInfoDict(TypedDict):
     goal_similarity: float
@@ -142,9 +146,23 @@ class MbagInfoDict(TypedDict):
     potentially shaped reward given to the agent by the environment.
     """
 
+    goal_dependent_reward: float
+    """
+    The reward from this step which is due to the current player's actions and which
+    depends on the goal.
+    """
+
+    goal_independent_reward: float
+    """
+    The reward from this step which is due to the current player's actions but which
+    does not depend on the goal, i.e., bonuses or penalties for no-ops and actions,
+    resource gathering bonuses, etc.
+    """
+
     own_reward: float
     """
-    The reward from this step which is due to the current player's direct actions.
+    The reward from this step which is due to the current player's direct actions, i.e.
+    the sum of goal_dependent_reward and goal_independent_reward.
     """
 
     own_reward_prop: float
@@ -153,7 +171,7 @@ class MbagInfoDict(TypedDict):
     direct actions, as opposed to other agents'.
     """
 
-    action_type: MbagActionType
+    action: MbagAction
     """
     The action that the player effectively took. That is, if the player attempted to
     do something but it didn't actually affect the world, it is logged as NOOP.
