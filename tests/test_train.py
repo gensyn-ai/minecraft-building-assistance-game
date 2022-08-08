@@ -55,20 +55,6 @@ def test_single_agent(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_alpha_zero(default_config):
-    result = ex.run(
-        config_updates={
-            **default_config,
-            "run": "MbagAlphaZero",
-            "goal_generator": "random",
-            "use_replay_buffer": False,
-        }
-    ).result
-
-    assert result["custom_metrics"]["ppo/own_reward_mean"] >= 1
-
-
-@pytest.mark.uses_rllib
 def test_transformer(default_config):
     result = ex.run(
         config_updates={
@@ -163,6 +149,40 @@ def test_train_together(default_config):
             "num_players": 2,
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_0", "ppo_1"],
+        }
+    ).result
+    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
+    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+        }
+    ).result
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero_assistant(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "checkpoint_to_load_policies": dummy_run,
+            "load_policies_mapping": {"ppo": "ppo_0"},
+            "policies_to_train": ["ppo_1"],
         }
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
