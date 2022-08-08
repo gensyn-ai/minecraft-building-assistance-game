@@ -365,7 +365,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 )
                 distill_policy_id = f"{heuristic}_distilled"
                 policies[distill_policy_id] = PolicySpec(
-                    MBAG_POLICIES.get(run),
+                    None,
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},

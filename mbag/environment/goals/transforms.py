@@ -116,9 +116,9 @@ class CropTransform(GoalTransform):
             struct_density = goal.density()
 
             crop_size = (
-                1 if self.config["wall"] else min(size[0], goal.size[0]),
+                min(size[0], goal.size[0]),
                 min(size[1], goal.size[1]),
-                min(size[2], goal.size[2]),
+                1 if self.config["wall"] else min(size[2], goal.size[2]),
             )
 
             x_range = goal.size[0] - crop_size[0]

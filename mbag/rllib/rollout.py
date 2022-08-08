@@ -23,7 +23,7 @@ ex = Experiment("rollout")
 
 @ex.config
 def sacred_config():
-    run = "PPO"  # noqa: F841
+    run = "MbagPPO"  # noqa: F841
     checkpoint = ""  # noqa: F841
     episodes = 100  # noqa: F841
     experiment_name = ""  # noqa: F841
