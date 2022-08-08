@@ -7,7 +7,7 @@ import ray
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.rollout import rollout
+from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.utils.typing import PolicyID
 from ray.rllib.agents import Trainer
 from sacred import Experiment
@@ -36,7 +36,7 @@ def sacred_config():
         "seed": seed,
         "evaluation_num_workers": num_workers,
         "create_env_on_driver": True,
-        "evaluation_num_episodes": max(num_workers, 1),
+        "evaluation_num_episodes": episodes,
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
         "env_config": {"malmo": {}},
@@ -117,10 +117,11 @@ def main(
 
     gym.logger.set_level(gym.logger.INFO)
 
-    rollout(
-        trainer,
-        None,
-        num_steps=0,
-        num_episodes=episodes,
-    )
+    saver = RolloutSaver()
+
+    saver.begin_rollout()
+    eval_result = trainer.evaluate()["evaluation"]
+    saver.end_rollout()
     trainer.stop()
+
+    return eval_result
