@@ -119,7 +119,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         gamma = 0.95
         gae_lambda = 0.98
         vf_share_layers = False
-        vf_loss_coeff = 1e-4
+        vf_loss_coeff = 1e-2
         entropy_coeff_start = 0 if "AlphaZero" in run else 0.01
         entropy_coeff_end = 0
         entropy_coeff_horizon = 1e5

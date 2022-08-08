@@ -115,13 +115,15 @@ class MbagEnvModel(gym.Env):
         info: MbagInfoDict = info_dict[self.agent_id]
 
         if goal_logits is not None:
-            goal_dependent_reward = self._get_predicted_goal_dependent_reward(
+            info["goal_dependent_reward"] = self._get_predicted_goal_dependent_reward(
                 self.last_obs_dict[self.agent_id], info["action"], goal_logits
             )
-            own_reward = goal_dependent_reward + info["goal_independent_reward"]
-            reward = own_reward + other_reward
+            info["own_reward"] = (
+                info["goal_dependent_reward"] + info["goal_independent_reward"]
+            )
+            reward = info["own_reward"] + other_reward
             reward = (
-                info["own_reward_prop"] * own_reward
+                info["own_reward_prop"] * info["own_reward"]
                 + (1 - info["own_reward_prop"]) * reward
             )
         else:

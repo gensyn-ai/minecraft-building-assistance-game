@@ -249,10 +249,6 @@ class MbagMCTS(MCTS):
 
                 leaf.goal_logits = convert_to_numpy(self.model.goal_function())[0]
 
-                if isinstance(self.model, RewardPredictorMixin):
-                    own_reward, other_reward = self.model.predict_reward()
-                    leaf.other_reward = float(other_reward)
-
                 leaf.expand(
                     child_priors,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
@@ -305,6 +301,7 @@ class MbagMCTS(MCTS):
                             node.child_priors[action],
                             child.number_visits,
                             tree_policy[action],
+                            node.valid_actions.astype(int).sum(),
                         ],
                     )
                 )
@@ -353,6 +350,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             env_creator=env_creator,
         )
 
+        self.mcts.model = self.model
+
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
         )
@@ -360,6 +359,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
     ):
+        assert self.mcts.model == self.model
+
         player_index = int(input_dict[SampleBatch.AGENT_INDEX])
         self.env.set_player_index(player_index)
 
