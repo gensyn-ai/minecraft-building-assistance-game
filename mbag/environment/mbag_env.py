@@ -264,7 +264,7 @@ class MbagEnv(object):
                     (MinecraftBlocks.NUM_BLOCKS,),
                     dtype=int,
                 ),
-                spaces.Box(0, self.config["horizon"], (), dtype=np.int32),
+                spaces.Box(0, 0x7FFFFFFF, (), dtype=np.int32),
             )
         )
 
@@ -959,24 +959,35 @@ class MbagEnv(object):
             world_obs[GOAL_BLOCKS] = self.goal_blocks.blocks
             world_obs[GOAL_BLOCK_STATES] = self.goal_blocks.block_states
 
+        # Player markers for the observation: the current player is marked with 1
+        # and then other players are marked starting with 2, 3, ...
+        player_marker_map = {
+            player_index: CURRENT_PLAYER,
+            **{
+                other_player_index: other_player_marker + OTHER_PLAYER
+                for other_player_marker, other_player_index in enumerate(
+                    list(range(player_index))
+                    + list(range(player_index + 1, self.config["num_players"]))
+                )
+            },
+        }
+
         # Add locations to the observation if the locations are actually meaningful
         # (i.e., if players do not have teleportation abilities).
         if not self.config["abilities"]["teleportation"]:
-            # Current player location is marked with 1 in the observation.
-            self._add_player_location_to_world_obs(
-                world_obs, self.player_locations[player_index], CURRENT_PLAYER
-            )
-            # Now other player locations are marked starting with 2.
             for other_player_index, other_player_location in enumerate(
-                self.player_locations[:player_index]
-                + self.player_locations[player_index + 1 :]
+                self.player_locations
             ):
                 self._add_player_location_to_world_obs(
-                    world_obs, other_player_location, other_player_index + OTHER_PLAYER
+                    world_obs,
+                    other_player_location,
+                    player_marker_map[other_player_index],
                 )
 
-        f = np.vectorize(self._observation_from_player_perspective)
-        world_obs[LAST_INTERACTED] = f(self.last_interacted, player_index)
+        for other_player_index in range(self.config["num_players"]):
+            world_obs[LAST_INTERACTED][
+                self.last_interacted == other_player_index
+            ] = player_marker_map[other_player_index]
 
         return (
             world_obs,
@@ -996,14 +1007,6 @@ class MbagEnv(object):
         ):
             assert world_obs[4, x, y, z] == 0, "players are overlapping"
             world_obs[4, x, y, z] = marker
-
-    def _observation_from_player_perspective(self, x: Optional[int], player_index: int):
-        if x == NO_INTERACTION:
-            return NO_ONE
-        elif player_index == x:
-            return CURRENT_PLAYER
-        else:
-            return player_index + OTHER_PLAYER
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         if isinstance(self.config["rewards"], list):
@@ -1158,6 +1161,9 @@ class MbagEnv(object):
         }
 
     def set_state_no_obs(self, state: MbagStateDict) -> None:
+        if self.config["malmo"]["use_malmo"]:
+            raise RuntimeError("Cannot set state when using Malmo.")
+
         self.current_blocks = state["current_blocks"].copy()
         self.goal_blocks = state["goal_blocks"].copy()
         self.player_locations = list(state["player_locations"])
