@@ -164,7 +164,11 @@ class MbagMCTSNode(Node):
         self.goal_logits = goal_logits
         self.other_agent_action_dist = other_agent_action_dist
 
-        if self.info is not None and self.goal_logits is not None:
+        if (
+            self.info is not None
+            and self.goal_logits is not None
+            and isinstance(self.parent, MbagMCTSNode)
+        ):
             # We need to update the reward for this node based on the new goal_logits.
             self.reward = self.env.get_reward_with_other_agent_actions(
                 self.parent.obs["obs"],
