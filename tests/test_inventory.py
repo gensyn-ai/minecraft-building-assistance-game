@@ -7,9 +7,7 @@ from mbag.agents.hardcoded_agents import (
     HardcodedInventoryDonator,
 )
 from mbag.agents.heuristic_agents import NoopAgent
-from mbag.environment.goals.simple import (
-    BasicGoalGenerator,
-)
+from mbag.environment.goals.simple import BasicGoalGenerator
 
 logger = logging.getLogger(__name__)
 
