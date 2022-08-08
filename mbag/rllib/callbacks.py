@@ -79,7 +79,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                     ] = 0
             episode.custom_metrics[action_key] += 1
 
-            if "{policy_id}/num_correct_place_block" not in episode.custom_metrics:
+            if f"{policy_id}/num_correct_place_block" not in episode.custom_metrics:
                 for name in ["place_block", "break_block"]:
                     episode.custom_metrics[f"{policy_id}/num_correct_{name}"] = 0
 
@@ -110,6 +110,12 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         info_dict: MbagInfoDict = episode.last_info_for("player_0")
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
+        print({"goal_similarity": info_dict["goal_similarity"]})
+        world_obs, _, _ = episode.last_raw_obs_for("player_0")
+        from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
+
+        incorrect = world_obs[CURRENT_BLOCKS] != world_obs[GOAL_BLOCKS]
+        print(list(map(tuple, zip(*np.nonzero(incorrect)))))
 
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
