@@ -131,7 +131,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         use_replay_buffer = True
         replay_buffer_size = 10
         use_critic = True
-        reward_predictor_loss_coeff = 1.0
+        other_agent_action_predictor_loss_coeff = 1.0
 
         # MCTS
         puct_coefficient = 1.0
@@ -357,7 +357,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     "simple_optimizer": not use_replay_buffer,
                     "buffer_size": replay_buffer_size,
                     "use_critic": use_critic,
-                    "reward_predictor_loss_coeff": reward_predictor_loss_coeff,
+                    "other_agent_action_predictor_loss_coeff": other_agent_action_predictor_loss_coeff,
                     # "replay_buffer_config": {
                     #     "type": "ReplayBuffer",
                     #     "capacity": 10000,

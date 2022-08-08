@@ -36,11 +36,10 @@ from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.types import (
     GOAL_BLOCKS,
     MbagActionTuple,
-    MbagInfoDict,
     MbagAction,
 )
 from .rllib_env import unwrap_mbag_env
-from .planning import MbagEnvModel
+from .planning import MbagEnvModel, MbagEnvModelInfoDict
 from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 
 
@@ -62,10 +61,11 @@ class MbagRootParentNode(RootParentNode):
 class MbagMCTSNode(Node):
     env: MbagEnvModel
     mcts: "MbagMCTS"
-    children: Dict[int, "MbagMCTSNode"]
+    children: Dict[Tuple[int, ...], "MbagMCTSNode"]
     action_mapping: np.ndarray
     parent: Union["MbagMCTSNode", MbagRootParentNode]
     goal_logits: Optional[np.ndarray]
+    other_agent_action_dist: Optional[np.ndarray]
     other_reward: float
 
     def __init__(
@@ -73,7 +73,7 @@ class MbagMCTSNode(Node):
         action,
         obs,
         done,
-        info: Optional[MbagInfoDict],
+        info: Optional[MbagEnvModelInfoDict],
         reward,
         state,
         mcts,
@@ -91,7 +91,7 @@ class MbagMCTSNode(Node):
         self.dirichlet_noise = None
 
         self.goal_logits = None
-        self.other_reward = 0
+        self.other_agent_action_dist = None
 
     def child_Q(self):  # noqa: N802
         Q = self.child_total_value / self.child_number_visits  # noqa: N806
@@ -126,7 +126,9 @@ class MbagMCTSNode(Node):
             self.action_mapping[:, 0], weights=self.child_number_visits
         )
         priors = np.bincount(self.action_mapping[:, 0], weights=self.child_priors)
-        return np.sqrt(self.number_visits) * priors / (1 + number_visits)
+        return (
+            np.sqrt(1 + np.sum(self.child_number_visits)) * priors / (1 + number_visits)
+        )
 
     @property
     def valid_action_types(self) -> np.ndarray:
@@ -150,8 +152,25 @@ class MbagMCTSNode(Node):
         masked_child_score[self.action_mapping[:, 0] != action_type] = -np.inf
         return int(np.argmax(masked_child_score))
 
-    def expand(self, child_priors, add_dirichlet_noise=False) -> None:
+    def expand(
+        self,
+        child_priors,
+        goal_logits: Optional[np.ndarray] = None,
+        other_agent_action_dist: Optional[np.ndarray] = None,
+        add_dirichlet_noise=False,
+    ) -> None:
         super().expand(child_priors)
+
+        self.goal_logits = goal_logits
+        self.other_agent_action_dist = other_agent_action_dist
+
+        if self.info is not None and self.goal_logits is not None:
+            # We need to update the reward for this node based on the new goal_logits.
+            self.reward = self.env.get_reward_with_other_agent_actions(
+                self.parent.obs["obs"],
+                self.info,
+                self.goal_logits,
+            )
 
         self.child_priors[~self.valid_actions] = 0
         self.child_priors /= self.child_priors.sum()
@@ -186,15 +205,26 @@ class MbagMCTSNode(Node):
                 ].sum() * dirichlet_noise
             assert abs(self.child_priors.sum() - 1) < 1e-2
 
-    def get_child(self, action) -> "MbagMCTSNode":
-        if action not in self.children:
+    def get_child(self, action: int) -> "MbagMCTSNode":
+        all_actions: Tuple[int, ...] = (action,)
+        other_agent_actions: Optional[List[int]] = None
+        if self.other_agent_action_dist is not None:
+            other_agent_action = np.random.choice(
+                np.arange(self.action_space_size), p=self.other_agent_action_dist
+            )
+            all_actions = action, other_agent_action
+            other_agent_actions = [other_agent_action]
+
+        if all_actions not in self.children:
             self.env.set_state(self.state)
             assert self.goal_logits is not None
             obs, reward, done, info = self.env.step(
-                action, goal_logits=self.goal_logits, other_reward=self.other_reward
+                action,
+                goal_logits=self.goal_logits,
+                other_player_actions=other_agent_actions,
             )
             next_state = self.env.get_state()
-            self.children[action] = MbagMCTSNode(
+            self.children[all_actions] = MbagMCTSNode(
                 state=next_state,
                 action=action,
                 parent=self,
@@ -204,7 +234,7 @@ class MbagMCTSNode(Node):
                 obs=obs,
                 mcts=self.mcts,
             )
-        return self.children[action]
+        return self.children[all_actions]
 
     def backup(self, value):
         current = self
@@ -247,10 +277,18 @@ class MbagMCTS(MCTS):
                 if not self.use_critic:
                     value = 0
 
-                leaf.goal_logits = convert_to_numpy(self.model.goal_function())[0]
+                goal_logits = convert_to_numpy(self.model.goal_function())[0]
+
+                other_agent_action_dist: Optional[np.ndarray] = None
+                if isinstance(self.model, OtherAgentActionPredictorMixin):
+                    other_agent_action_dist = convert_to_numpy(
+                        self.model.predict_other_agent_action().softmax(1)
+                    )[0]
 
                 leaf.expand(
                     child_priors,
+                    goal_logits=goal_logits,
+                    other_agent_action_dist=other_agent_action_dist,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
                 )
 
@@ -275,20 +313,7 @@ class MbagMCTS(MCTS):
             )
 
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                [
-                    (
-                        node.get_mbag_action(action),
-                        child.reward,
-                        node.child_Q()[action],
-                        node.child_U()[action],
-                        child.number_visits,
-                    )
-                    for action, child in node.children.items()
-                ]
-            )
-
-            child = node.children[action]
+            child = node.get_child(action)
             logger.debug(
                 "\t".join(
                     map(
@@ -315,11 +340,11 @@ class MbagMCTS(MCTS):
             current = node
             while len(current.children) > 0:
                 plan_action = int(np.argmax(current.child_number_visits))
-                current = current.children[plan_action]
+                current = current.get_child(plan_action)
                 plan.append((node.get_mbag_action(plan_action), current.reward))
             logger.debug(plan)
 
-        return tree_policy, action, node.children[action]
+        return tree_policy, action, node.get_child(action)
 
 
 class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):

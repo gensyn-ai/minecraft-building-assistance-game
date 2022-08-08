@@ -1,4 +1,4 @@
-from typing import Dict, Optional, TypedDict, Union
+from typing import Dict, List, Optional, Sequence, TypedDict, Union
 import gym
 import numpy as np
 from gym import spaces
@@ -32,6 +32,10 @@ class MbagObsWithMask(TypedDict):
 
 class MbagEnvModelStateDict(MbagStateDict, total=False):
     last_obs: Union[MbagObs, MbagObsWithMask]
+
+
+class MbagEnvModelInfoDict(MbagInfoDict):
+    other_player_infos: List[MbagInfoDict]
 
 
 class MbagEnvModel(gym.Env):
@@ -104,15 +108,26 @@ class MbagEnvModel(gym.Env):
         self,
         action: int,
         goal_logits: Optional[np.ndarray] = None,
-        other_reward: float = 0,
+        other_player_actions: Optional[Sequence[int]] = None,
     ):
         action_dict = {self.agent_id: action}
-        for other_agent_id in self.last_obs_dict:
-            if other_agent_id != self.agent_id:
-                action_dict[other_agent_id] = 0  # NOOP for now
+
+        other_agent_ids = list(self.last_obs_dict)
+        other_agent_ids.remove(self.agent_id)
+        if other_player_actions is None:
+            for other_agent_id in other_agent_ids:
+                action_dict[other_agent_id] = 0  # NOOP
+        else:
+            for other_agent_id, other_player_action in zip(
+                other_agent_ids, other_player_actions
+            ):
+                action_dict[other_agent_id] = other_player_action
 
         obs_dict, reward_dict, done_dict, info_dict = self.env.step(action_dict)
-        info: MbagInfoDict = info_dict[self.agent_id]
+        info: MbagEnvModelInfoDict = info_dict[self.agent_id]
+        info["other_player_infos"] = [
+            info_dict[other_agent_id] for other_agent_id in other_agent_ids
+        ]
 
         if goal_logits is not None:
             info["goal_dependent_reward"] = self._get_predicted_goal_dependent_reward(
@@ -121,7 +136,7 @@ class MbagEnvModel(gym.Env):
             info["own_reward"] = (
                 info["goal_dependent_reward"] + info["goal_independent_reward"]
             )
-            reward = info["own_reward"] + other_reward
+            reward = info["own_reward"]
             reward = (
                 info["own_reward_prop"] * info["own_reward"]
                 + (1 - info["own_reward_prop"]) * reward
@@ -161,6 +176,43 @@ class MbagEnvModel(gym.Env):
             obs_dict = self.env.set_state(state)
             self._store_last_obs_dict(obs_dict)
             return self._process_obs(obs_dict[self.agent_id])
+
+    def get_reward_with_other_agent_actions(
+        self,
+        obs: MbagObs,
+        info: MbagEnvModelInfoDict,
+        goal_logits: np.ndarray,
+    ) -> float:
+        """
+        Given an observation and the info dict returned from step, returns an overall
+        reward based on this and other players' actions.
+        """
+
+        other_reward = 0.0
+        other_player_indices = list(range(self.config["num_players"]))
+        other_player_indices.remove(self.player_index)
+        for other_player_index, other_player_info in zip(
+            other_player_indices, info["other_player_infos"]
+        ):
+            goal_dependent_reward = self._get_predicted_goal_dependent_reward(
+                # I think it's okay to use the this player's obs even though it should
+                # technically be the other player's
+                obs,
+                other_player_info["action"],
+                goal_logits,
+                player_index=other_player_index,
+            )
+            other_reward += (
+                goal_dependent_reward + other_player_info["goal_independent_reward"]
+            )
+
+        reward = info["own_reward"] + other_reward
+        reward = (
+            info["own_reward_prop"] * info["own_reward"]
+            + (1 - info["own_reward_prop"]) * reward
+        )
+
+        return reward
 
     def _get_predicted_goal_dependent_reward(
         self,
