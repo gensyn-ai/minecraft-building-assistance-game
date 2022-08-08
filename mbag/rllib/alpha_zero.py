@@ -1,8 +1,9 @@
+import copy
 import torch
 import numpy as np
 import logging
 from torch import nn
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, cast
+from typing import Dict, List, Optional, Tuple, Type, Union, cast
 
 from ray.rllib.policy.torch_policy import TorchPolicy, EntropyCoeffSchedule
 from ray.rllib.contrib.alpha_zero.core.alpha_zero_policy import AlphaZeroPolicy
@@ -40,12 +41,11 @@ from mbag.environment.types import (
 )
 from .rllib_env import unwrap_mbag_env
 from .planning import MbagEnvModel
-from .torch_models import MbagTorchModel, RewardPredictorMixin
+from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 
 
 MCTS_POLICIES = "mcts_policies"
-ALL_REWARDS = "all_rewards"
-OTHER_AGENT_REWARDS = "other_agent_rewards"
+OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
 
 
 logger = logging.getLogger(__name__)
@@ -333,8 +333,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
-            env = env_creator(config["env_config"])
-            return MbagEnvModel(env, config["env_config"])
+            # We should never use Malmo in the env model.
+            env_config = copy.deepcopy(config["env_config"])
+            env_config["malmo"]["use_malmo"] = False
+            env = env_creator(env_config)
+            return MbagEnvModel(env, env_config)
 
         def mcts_creator():
             return MbagMCTS(model, config["mcts_config"], config["gamma"])
@@ -428,20 +431,17 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             sample_batch[SampleBatch.T]
         ]
 
-        # Add all rewards to sample batch for the purposes of training the reward
-        # predictor.
-        obs = restore_original_dimensions(
-            sample_batch[SampleBatch.OBS], self.observation_space, tensorlib=np
-        )
-        sample_batch[ALL_REWARDS] = self.env.get_all_rewards(obs)
-
-        sample_batch[OTHER_AGENT_REWARDS] = np.zeros(len(sample_batch))
         if other_agent_batches is not None:
-            for agent_id, (_, other_agent_batch) in other_agent_batches.items():
-                infos: Sequence[MbagInfoDict] = other_agent_batch[SampleBatch.INFOS]
-                sample_batch[OTHER_AGENT_REWARDS] += np.array(
-                    np.array([info["own_reward"] for info in infos])
+            if len(other_agent_batches) != 1:
+                raise RuntimeError(
+                    "Training with multiple other agents is not supported."
                 )
+            other_agent_id, (_, other_agent_batch) = next(
+                iter(other_agent_batches.items())
+            )
+            sample_batch[OTHER_AGENT_ACTION_DIST_INPUTS] = other_agent_batch[
+                SampleBatch.ACTION_DIST_INPUTS
+            ]
 
         return sample_batch
 
@@ -493,30 +493,26 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             - self.entropy_coeff * entropy
         )
 
-        if isinstance(model, RewardPredictorMixin):
-            # Compute reward predictor losses.
-            own_rewards, other_rewards = model.predict_reward()
-            own_reward_loss = torch.mean((own_rewards - train_batch[ALL_REWARDS]) ** 2)
-            other_reward_loss = torch.mean(
-                (other_rewards - train_batch[OTHER_AGENT_REWARDS]) ** 2
+        if isinstance(model, OtherAgentActionPredictorMixin):
+            # Compute other agent action prediction loss.
+            predicted_other_agent_action_dist = dist_class(
+                model.predict_other_agent_action()
             )
-            reward_predictor_loss = own_reward_loss + other_reward_loss
+            actual_other_agent_action_dist = dist_class(
+                train_batch[OTHER_AGENT_ACTION_DIST_INPUTS]
+            )
+            other_agent_action_predictor_loss = actual_other_agent_action_dist.kl(
+                predicted_other_agent_action_dist
+            ).mean()
+
+            model.tower_stats[
+                "other_agent_action_predictor_loss"
+            ] = other_agent_action_predictor_loss
             total_loss = (
                 total_loss
-                + self.config["reward_predictor_loss_coeff"] * reward_predictor_loss
+                + self.config["other_agent_action_predictor_loss_coeff"]
+                * other_agent_action_predictor_loss
             )
-
-            model.tower_stats["own_reward_loss"] = own_reward_loss
-            model.tower_stats["own_reward_explained_var"] = explained_variance(
-                train_batch[ALL_REWARDS].flatten(),
-                own_rewards.flatten(),
-            )
-            model.tower_stats["other_reward_loss"] = other_reward_loss
-            model.tower_stats["other_reward_explained_var"] = explained_variance(
-                train_batch[OTHER_AGENT_REWARDS],
-                other_rewards.flatten(),
-            )
-            model.tower_stats["reward_predictor_loss"] = reward_predictor_loss
 
         model.tower_stats["total_loss"] = total_loss
         model.tower_stats["policy_loss"] = policy_loss
@@ -540,11 +536,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             "vf_explained_var",
             "goal_loss",
             "entropy",
-            "own_reward_loss",
-            "own_reward_explained_var",
-            "other_reward_loss",
-            "other_reward_explained_var",
-            "reward_predictor_loss",
+            "other_agent_action_predictor_loss",
         ]:
             try:
                 grad_info[metric] = torch.mean(
@@ -568,7 +560,7 @@ class MbagAlphaZeroTrainer(AlphaZeroTrainer):
         config = {
             **AlphaZeroTrainer.get_default_config(),
             "vf_loss_coeff": 1.0,
-            "reward_predictor_loss_coeff": 1.0,
+            "other_agent_action_predictor_loss_coeff": 1.0,
             "goal_loss_coeff": 1.0,
             "entropy_coeff": 0,
             "entropy_coeff_schedule": 0,

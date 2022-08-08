@@ -996,7 +996,7 @@ class MbagTransformerModel(MbagTorchModel):
 ModelCatalog.register_custom_model("mbag_transformer_model", MbagTransformerModel)
 
 
-class RewardPredictorMixin(MbagTorchModel):
+class OtherAgentActionPredictorMixin(MbagTorchModel):
     def __init__(
         self,
         obs_space: spaces.Space,
@@ -1010,40 +1010,21 @@ class RewardPredictorMixin(MbagTorchModel):
             obs_space, action_space, num_outputs, model_config, name, **kwargs
         )
 
-        self.reward_prediction_head = self._construct_reward_prediction_head()
+        self.other_agent_action_prediction_head = self._construct_action_head()
 
-    def _construct_reward_prediction_head(self) -> nn.Module:
-        """
-        Construct the head which outputs the prediction of the reward for each action
-        as well as the reward that the other agents will get this timestep.
-        """
-
-        reward_prediction_layers: List[nn.Module] = []
-        for layer_index in range(self.num_value_layers):
-            reward_prediction_layers.append(
-                nn.Conv3d(
-                    self._get_head_in_channels()
-                    if layer_index == 0
-                    else self.hidden_size,
-                    MbagActionDistribution.NUM_CHANNELS + 1
-                    if layer_index == self.num_value_layers - 1
-                    else self.hidden_size,
-                    kernel_size=1,
-                )
-            )
-            if layer_index < self.num_value_layers - 1:
-                reward_prediction_layers.append(nn.LeakyReLU())
-
-        return nn.Sequential(*reward_prediction_layers)
-
-    def predict_reward(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        head_out: torch.Tensor = self.reward_prediction_head(self._backbone_out)
-        own_reward = head_out[:, :-1]
-        other_reward = head_out[:, -1].flatten(start_dim=1).mean(dim=1)
-        return own_reward, other_reward
+    def predict_other_agent_action(self) -> torch.Tensor:
+        logits: torch.Tensor = self.other_agent_action_prediction_head(
+            self._backbone_out
+        )
+        flat_logits = MbagActionDistribution.to_flat_torch_logits(
+            self.env_config, logits
+        )
+        return flat_logits
 
 
-class MbagTransformerAlphaZeroModel(MbagTransformerModel, RewardPredictorMixin):
+class MbagTransformerAlphaZeroModel(
+    MbagTransformerModel, OtherAgentActionPredictorMixin
+):
     pass
 
 
