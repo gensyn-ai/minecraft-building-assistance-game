@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 from typing_extensions import Literal
 from logging import Logger
 import os
@@ -313,7 +313,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             policy_class = MbagPPOTorchPolicy
         elif "AlphaZero" in run:
             policy_class = MbagAlphaZeroPolicy
-        policy_config = {"model": model_config}
+        policy_config: Dict[str, Any] = {"model": model_config}
         for policy_id in policy_ids:
             if policy_id in loaded_policy_dict:
                 policies[policy_id] = loaded_policy_dict[policy_id]
