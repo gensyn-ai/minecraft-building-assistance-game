@@ -22,7 +22,7 @@ def test_inventory():
             "world_size": (5, 6, 5),
             "num_players": 1,
             "horizon": 20,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
             "goal_visibility": [True],
             "goal_generator_config": {"pallette": True},
             "malmo": {
@@ -54,7 +54,7 @@ def test_inventory_in_malmo():
             "world_size": (5, 6, 5),
             "num_players": 1,
             "horizon": 20,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
             "goal_visibility": [True],
             "goal_generator_config": {"pallette": True},
             "malmo": {
@@ -85,7 +85,7 @@ def test_pallette():
             "world_size": (10, 10, 10),
             "num_players": 1,
             "horizon": 10,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
@@ -116,7 +116,7 @@ def test_pallette_in_malmo():
             "world_size": (10, 10, 10),
             "num_players": 1,
             "horizon": 10,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
             "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
@@ -146,7 +146,7 @@ def test_give():
             "world_size": (5, 6, 5),
             "num_players": 2,
             "horizon": 50,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
             "goal_visibility": [True, True],
             "malmo": {
                 "use_malmo": False,
@@ -175,7 +175,7 @@ def test_give_in_malmo():
             "world_size": (5, 6, 5),
             "num_players": 2,
             "horizon": 50,
-            "goal_generator": (BasicGoalGenerator, {}),
+            "goal_generator": BasicGoalGenerator,
             "goal_visibility": [True, True],
             "malmo": {
                 "use_malmo": True,

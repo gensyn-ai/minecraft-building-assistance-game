@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Type
 from typing_extensions import Literal
 from logging import Logger
 import os
@@ -14,10 +14,17 @@ from ray.rllib.env import MultiAgentEnv
 from ray.rllib.policy.policy import PolicySpec
 from ray.tune.registry import get_trainable_cls
 from ray.rllib.evaluation import Episode, RolloutWorker
+from ray.rllib.policy import TorchPolicy
 
-from mbag.environment.goals import ALL_GOAL_GENERATORS
+from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
+from mbag.environment.goals.goal_transform import (
+    GoalTransformSpec,
+    TransformedGoalGeneratorConfig,
+)
+from mbag.environment.goals.transforms import CropTransformConfig
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
+from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
 from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
     MbagTransformerModelConfig,
@@ -29,7 +36,7 @@ from .training_utils import (
     load_trainer_config,
 )
 from .distillation_prediction import DistillationPredictionTrainer
-from .policies import get_mbag_policies, MbagAgentPolicy
+from .policies import MbagAgentPolicy, MbagPPOTorchPolicy
 
 from sacred import Experiment
 from sacred.config.custom_containers import DogmaticDict
@@ -44,13 +51,12 @@ torch.autograd.set_detect_anomaly(True)
 def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
     def sacred_config(_log):  # noqa
-        run = "PPO"
+        run = "MbagPPO"
 
         # Environment
         environment_name = "MBAGFlatActions-v1"
         goal_generator = "random"
         goal_subset = "train"
-        make_uniform = None
         horizon = 50
         num_players = 1
         height = 5
@@ -67,19 +73,58 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         timestep_skip = [1] * num_players
         own_reward_prop = 0
         own_reward_prop_horizon: Optional[int] = None
-
         goal_generator_config = {"subset": goal_subset}
-        if make_uniform is not None:
-            goal_generator_config["make_uniform"] = make_uniform
+
+        goal_transforms: List[GoalTransformSpec] = []
+        uniform_block_type = False
+        force_single_cc = True
+        min_density = 0
+        max_density = 1
+        crop = False
+        crop_density_threshold = 0.25
+        wall = False
+        mirror = False
+        min_width, min_height, min_depth = width // 2, height // 2, depth // 2
+        if uniform_block_type:
+            goal_transforms.append({"transform": "uniform_block_type"})
+        if force_single_cc:
+            goal_transforms.append({"transform": "single_cc_filter"})
+        min_size_config: MinSizeFilterConfig = {
+            "min_size": (min_width, min_height, min_depth)
+        }
+        goal_transforms.append(
+            {"transform": "min_size_filter", "config": min_size_config}
+        )
+        if crop or wall:
+            crop_config: CropTransformConfig = {
+                "density_threshold": 1000 if wall else crop_density_threshold,
+                "tethered_to_ground": True,
+                "wall": wall,
+            }
+            goal_transforms.append({"transform": "crop", "config": crop_config})
+        density_config: DensityFilterConfig = {
+            "min_density": min_density,
+            "max_density": max_density,
+        }
+        goal_transforms.append(
+            {"transform": "density_filter", "config": density_config}
+        )
+        goal_transforms.append({"transform": "randomly_place"})
+        goal_transforms.append({"transform": "add_grass"})
+        if mirror:
+            goal_transforms.append({"transform": "mirror"})
+
+        transformed_goal_generator_config: TransformedGoalGeneratorConfig = {
+            "goal_generator": goal_generator,
+            "goal_generator_config": goal_generator_config,
+            "transforms": goal_transforms,
+        }
 
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
-            "goal_generator": (
-                ALL_GOAL_GENERATORS[goal_generator],
-                goal_generator_config,
-            ),
+            "goal_generator_config": transformed_goal_generator_config,
             "malmo": {
                 "use_malmo": False,
                 "player_names": None,
@@ -106,7 +151,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         # Training
         num_workers = 2
-        num_aggregation_workers = min(1, num_workers)
         input = "sampler"
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
@@ -141,8 +185,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         argmax_tree_policy = False
         add_dirichlet_noise = True
         goal_loss_coeff, place_block_loss_coeff = 0.5, 1
-
-        mbag_policies = get_mbag_policies(goal_loss_coeff, place_block_loss_coeff)
 
         # Model
         model: Literal[
@@ -266,15 +308,21 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 policies_to_train.append(policy_id)
 
         policies: MultiAgentPolicyConfigDict = {}
+        policy_class: Optional[Type[TorchPolicy]] = None
+        if "PPO" in run:
+            policy_class = MbagPPOTorchPolicy
+        elif "AlphaZero" in run:
+            policy_class = MbagAlphaZeroPolicy
+        policy_config = {"model": model_config}
         for policy_id in policy_ids:
             if policy_id in loaded_policy_dict:
                 policies[policy_id] = loaded_policy_dict[policy_id]
             elif policy_id.startswith("ppo"):
                 policies[policy_id] = PolicySpec(
-                    mbag_policies.get(run),
+                    policy_class,
                     env.observation_space,
                     env.action_space,
-                    {"model": model_config},
+                    policy_config,
                 )
             else:
                 # Heuristic agent policy.
@@ -326,6 +374,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "rollout_fragment_length": rollout_fragment_length,
             "seed": seed,
             "framework": "torch",
+            "goal_loss_coeff": goal_loss_coeff,
         }
         if "PPO" in run or run == "distillation_prediction":
             config.update(
@@ -334,12 +383,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 }
             )
         if "PPO" in run:
-            config.update(
+            policy_config.update(
                 {
                     "lambda": gae_lambda,
                     "kl_coeff": kl_coeff,
                     "kl_target": kl_target,
                     "clip_param": clip_param,
+                    "place_block_loss_coeff": place_block_loss_coeff,
                 }
             )
         if "AlphaZero" in run:
@@ -365,13 +415,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     # },
                 }
             )
-        if run in ["IMPALA", "APPO"]:
-            config.update(
-                {
-                    "num_aggregation_workers": num_aggregation_workers,
-                }
-            )
-            config["train_batch_size"] = config.pop("sgd_minibatch_size")
 
         # Distillation
         if "distillation_prediction" in run:
@@ -388,7 +431,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 )
                 distill_policy_id = f"{heuristic}_distilled"
                 policies[distill_policy_id] = PolicySpec(
-                    mbag_policies.get(run),
+                    None,
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},
@@ -416,7 +459,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         prev_model_config["custom_model_config"]["fake_state"] = True
                     distill_policy_id = f"{policy_id}_distilled"
                     policies[distill_policy_id] = (
-                        mbag_policies.get(run),
+                        None,
                         env.observation_space,
                         env.action_space,
                         {"model": model_config},

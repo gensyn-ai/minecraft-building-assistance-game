@@ -8,7 +8,6 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import PolicyID, TrainerConfigDict
 from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import get_trainable_cls
-from .policies import get_mbag_policies
 
 
 def build_logger_creator(log_dir: str, experiment_name: str):
@@ -63,10 +62,6 @@ def load_trainer(
     config = Trainer.merge_trainer_configs(
         config, config_updates, _allow_unknown_configs=True
     )
-
-    for policy_id, policy_spec in config["multiagent"]["policies"].items():
-        if policy_id in ["ppo", "ppo_1"]:
-            policy_spec[0] = get_mbag_policies(1, 1)["PPO"]
 
     # Create the Trainer from config.
     if isinstance(run, str):

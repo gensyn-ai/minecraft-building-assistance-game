@@ -1,10 +1,11 @@
-from typing import Set
+from typing import List, Set, TypedDict
 from ..types import WorldSize
 from ..blocks import MinecraftBlocks
 from .goal_generator import GoalGenerator
 
 import numpy as np
 import cc3d
+import random
 
 
 class BasicGoalGenerator(GoalGenerator):
@@ -14,14 +15,43 @@ class BasicGoalGenerator(GoalGenerator):
         return goal
 
 
+class SetGoalGeneratorConfig(TypedDict):
+    goals: List[MinecraftBlocks]
+
+
+class SetGoalGenerator(GoalGenerator):
+    """
+    Randomly chooses one of a number of structures given in the config.
+    """
+
+    config: SetGoalGeneratorConfig
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        width, height, depth = size
+        while True:
+            goal = random.choice(self.config["goals"])
+            goal_width, goal_height, goal_depth = goal.size
+            if goal_width <= width and goal_height <= height and goal_depth <= depth:
+                return goal
+
+
+class RandomGoalGeneratorConfig(TypedDict):
+    filled_prop: float
+
+
 class RandomGoalGenerator(GoalGenerator):
     """
     Generates a random structure of connected blocks.
     """
 
+    default_config: RandomGoalGeneratorConfig = {"filled_prop": 0.6}
+    config: RandomGoalGeneratorConfig
+
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         goal = MinecraftBlocks(size)
-        structure_mask_noise = np.random.rand(*goal.blocks.shape) < 0.6
+        structure_mask_noise = (
+            np.random.rand(*goal.blocks.shape) < self.config["filled_prop"]
+        )
         structure_mask_ccs = cc3d.connected_components(
             structure_mask_noise, connectivity=6
         )
@@ -36,7 +66,6 @@ class RandomGoalGenerator(GoalGenerator):
         )
 
         goal.blocks[structure_mask] = block_ids[structure_mask]
-        goal.blocks[:, 0, :][~structure_mask[:, 0, :]] = MinecraftBlocks.NAME2ID["dirt"]
 
         return goal
 

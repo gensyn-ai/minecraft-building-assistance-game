@@ -18,7 +18,7 @@ def default_config():
         "kl_target": 0.01,
         "horizon": 10,
         "num_workers": 10,
-        "goal_generator": "single_wall_grabcraft",
+        "goal_generator": "random",
         "use_extra_features": True,
         "num_training_iters": 2,
         "train_batch_size": 50,
@@ -37,7 +37,7 @@ def setup(default_config):
     global dummy_run
     dummy_run = glob.glob(
         checkpoint_dir
-        + "/PPO/self_play/6x6x6/single_wall_grabcraft/*/checkpoint_000002/checkpoint-2"
+        + "/MbagPPO/self_play/6x6x6/random/*/checkpoint_000002/checkpoint-2"
     )[0]
     assert os.path.exists(dummy_run)
 
@@ -163,6 +163,7 @@ def test_alpha_zero(default_config):
             "run": "MbagAlphaZero",
             "goal_generator": "random",
             "use_replay_buffer": False,
+            "hidden_size": 64,
         }
     ).result
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
@@ -184,6 +185,7 @@ def test_alpha_zero_assistant(default_config):
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_1"],
             "model": "transformer_alpha_zero",
+            "hidden_size": 64,
         }
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10

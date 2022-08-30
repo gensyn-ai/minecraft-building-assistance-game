@@ -461,21 +461,24 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         ]
 
         if other_agent_batches is not None:
-            if len(other_agent_batches) != 1:
+            if len(other_agent_batches) > 1:
                 raise RuntimeError(
                     "Training with multiple other agents is not supported."
                 )
-            other_agent_id, (_, other_agent_batch) = next(
-                iter(other_agent_batches.items())
-            )
-            if SampleBatch.ACTION_DIST_INPUTS in sample_batch:
-                sample_batch[OTHER_AGENT_ACTION_DIST_INPUTS] = other_agent_batch[
-                    SampleBatch.ACTION_DIST_INPUTS
-                ]
-            else:
-                logger.warn(
-                    f"no action_dist_inputs in sample batch for {other_agent_id}"
+            elif len(other_agent_batches) == 1:
+                other_agent_id, (_, other_agent_batch) = next(
+                    iter(other_agent_batches.items())
                 )
+                if SampleBatch.ACTION_DIST_INPUTS in other_agent_batch:
+                    sample_batch[OTHER_AGENT_ACTION_DIST_INPUTS] = other_agent_batch[
+                        SampleBatch.ACTION_DIST_INPUTS
+                    ]
+                else:
+                    logger.warn(
+                        f"no action_dist_inputs in sample batch for {other_agent_id}"
+                    )
+            else:
+                pass  # No need to include other agent batch for single player case.
 
         return sample_batch
 

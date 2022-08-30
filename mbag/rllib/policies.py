@@ -10,15 +10,14 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import TensorType, TrainerConfigDict
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.policy.torch_policy import TorchPolicy
-from ray.rllib.agents.ppo.ppo_torch_policy import PPOTorchPolicy
+from ray.rllib.agents.ppo import PPOTrainer, PPOTorchPolicy
+from ray.tune.registry import register_trainable
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import MbagAction, MbagActionTuple, MbagObs
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.types import GOAL_BLOCKS
-from .alpha_zero import MbagAlphaZeroPolicy
 from .torch_action_distributions import MbagAutoregressiveActionDistribution
 from .torch_models import MbagTorchModel
 
@@ -100,156 +99,151 @@ class MbagAgentPolicy(Policy):
         pass
 
 
-def add_supervised_loss_to_policy(
-    policy_class: Type[TorchPolicy],
-    goal_loss_coeff: float,
-    place_block_loss_coeff: float,
-) -> Type[TorchPolicy]:
-    """
-    Adds various supervised losses to the policy.
-    """
-
-    class MbagPolicy(policy_class):  # type: ignore
-        def __init__(
-            self,
-            observation_space: gym.spaces.Space,
-            action_space: gym.spaces.Space,
-            config: TrainerConfigDict,
-            **kwargs,
-        ):
-            self.action_mapping = torch.from_numpy(
-                MbagActionDistribution.get_action_mapping(
-                    config["model"]["custom_model_config"]["env_config"]
-                )
+class MbagPPOTorchPolicy(PPOTorchPolicy):
+    def __init__(
+        self,
+        observation_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        config: TrainerConfigDict,
+        **kwargs,
+    ):
+        self.action_mapping = torch.from_numpy(
+            MbagActionDistribution.get_action_mapping(
+                config["model"]["custom_model_config"]["env_config"]
             )
-            super().__init__(observation_space, action_space, config, **kwargs)
-            self.action_mapping = self.action_mapping.to(self.device)
+        )
+        super().__init__(observation_space, action_space, config, **kwargs)
+        self.action_mapping = self.action_mapping.to(self.device)
 
-        def loss(
-            self,
-            model: MbagTorchModel,
-            dist_class: Type[MbagAutoregressiveActionDistribution],
-            train_batch: SampleBatch,
-        ) -> TensorType:
-            loss = super().loss(model, dist_class, train_batch)
-            assert not isinstance(loss, list)
+    def loss(
+        self,
+        model: MbagTorchModel,
+        dist_class: Type[MbagAutoregressiveActionDistribution],
+        train_batch: SampleBatch,
+    ) -> TensorType:
+        loss = super().loss(model, dist_class, train_batch)
+        assert not isinstance(loss, list)
 
-            loss += self.place_block_loss(model, dist_class, train_batch)
-            loss += self.predict_goal_loss(model, train_batch)
+        world_obs, _, _ = restore_original_dimensions(
+            train_batch[SampleBatch.OBS],
+            obs_space=self.observation_space,
+            tensorlib=torch,
+        )
 
-            return loss
+        goal = world_obs[:, GOAL_BLOCKS].long()
 
-        def predict_goal_loss(
-            self,
-            model: MbagTorchModel,
-            train_batch: SampleBatch,
-        ) -> TensorType:
-            if not hasattr(model, "_backbone_out"):
-                model(train_batch)
-            log_odds = model.goal_function()
+        loss += self.config["place_block_loss_coeff"] * self.place_block_loss(
+            model, dist_class, goal, train_batch
+        )
+        loss += self.config["goal_loss_coeff"] * self.predict_goal_loss(
+            model, goal, train_batch
+        )
 
-            # get goal from world observation
-            world_obs, _, _ = restore_original_dimensions(
-                train_batch[SampleBatch.OBS],
-                obs_space=self.observation_space,
-                tensorlib=torch,
-            )
+        return loss
 
-            goal = world_obs[:, GOAL_BLOCKS].long()
-            ce = nn.CrossEntropyLoss()
-            loss = goal_loss_coeff * ce(log_odds, goal)
+    def predict_goal_loss(
+        self,
+        model: MbagTorchModel,
+        goal: TensorType,
+        train_batch: SampleBatch,
+    ) -> TensorType:
+        if not hasattr(model, "_backbone_out"):
+            model(train_batch)
+        log_odds = model.goal_function()
 
-            model.tower_stats["predict_goal_loss"] = loss
+        ce = nn.CrossEntropyLoss()
+        loss = ce(log_odds, goal)
 
-            return loss
+        model.tower_stats["predict_goal_loss"] = loss
 
-        def place_block_loss(
-            self,
-            model: MbagTorchModel,
-            dist_class: Type[MbagAutoregressiveActionDistribution],
-            train_batch: SampleBatch,
-        ) -> TensorType:
-            """
-            Add loss to minimize the cross-entropy between the block ID for a "place block" action
-            and the goal block at that location, if there is any goal block there.
-            """
+        return loss
 
-            world_obs, _, _ = restore_original_dimensions(
-                train_batch[SampleBatch.OBS],
-                obs_space=self.observation_space,
-                tensorlib=torch,
-            )
-            goal_block_ids = world_obs[:, 2].long()
+    def place_block_loss(
+        self,
+        model: MbagTorchModel,
+        dist_class: Type[MbagAutoregressiveActionDistribution],
+        goal: TensorType,
+        train_batch,
+    ) -> TensorType:
+        """
+        Add loss to minimize the cross-entropy between the block ID for a "place block" action
+        and the goal block at that location, if there is any goal block there.
+        """
 
-            if hasattr(model, "logits"):
-                # Don't recompute logits if we don't have to.
-                logits = model.logits
-            else:
-                logits, state = model(train_batch)
+        world_obs, _, _ = restore_original_dimensions(
+            train_batch[SampleBatch.OBS],
+            obs_space=self.observation_space,
+            tensorlib=torch,
+        )
+        goal_block_ids = world_obs[:, 2].long()
 
-            # We only care about place block actions at places where there are blocks in the
-            # goal.
-            place_block_mask = ~torch.any(
-                goal_block_ids[..., None]
-                == MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[
-                    None, None, None, None, :
-                ],
-                dim=4,
-            ).flatten()
+        if hasattr(model, "logits"):
+            # Don't recompute logits if we don't have to.
+            logits = model.logits
+        else:
+            logits, state = model(train_batch)
 
-            place_block_logits = logits[
-                :, self.action_mapping.to(self.device)[:, 0] == MbagAction.PLACE_BLOCK
-            ].reshape((-1, MinecraftBlocks.NUM_BLOCKS) + world_obs.size()[-3:])
-            place_block_logits = place_block_logits.permute((0, 2, 3, 4, 1)).flatten(
-                end_dim=3
-            )
-            place_block_mask &= (
-                place_block_logits[
-                    torch.arange(place_block_logits.size()[0]), goal_block_ids.flatten()
-                ]
-                > MbagTorchModel.MASK_LOGIT
-            )
+        # We only care about place block actions at places where there are blocks in the
+        # goal.
+        place_block_mask = ~torch.any(
+            goal_block_ids[..., None]
+            == MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[
+                None, None, None, None, :
+            ],
+            dim=4,
+        ).flatten()
 
-            place_block_loss = F.cross_entropy(
-                place_block_logits[place_block_mask],
-                goal_block_ids.flatten()[place_block_mask],
-            )
+        place_block_logits = logits[
+            :, self.action_mapping.to(self.device)[:, 0] == MbagAction.PLACE_BLOCK
+        ].reshape((-1, MinecraftBlocks.NUM_BLOCKS) + world_obs.size()[-3:])
+        place_block_logits = place_block_logits.permute((0, 2, 3, 4, 1)).flatten(
+            end_dim=3
+        )
+        place_block_mask &= (
+            place_block_logits[
+                torch.arange(place_block_logits.size()[0]), goal_block_ids.flatten()
+            ]
+            > MbagTorchModel.MASK_LOGIT
+        )
 
-            model.tower_stats["place_block_loss"] = place_block_loss
+        place_block_loss = F.cross_entropy(
+            place_block_logits[place_block_mask],
+            goal_block_ids.flatten()[place_block_mask],
+        )
 
-            return place_block_loss * place_block_loss_coeff
+        model.tower_stats["place_block_loss"] = place_block_loss
 
-        def log_mean_loss(self, info: Dict[str, TensorType], loss_name: str):
-            try:
-                info[loss_name] = torch.mean(
-                    torch.stack(self.get_tower_stats(loss_name))
-                )
-            except AssertionError:
-                info[loss_name] = torch.nan
+        return place_block_loss
 
-        def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
-            info = super().extra_grad_info(train_batch)
+    def log_mean_loss(self, info: Dict[str, TensorType], loss_name: str):
+        try:
+            info[loss_name] = torch.mean(torch.stack(self.get_tower_stats(loss_name)))
+        except AssertionError:
+            info[loss_name] = torch.nan
 
-            self.log_mean_loss(info, "place_block_loss")
-            self.log_mean_loss(info, "predict_goal_loss")
+    def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
+        info = super().extra_grad_info(train_batch)
 
-            return cast(
-                Dict[str, TensorType],
-                convert_to_numpy(info),
-            )
+        self.log_mean_loss(info, "place_block_loss")
+        self.log_mean_loss(info, "predict_goal_loss")
 
-    MbagPolicy.__name__ = "Mbag" + policy_class.__name__
-    return MbagPolicy
+        return cast(
+            Dict[str, TensorType],
+            convert_to_numpy(info),
+        )
 
 
-def get_mbag_policies(goal_loss_coeff, place_block_loss_coeff):
-    mbag_ppo_torch_policy = add_supervised_loss_to_policy(
-        PPOTorchPolicy, goal_loss_coeff, place_block_loss_coeff
-    )
+class MbagPPOTrainer(PPOTrainer):
+    @classmethod
+    def get_default_config(cls) -> TrainerConfigDict:
+        return {
+            **super().get_default_config(),
+            "goal_loss_coeff": 1.0,
+            "place_block_loss_coeff": 1.0,
+        }
 
-    mbag_policies = {
-        "PPO": mbag_ppo_torch_policy,
-        "MbagAlphaZero": MbagAlphaZeroPolicy,
-    }
+    def get_default_policy_class(self, config):
+        return MbagPPOTorchPolicy
 
-    return mbag_policies
+
+register_trainable("MbagPPO", MbagPPOTrainer)
