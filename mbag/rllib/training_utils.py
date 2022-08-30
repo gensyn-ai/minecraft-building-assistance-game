@@ -65,7 +65,7 @@ def load_trainer(
     )
 
     for policy_id, policy_spec in config["multiagent"]["policies"].items():
-        if policy_id in ["ppo", "ppo_0"]:
+        if policy_id in ["ppo", "ppo_1"]:
             policy_spec[0] = get_mbag_policies(1, 1)["PPO"]
 
     # Create the Trainer from config.
