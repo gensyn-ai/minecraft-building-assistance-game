@@ -28,6 +28,7 @@ def sacred_config():
     episodes = 100  # noqa: F841
     experiment_name = ""  # noqa: F841
     policy_ids: Optional[List[str]] = None  # noqa: F841
+    player_names = policy_ids
     seed = 0
 
     num_workers = 4
@@ -58,6 +59,7 @@ def main(
     experiment_name: str,
     episodes: int,
     policy_ids: Optional[List[str]],
+    player_names: Optional[List[str]],
     record_video: bool,
     _log,
 ):
@@ -89,7 +91,8 @@ def main(
 
         config_updates["multiagent"]["policy_mapping_fn"] = policy_mapping_fn
         config_updates["env_config"]["num_players"] = len(policy_ids)
-        config_updates["env_config"]["malmo"]["player_names"] = policy_ids
+
+    config_updates["env_config"]["malmo"]["player_names"] = player_names
 
     if record_video:
         config_updates["env_config"]["malmo"].update(
