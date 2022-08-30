@@ -35,7 +35,10 @@ from .training_utils import (
     load_policies_from_checkpoint,
     load_trainer_config,
 )
-from .distillation_prediction import DistillationPredictionTrainer
+from .distillation_prediction import (
+    DistillationPredictionPolicy,
+    DistillationPredictionTrainer,
+)
 from .policies import MbagAgentPolicy, MbagPPOTorchPolicy
 
 from sacred import Experiment
@@ -374,8 +377,12 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "rollout_fragment_length": rollout_fragment_length,
             "seed": seed,
             "framework": "torch",
-            "goal_loss_coeff": goal_loss_coeff,
         }
+        policy_config.update(
+            {
+                "goal_loss_coeff": goal_loss_coeff,
+            }
+        )
         if "PPO" in run or run == "distillation_prediction":
             config.update(
                 {
@@ -431,7 +438,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 )
                 distill_policy_id = f"{heuristic}_distilled"
                 policies[distill_policy_id] = PolicySpec(
-                    None,
+                    DistillationPredictionPolicy,
                     env.observation_space,
                     env.action_space,
                     {"model": model_config},
