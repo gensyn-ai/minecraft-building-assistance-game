@@ -468,9 +468,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             other_agent_id, (_, other_agent_batch) = next(
                 iter(other_agent_batches.items())
             )
-            sample_batch[OTHER_AGENT_ACTION_DIST_INPUTS] = other_agent_batch[
-                SampleBatch.ACTION_DIST_INPUTS
-            ]
+            if SampleBatch.ACTION_DIST_INPUTS in sample_batch:
+                sample_batch[OTHER_AGENT_ACTION_DIST_INPUTS] = other_agent_batch[
+                    SampleBatch.ACTION_DIST_INPUTS
+                ]
+            else:
+                logger.warn(
+                    f"no action_dist_inputs in sample batch for {other_agent_id}"
+                )
 
         return sample_batch
 
