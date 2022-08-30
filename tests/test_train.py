@@ -183,6 +183,7 @@ def test_alpha_zero_assistant(default_config):
             "checkpoint_to_load_policies": dummy_run,
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_1"],
+            "model": "transformer_alpha_zero",
         }
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
