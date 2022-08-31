@@ -14,7 +14,6 @@ def test_single_agent():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -37,10 +36,10 @@ def test_two_agents():
         {
             "world_size": (5, 5, 5),
             "num_players": 2,
+            "players": [{}, {}],
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True, True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,

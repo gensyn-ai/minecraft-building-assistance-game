@@ -1,11 +1,13 @@
 import tempfile
 import os
+import pytest
 
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent, NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 
 
+@pytest.mark.uses_malmo
 def test_malmo():
     evaluator = MbagEvaluator(
         {
@@ -14,7 +16,6 @@ def test_malmo():
             "horizon": 100,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -29,6 +30,7 @@ def test_malmo():
     assert episode_info.cumulative_reward == 18
 
 
+@pytest.mark.uses_malmo
 def test_two_agents_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -37,7 +39,7 @@ def test_two_agents_in_malmo():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True, True],
+            "players": [{}, {}],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -53,6 +55,7 @@ def test_two_agents_in_malmo():
     assert episode_info.cumulative_reward == 18
 
 
+@pytest.mark.uses_malmo
 def test_video_dir():
     with tempfile.TemporaryDirectory() as video_dir:
         evaluator = MbagEvaluator(
@@ -62,7 +65,6 @@ def test_video_dir():
                 "horizon": 100,
                 "goal_generator": BasicGoalGenerator,
                 "goal_generator_config": {},
-                "goal_visibility": [True],
                 "malmo": {
                     "use_malmo": True,
                     "use_spectator": True,

@@ -23,7 +23,6 @@ def test_inventory():
             "num_players": 1,
             "horizon": 20,
             "goal_generator": BasicGoalGenerator,
-            "goal_visibility": [True],
             "goal_generator_config": {"pallette": True},
             "malmo": {
                 "use_malmo": False,
@@ -43,7 +42,7 @@ def test_inventory():
     assert episode_info.cumulative_reward == 3
 
 
-@pytest.mark.xfail(strict=False)
+@pytest.mark.uses_malmo
 def test_inventory_in_malmo():
     """
     Make sure the inventory agent can place blocks
@@ -55,7 +54,6 @@ def test_inventory_in_malmo():
             "num_players": 1,
             "horizon": 20,
             "goal_generator": BasicGoalGenerator,
-            "goal_visibility": [True],
             "goal_generator_config": {"pallette": True},
             "malmo": {
                 "use_malmo": True,
@@ -86,7 +84,6 @@ def test_pallette():
             "num_players": 1,
             "horizon": 10,
             "goal_generator": BasicGoalGenerator,
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -105,7 +102,7 @@ def test_pallette():
     assert episode_info.cumulative_reward == 0
 
 
-@pytest.mark.xfail(strict=False)
+@pytest.mark.uses_malmo
 def test_pallette_in_malmo():
     """
     Make sure the block pallette generates
@@ -117,7 +114,6 @@ def test_pallette_in_malmo():
             "num_players": 1,
             "horizon": 10,
             "goal_generator": BasicGoalGenerator,
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -147,7 +143,7 @@ def test_give():
             "num_players": 2,
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
-            "goal_visibility": [True, True],
+            "players": [{}, {}],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -164,7 +160,7 @@ def test_give():
     assert episode_info.cumulative_reward == 0
 
 
-@pytest.mark.xfail(strict=False)
+@pytest.mark.uses_malmo
 def test_give_in_malmo():
     """
     Make sure agents can give each other resources
@@ -176,7 +172,7 @@ def test_give_in_malmo():
             "num_players": 2,
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
-            "goal_visibility": [True, True],
+            "players": [{}, {}],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

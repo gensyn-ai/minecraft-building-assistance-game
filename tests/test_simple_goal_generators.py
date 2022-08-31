@@ -1,3 +1,5 @@
+import pytest
+
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent
 from mbag.environment.goals.simple import (
@@ -14,7 +16,6 @@ def test_random_goal_generator():
             "horizon": 250,
             "goal_generator": RandomGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -32,6 +33,7 @@ def test_random_goal_generator():
     assert episode_info.cumulative_reward > 0
 
 
+@pytest.mark.uses_malmo
 def test_random_goal_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -40,7 +42,6 @@ def test_random_goal_generator_in_malmo():
             "horizon": 250,
             "goal_generator": RandomGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -66,7 +67,6 @@ def test_simple_overhang_goal_generator():
             "horizon": 250,
             "goal_generator": SimpleOverhangGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -84,6 +84,7 @@ def test_simple_overhang_goal_generator():
     assert episode_info.cumulative_reward > 0
 
 
+@pytest.mark.uses_malmo
 def test_simple_overhang_goal_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -92,7 +93,6 @@ def test_simple_overhang_goal_generator_in_malmo():
             "horizon": 250,
             "goal_generator": SimpleOverhangGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

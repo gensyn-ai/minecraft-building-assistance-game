@@ -1,3 +1,5 @@
+import pytest
+
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
     LayerBuilderAgent,
@@ -16,7 +18,6 @@ def test_movement():
             "horizon": 10,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -35,6 +36,7 @@ def test_movement():
     assert episode_info.cumulative_reward == 0
 
 
+@pytest.mark.uses_malmo
 def test_movement_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -43,7 +45,6 @@ def test_movement_in_malmo():
             "horizon": 10,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -70,7 +71,6 @@ def test_movement_with_building():
             "horizon": 30,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -89,6 +89,7 @@ def test_movement_with_building():
     assert episode_info.cumulative_reward == 9
 
 
+@pytest.mark.uses_malmo
 def test_movement_with_building_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -97,7 +98,6 @@ def test_movement_with_building_in_malmo():
             "horizon": 30,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -124,7 +124,7 @@ def test_obstructing_agents():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True for _ in range(10)],
+            "players": [{} for _ in range(10)],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,

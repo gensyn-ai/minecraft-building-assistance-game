@@ -1,9 +1,10 @@
 import random
+import copy
 from typing import cast
 import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.mbag_env import MbagEnv
+from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
 from mbag.environment.types import MbagActionTuple
 
 
@@ -20,6 +21,14 @@ def _convert_state(data):
         return _convert_state(data.__dict__)
     else:
         return data
+
+
+def test_config_not_changed():
+    """The env config dictionary passed should not be modified by the environment."""
+
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    MbagEnv(config)
+    assert config == DEFAULT_CONFIG
 
 
 def test_deterministic():

@@ -1,3 +1,5 @@
+import pytest
+
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import PriorityQueueAgent
 
@@ -19,7 +21,6 @@ def test_goal_generator():
                     {"transform": "randomly_place"},
                 ],
             },
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -37,6 +38,7 @@ def test_goal_generator():
     assert episode_info.cumulative_reward > 0
 
 
+@pytest.mark.uses_malmo
 def test_goal_generator_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -54,7 +56,6 @@ def test_goal_generator_in_malmo():
                     {"transform": "randomly_place"},
                 ],
             },
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -72,6 +73,7 @@ def test_goal_generator_in_malmo():
     assert episode_info.cumulative_reward > 0
 
 
+@pytest.mark.uses_malmo
 def test_seam_carving_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -90,7 +92,6 @@ def test_seam_carving_in_malmo():
                     {"transform": "randomly_place"},
                 ],
             },
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

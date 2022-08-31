@@ -1,10 +1,11 @@
-from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction, MbagObs
-from mbag.environment.goals.goal_transform import TransformedGoalGenerator
+import pytest
 import numpy as np
 import logging
 from numpy.testing import assert_array_equal
 
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import MbagAction, MbagObs
+from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
@@ -29,7 +30,6 @@ def test_layer_builder_agent():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -56,7 +56,6 @@ def test_pq_agent_basic():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -84,7 +83,7 @@ def test_pq_agent_overhangs():
                 "horizon": 100,
                 "goal_generator": SimpleOverhangGoalGenerator,
                 "goal_generator_config": {},
-                "goal_visibility": [True] * num_players,
+                "players": [{}] * num_players,
                 "malmo": {
                     "use_malmo": False,
                     "use_spectator": False,
@@ -120,7 +119,7 @@ def test_pq_agent_grabcraft():
                         {"transform": "randomly_place"},
                     ],
                 },
-                "goal_visibility": [True] * num_players,
+                "players": [{}] * num_players,
                 "malmo": {
                     "use_malmo": False,
                     "use_spectator": False,
@@ -148,6 +147,7 @@ def test_pq_agent_grabcraft():
         )
 
 
+@pytest.mark.uses_malmo
 def test_malmo_pq():
     evaluator = MbagEvaluator(
         {
@@ -156,7 +156,6 @@ def test_malmo_pq():
             "horizon": 100,
             "goal_generator": SimpleOverhangGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -183,7 +182,6 @@ def test_rllib_heuristic_agents():
         "horizon": 100,
         "goal_generator": BasicGoalGenerator,
         "goal_generator_config": {},
-        "goal_visibility": [True],
         "malmo": {
             "use_malmo": False,
             "use_spectator": False,
@@ -337,7 +335,7 @@ def test_mirror_building_agent():
                     {"transform": "mirror", "config": {}},
                 ],
             },
-            "goal_visibility": [True, False],
+            "players": [{"goal_visible": True}, {"goal_visible": False}],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -351,6 +349,7 @@ def test_mirror_building_agent():
     assert episode_info.cumulative_reward > 50
 
 
+@pytest.mark.uses_malmo
 def test_mirror_building_agent_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -365,7 +364,7 @@ def test_mirror_building_agent_in_malmo():
                     {"transform": "mirror", "config": {}},
                 ],
             },
-            "goal_visibility": [True, False],
+            "players": [{"goal_visible": True}, {"goal_visible": False}],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
