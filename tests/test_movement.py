@@ -1,3 +1,5 @@
+import pytest
+
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
     LayerBuilderAgent,
@@ -34,6 +36,7 @@ def test_movement():
     assert episode_info.cumulative_reward == 0
 
 
+@pytest.mark.uses_malmo
 def test_movement_in_malmo():
     evaluator = MbagEvaluator(
         {
@@ -86,6 +89,7 @@ def test_movement_with_building():
     assert episode_info.cumulative_reward == 9
 
 
+@pytest.mark.uses_malmo
 def test_movement_with_building_in_malmo():
     evaluator = MbagEvaluator(
         {

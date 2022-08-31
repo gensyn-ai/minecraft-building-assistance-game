@@ -1,3 +1,5 @@
+import pytest
+
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import PriorityQueueAgent
@@ -37,6 +39,7 @@ def test_goal_generator():
     assert episode_info.cumulative_reward > 0
 
 
+@pytest.mark.uses_malmo
 def test_goal_generator_in_malmo():
     evaluator = MbagEvaluator(
         {

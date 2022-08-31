@@ -1,10 +1,11 @@
-from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction, MbagObs
-from mbag.environment.goals.goal_transform import TransformedGoalGenerator
+import pytest
 import numpy as np
 import logging
 from numpy.testing import assert_array_equal
 
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import MbagAction, MbagObs
+from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
@@ -146,6 +147,7 @@ def test_pq_agent_grabcraft():
         )
 
 
+@pytest.mark.uses_malmo
 def test_malmo_pq():
     evaluator = MbagEvaluator(
         {
@@ -347,6 +349,7 @@ def test_mirror_building_agent():
     assert episode_info.cumulative_reward > 50
 
 
+@pytest.mark.uses_malmo
 def test_mirror_building_agent_in_malmo():
     evaluator = MbagEvaluator(
         {

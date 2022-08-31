@@ -42,7 +42,7 @@ def test_inventory():
     assert episode_info.cumulative_reward == 3
 
 
-@pytest.mark.xfail(strict=False)
+@pytest.mark.uses_malmo
 def test_inventory_in_malmo():
     """
     Make sure the inventory agent can place blocks
@@ -102,7 +102,7 @@ def test_pallette():
     assert episode_info.cumulative_reward == 0
 
 
-@pytest.mark.xfail(strict=False)
+@pytest.mark.uses_malmo
 def test_pallette_in_malmo():
     """
     Make sure the block pallette generates
@@ -160,7 +160,7 @@ def test_give():
     assert episode_info.cumulative_reward == 0
 
 
-@pytest.mark.xfail(strict=False)
+@pytest.mark.uses_malmo
 def test_give_in_malmo():
     """
     Make sure agents can give each other resources
