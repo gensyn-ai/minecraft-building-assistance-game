@@ -1,7 +1,8 @@
 import logging
 import os
 import glob
-from ray.rllib.offline.json_reader import _from_json
+import json
+from ray.rllib.offline.json_reader import from_json_data
 from ray.rllib.offline.json_writer import JsonWriter, logger as json_writer_logger
 from ray.rllib.policy.sample_batch import MultiAgentBatch
 from sacred.experiment import Experiment
@@ -33,7 +34,9 @@ def main(
         _log.info(f"reading {rollout_fname}...")
         with open(rollout_fname, "r") as rollout_file:
             for rollout_line in rollout_file:
-                sample_batch = _from_json(rollout_line.strip())
+                sample_batch = from_json_data(
+                    json.loads(rollout_line.strip()), worker=None
+                )
                 assert isinstance(sample_batch, MultiAgentBatch)
 
                 slice_starts = range(0, sample_batch.count, rollout_fragment_length)

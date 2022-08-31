@@ -1,6 +1,7 @@
 from typing import List, Tuple, cast
 from typing_extensions import Literal, TypedDict
 import numpy as np
+from numpy.typing import NDArray
 
 
 WorldSize = Tuple[int, int, int]
@@ -8,6 +9,11 @@ WorldSize = Tuple[int, int, int]
 BlockLocation = Tuple[int, int, int]
 
 WorldLocation = Tuple[float, float, float]
+
+MbagInventoryObs = np.ndarray
+"""
+1D array mapping block ids with number held in inventory.
+"""
 
 FacingDirection = Tuple[float, float]  # Degrees horizontally, then vertically
 
@@ -32,10 +38,18 @@ PLAYER_LOCATIONS = 4
 LAST_INTERACTED = 5
 num_world_obs_channels = 6
 
-MbagObs = Tuple[MbagWorldObsArray]
+MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs, NDArray[np.int32]]
+
+MbagInventory = np.ndarray
+"""
+Player inventory will be stored as 2d numpy array.
+Inventory slots are stored from 0 to 35 inclusive
+First dimension is which inventory slot is being accessed
+Second dimension is 0 for block id, 1 for block count
+"""
 
 
-MbagActionType = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8]
+MbagActionType = Literal[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 MbagActionTuple = Tuple[MbagActionType, int, int]
 """
 An action tuple (action_type, block_location, block_id).
@@ -50,15 +64,27 @@ class MbagAction(object):
     NOOP: MbagActionType = 0
     PLACE_BLOCK: MbagActionType = 1
     BREAK_BLOCK: MbagActionType = 2
-
     MOVE_POS_X: MbagActionType = 3
     MOVE_NEG_X: MbagActionType = 4
     MOVE_POS_Y: MbagActionType = 5
     MOVE_NEG_Y: MbagActionType = 6
     MOVE_POS_Z: MbagActionType = 7
     MOVE_NEG_Z: MbagActionType = 8
+    GIVE_BLOCK: MbagActionType = 9
 
-    NUM_ACTION_TYPES = 9
+    NUM_ACTION_TYPES = 10
+    ACTION_TYPES: List[MbagActionType] = [
+        NOOP,
+        PLACE_BLOCK,
+        BREAK_BLOCK,
+        MOVE_POS_X,
+        MOVE_NEG_X,
+        MOVE_POS_Y,
+        MOVE_NEG_Y,
+        MOVE_POS_Z,
+        MOVE_NEG_Z,
+        GIVE_BLOCK,
+    ]
     ACTION_TYPE_NAMES = {
         NOOP: "NOOP",
         PLACE_BLOCK: "PLACE_BLOCK",
@@ -69,6 +95,7 @@ class MbagAction(object):
         MOVE_NEG_Y: "MOVE_NEG_Y",
         MOVE_POS_Z: "MOVE_POS_Z",
         MOVE_NEG_Z: "MOVE_NEG_Z",
+        GIVE_BLOCK: "GIVE_BLOCK",
     }
 
     action_type: MbagActionType
@@ -76,8 +103,16 @@ class MbagAction(object):
     block_id: int
 
     # Which actions require which attributes:
-    BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK]
-    BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK]
+    BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, GIVE_BLOCK]
+    BLOCK_LOCATION_ACTION_TYPES = [PLACE_BLOCK, BREAK_BLOCK, GIVE_BLOCK]
+    MOVE_ACTION_TYPES = [
+        MOVE_POS_X,
+        MOVE_NEG_X,
+        MOVE_POS_Y,
+        MOVE_NEG_Y,
+        MOVE_POS_Z,
+        MOVE_NEG_Z,
+    ]
 
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
         self.action_type, block_location_index, self.block_id = action_tuple
@@ -98,6 +133,10 @@ class MbagAction(object):
     def __repr__(self):
         return f"MbagAction<{self}>"
 
+    @classmethod
+    def noop_action(cls):
+        return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
+
 
 class MbagInfoDict(TypedDict):
     goal_similarity: float
@@ -107,9 +146,23 @@ class MbagInfoDict(TypedDict):
     potentially shaped reward given to the agent by the environment.
     """
 
+    goal_dependent_reward: float
+    """
+    The reward from this step which is due to the current player's actions and which
+    depends on the goal.
+    """
+
+    goal_independent_reward: float
+    """
+    The reward from this step which is due to the current player's actions but which
+    does not depend on the goal, i.e., bonuses or penalties for no-ops and actions,
+    resource gathering bonuses, etc.
+    """
+
     own_reward: float
     """
-    The reward from this step which is due to the current player's direct actions.
+    The reward from this step which is due to the current player's direct actions, i.e.
+    the sum of goal_dependent_reward and goal_independent_reward.
     """
 
     own_reward_prop: float
@@ -118,7 +171,7 @@ class MbagInfoDict(TypedDict):
     direct actions, as opposed to other agents'.
     """
 
-    action_type: MbagActionType
+    action: MbagAction
     """
     The action that the player effectively took. That is, if the player attempted to
     do something but it didn't actually affect the world, it is logged as NOOP.

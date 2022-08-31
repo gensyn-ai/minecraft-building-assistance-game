@@ -16,7 +16,7 @@ def test_goal_generator():
                     "data_dir": "data/grabcraft",
                     "subset": "train",
                 },
-                "goal_transforms": [
+                "transforms": [
                     {"transform": "randomly_place"},
                 ],
             },
@@ -51,7 +51,7 @@ def test_goal_generator_in_malmo():
                     "data_dir": "data/grabcraft",
                     "subset": "train",
                 },
-                "goal_transforms": [
+                "transforms": [
                     {"transform": "randomly_place"},
                 ],
             },

@@ -7,10 +7,11 @@ from torch import nn
 from torch.distributions import Categorical
 import numpy as np
 
-from ray.rllib.utils.typing import ModelConfigDict
+from ray.rllib.utils.typing import ModelConfigDict, TensorType
 from ray.rllib.models.torch.torch_action_dist import (
     TorchCategorical,
     TorchDistributionWrapper,
+    ActionDistribution,
 )
 from ray.rllib.models.catalog import ModelCatalog
 
@@ -24,6 +25,15 @@ def kl_categorical_categorical_no_inf(p: Categorical, q: Categorical) -> torch.T
     # t[(q.probs == 0).expand_as(t)] = inf
     t[(p.probs == 0).expand_as(t)] = 0
     return t.sum(-1)
+
+
+class TorchCategoricalNoInf(TorchCategorical):
+    def kl(self, other: ActionDistribution) -> TensorType:
+        assert isinstance(other, TorchCategorical)
+        return kl_categorical_categorical_no_inf(self.dist, other.dist)
+
+
+ModelCatalog.register_custom_action_dist("categorical_no_inf", TorchCategoricalNoInf)
 
 
 class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):

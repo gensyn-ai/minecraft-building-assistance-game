@@ -29,7 +29,7 @@ class GoalTransformSpec(TypedDict, total=False):
 class TransformedGoalGeneratorConfig(TypedDict):
     goal_generator: str
     goal_generator_config: GoalGeneratorConfig
-    goal_transforms: List[GoalTransformSpec]
+    transforms: List[GoalTransformSpec]
 
 
 class TransformedGoalGenerator(GoalGenerator):
@@ -54,7 +54,7 @@ class TransformedGoalGenerator(GoalGenerator):
         # to the base generator. E.g. if self.config["goal_transforms"] is
         # [{"transform": "foo"}, {"transform": "bar"}], this sets the new goal
         # generator to BarTransform(FooTransform(base_generator)).
-        for transform_spec in self.config["goal_transforms"]:
+        for transform_spec in self.config["transforms"]:
             transform_class = ALL_GOAL_TRANSFORMS[transform_spec["transform"]]
             goal_generator = transform_class(
                 transform_spec.get("config", {}), goal_generator

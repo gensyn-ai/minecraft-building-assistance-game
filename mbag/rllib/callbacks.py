@@ -1,7 +1,9 @@
 from typing import Dict, Optional
-
 import numpy as np
-from ray.rllib.agents.callbacks import DefaultCallbacks
+
+from ray.rllib.contrib.alpha_zero.core.alpha_zero_trainer import (
+    AlphaZeroDefaultCallbacks,
+)
 from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.rollout_worker import RolloutWorker
@@ -9,22 +11,35 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import PolicyID
 
 from mbag.environment.types import MbagAction, MbagInfoDict
-from mbag.rllib.rllib_env import MbagMultiAgentEnv
+from mbag.rllib.rllib_env import unwrap_mbag_env
 
 
-class MbagCallbacks(DefaultCallbacks):
+class MbagCallbacks(AlphaZeroDefaultCallbacks):
     def on_episode_start(
         self,
-        *,
         worker: "RolloutWorker",
         base_env: BaseEnv,
         policies: Dict[PolicyID, Policy],
         episode: Episode,
         **kwargs,
     ) -> None:
-        def update_env_global_timestep(env: MbagMultiAgentEnv):
+        super().on_episode_start(
+            worker=worker,
+            base_env=base_env,
+            policies=policies,
+            episode=episode,
+            **kwargs,
+        )
+
+        env = base_env.get_sub_environments()[0]
+        state = env.get_state()
+        episode.user_data["state"] = state
+
+        def update_env_global_timestep(env):
             if worker.global_vars is not None:
-                env.wrapped_env.update_global_timestep(worker.global_vars["timestep"])
+                unwrap_mbag_env(env).update_global_timestep(
+                    worker.global_vars["timestep"]
+                )
 
         worker.foreach_env(update_env_global_timestep)
 
@@ -38,6 +53,11 @@ class MbagCallbacks(DefaultCallbacks):
         **kwargs,
     ) -> None:
         assert policies is not None
+
+        env = base_env.get_sub_environments()[0]
+        state = env.get_state()
+        episode.user_data["state"] = state
+
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
             own_reward_key = f"{policy_id}/own_reward"
@@ -47,7 +67,9 @@ class MbagCallbacks(DefaultCallbacks):
             episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
 
             # Log what action the agent made
-            action_type_name = MbagAction.ACTION_TYPE_NAMES[info_dict["action_type"]]
+            action_type_name = MbagAction.ACTION_TYPE_NAMES[
+                info_dict["action"].action_type
+            ]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
             if action_key not in episode.custom_metrics:
@@ -57,7 +79,7 @@ class MbagCallbacks(DefaultCallbacks):
                     ] = 0
             episode.custom_metrics[action_key] += 1
 
-            if "{policy_id}/num_correct_place_block" not in episode.custom_metrics:
+            if f"{policy_id}/num_correct_place_block" not in episode.custom_metrics:
                 for name in ["place_block", "break_block"]:
                     episode.custom_metrics[f"{policy_id}/num_correct_{name}"] = 0
 

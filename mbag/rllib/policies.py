@@ -3,20 +3,23 @@ import gym
 import torch
 from torch import nn
 import numpy as np
+import torch.nn.functional as F  # noqa: N812
+
 from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import TensorType, TrainerConfigDict
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.utils.numpy import convert_to_numpy
-
 from ray.rllib.agents.ppo import PPOTrainer, PPOTorchPolicy
 from ray.tune.registry import register_trainable
 
+from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import MbagAction, MbagActionTuple, MbagObs
 from mbag.agents.mbag_agent import MbagAgent
-from .torch_action_distributions import MbagAutoregressiveActionDistribution
 from mbag.environment.types import GOAL_BLOCKS
-from mbag.rllib.torch_models import MbagTorchModel
+from .torch_action_distributions import MbagAutoregressiveActionDistribution
+from .torch_models import MbagTorchModel
 
 
 class MbagAgentPolicy(Policy):
@@ -97,6 +100,21 @@ class MbagAgentPolicy(Policy):
 
 
 class MbagPPOTorchPolicy(PPOTorchPolicy):
+    def __init__(
+        self,
+        observation_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        config: TrainerConfigDict,
+        **kwargs,
+    ):
+        self.action_mapping = torch.from_numpy(
+            MbagActionDistribution.get_action_mapping(
+                config["model"]["custom_model_config"]["env_config"]
+            )
+        )
+        super().__init__(observation_space, action_space, config, **kwargs)
+        self.action_mapping = self.action_mapping.to(self.device)
+
     def loss(
         self,
         model: MbagTorchModel,
@@ -106,7 +124,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         loss = super().loss(model, dist_class, train_batch)
         assert not isinstance(loss, list)
 
-        (world_obs,) = restore_original_dimensions(
+        world_obs, _, _ = restore_original_dimensions(
             train_batch[SampleBatch.OBS],
             obs_space=self.observation_space,
             tensorlib=torch,
@@ -152,34 +170,50 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         and the goal block at that location, if there is any goal block there.
         """
 
-        actions = train_batch[SampleBatch.ACTIONS].long()
+        world_obs, _, _ = restore_original_dimensions(
+            train_batch[SampleBatch.OBS],
+            obs_space=self.observation_space,
+            tensorlib=torch,
+        )
+        goal_block_ids = world_obs[:, 2].long()
 
-        place_block_ids = goal.flatten(start_dim=1)[
-            torch.arange(0, actions.size()[0], dtype=torch.long, device=goal.device),
-            actions[:, 1],
-        ]
-
-        logits = model.logits if hasattr(model, "logits") else model(train_batch)[0]
-
-        action_dist = dist_class(logits, model)
-        place_block_loss = -action_dist._block_id_distribution(
-            actions[:, 0],
-            actions[:, 1],
-        ).logp(place_block_ids)
+        if hasattr(model, "logits"):
+            # Don't recompute logits if we don't have to.
+            logits = model.logits
+        else:
+            logits, state = model(train_batch)
 
         # We only care about place block actions at places where there are blocks in the
         # goal.
-        place_block_mask = (actions[:, 0] == MbagAction.PLACE_BLOCK) & ~torch.any(
-            place_block_ids[:, None]
-            == MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[None, :],
-            dim=1,
+        place_block_mask = ~torch.any(
+            goal_block_ids[..., None]
+            == MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[
+                None, None, None, None, :
+            ],
+            dim=4,
+        ).flatten()
+
+        place_block_logits = logits[
+            :, self.action_mapping.to(self.device)[:, 0] == MbagAction.PLACE_BLOCK
+        ].reshape((-1, MinecraftBlocks.NUM_BLOCKS) + world_obs.size()[-3:])
+        place_block_logits = place_block_logits.permute((0, 2, 3, 4, 1)).flatten(
+            end_dim=3
         )
-        if torch.any(place_block_mask):
-            place_block_loss = place_block_loss[place_block_mask].mean()
-            model.tower_stats["place_block_loss"] = place_block_loss
-            return place_block_loss
-        else:
-            return 0
+        place_block_mask &= (
+            place_block_logits[
+                torch.arange(place_block_logits.size()[0]), goal_block_ids.flatten()
+            ]
+            > MbagTorchModel.MASK_LOGIT
+        )
+
+        place_block_loss = F.cross_entropy(
+            place_block_logits[place_block_mask],
+            goal_block_ids.flatten()[place_block_mask],
+        )
+
+        model.tower_stats["place_block_loss"] = place_block_loss
+
+        return place_block_loss
 
     def log_mean_loss(self, info: Dict[str, TensorType], loss_name: str):
         try:

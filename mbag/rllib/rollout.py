@@ -7,7 +7,7 @@ import ray
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.rollout import rollout
+from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.utils.typing import PolicyID
 from ray.rllib.agents import Trainer
 from sacred import Experiment
@@ -28,6 +28,7 @@ def sacred_config():
     episodes = 100  # noqa: F841
     experiment_name = ""  # noqa: F841
     policy_ids: Optional[List[str]] = None  # noqa: F841
+    player_names = policy_ids  # noqa: F841
     seed = 0
 
     num_workers = 4
@@ -36,18 +37,17 @@ def sacred_config():
         "seed": seed,
         "evaluation_num_workers": num_workers,
         "create_env_on_driver": True,
-        "evaluation_num_episodes": max(num_workers, 1),
+        "evaluation_num_episodes": episodes,
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
         "env_config": {"malmo": {}},
         "multiagent": {},
         "num_gpus": 1 if torch.cuda.is_available() else 0,
+        "disable_env_checking": True,
     }
     extra_config_updates = {}  # noqa: F841
 
     record_video = False  # noqa: F841
-    if record_video:
-        num_workers = 0
 
 
 @ex.automain
@@ -59,6 +59,7 @@ def main(
     experiment_name: str,
     episodes: int,
     policy_ids: Optional[List[str]],
+    player_names: Optional[List[str]],
     record_video: bool,
     _log,
 ):
@@ -77,19 +78,21 @@ def main(
     out_dir = os.path.join(
         os.path.dirname(checkpoint), f"rollouts_{experiment_name}{time_str}"
     )
+    os.makedirs(out_dir, exist_ok=True)
     config_updates["output"] = out_dir
 
     if policy_ids is not None:
 
         def policy_mapping_fn(
-            agent_id: str, episode, worker, policy_ids=policy_ids, **kwargs
+            agent_id: str, episode=None, worker=None, policy_ids=policy_ids, **kwargs
         ):
             agent_index = int(agent_id[len("player_") :])
             return policy_ids[agent_index]
 
         config_updates["multiagent"]["policy_mapping_fn"] = policy_mapping_fn
         config_updates["env_config"]["num_players"] = len(policy_ids)
-        config_updates["env_config"]["malmo"]["player_names"] = policy_ids
+
+    config_updates["env_config"]["malmo"]["player_names"] = player_names
 
     if record_video:
         config_updates["env_config"]["malmo"].update(
@@ -103,22 +106,25 @@ def main(
 
     trainer = load_trainer(checkpoint, run, config_updates)
     evaluation_workers: Optional[WorkerSet] = trainer.evaluation_workers
-    assert evaluation_workers is not None
 
-    # Remove the action_dist_inputs view requirement since it results in massive
-    # (multi-gigabyte) JSON rollout files.
-    def remove_action_dist_inputs_view_requirement(policy: Policy, policy_id: PolicyID):
-        if SampleBatch.ACTION_DIST_INPUTS in policy.view_requirements:
-            del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
+    if evaluation_workers is not None:
+        # Remove the action_dist_inputs view requirement since it results in massive
+        # (multi-gigabyte) JSON rollout files.
+        def remove_action_dist_inputs_view_requirement(
+            policy: Policy, policy_id: PolicyID
+        ):
+            if SampleBatch.ACTION_DIST_INPUTS in policy.view_requirements:
+                del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
 
-    evaluation_workers.foreach_policy(remove_action_dist_inputs_view_requirement)
+        evaluation_workers.foreach_policy(remove_action_dist_inputs_view_requirement)
 
     gym.logger.set_level(gym.logger.INFO)
 
-    rollout(
-        trainer,
-        None,
-        num_steps=0,
-        num_episodes=episodes,
-    )
+    saver = RolloutSaver()
+
+    saver.begin_rollout()
+    eval_result = trainer.evaluate()["evaluation"]
+    saver.end_rollout()
     trainer.stop()
+
+    return eval_result

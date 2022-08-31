@@ -63,11 +63,6 @@ def load_trainer(
         config, config_updates, _allow_unknown_configs=True
     )
 
-    from .policies import MbagPPOTorchPolicy
-
-    for policy_id, policy_spec in config["multiagent"]["policies"].items():
-        policy_spec[0] = MbagPPOTorchPolicy
-
     # Create the Trainer from config.
     if isinstance(run, str):
         cls = cast(Type[Trainer], get_trainable_cls(run))

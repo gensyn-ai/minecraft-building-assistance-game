@@ -28,7 +28,7 @@ class RllibMbagAgent(MbagAgent):
         obs_batch = tuple(obs_piece[None] for obs_piece in obs)
         state_batch = [state_piece[None] for state_piece in self.state]
         action_batch, state_out_batch, info = self.policy.compute_actions(
-            obs_batch, state_batch
+            obs_batch, state_batch, explore=False
         )
         self.state = [state_piece[0] for state_piece in state_out_batch]
         return cast(

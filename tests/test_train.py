@@ -61,7 +61,7 @@ def test_transformer(default_config):
             **default_config,
             "model": "transformer",
             "position_embedding_size": 6,
-            "hidden_size": 39,
+            "hidden_size": 50,
             "num_layers": 3,
             "num_heads": 1,
             "use_separated_transformer": True,
@@ -75,7 +75,7 @@ def test_transformer(default_config):
             **default_config,
             "model": "transformer",
             "position_embedding_size": 6,
-            "hidden_size": 39,
+            "hidden_size": 50,
             "num_layers": 1,
             "num_heads": 1,
             "use_separated_transformer": False,
@@ -133,7 +133,6 @@ def test_distillation(default_config):
             **default_config,
             "run": "distillation_prediction",
             "heuristic": "mirror_builder",
-            "checkpoint_to_load_policies": dummy_run,
         }
     ).result
 
@@ -150,6 +149,43 @@ def test_train_together(default_config):
             "num_players": 2,
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_0", "ppo_1"],
+        }
+    ).result
+    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
+    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+            "hidden_size": 64,
+        }
+    ).result
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero_assistant(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "checkpoint_to_load_policies": dummy_run,
+            "load_policies_mapping": {"ppo": "ppo_0"},
+            "policies_to_train": ["ppo_1"],
+            "model": "transformer_alpha_zero",
+            "hidden_size": 64,
         }
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
