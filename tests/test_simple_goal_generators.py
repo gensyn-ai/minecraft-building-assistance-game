@@ -14,7 +14,6 @@ def test_random_goal_generator():
             "horizon": 250,
             "goal_generator": RandomGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -40,7 +39,6 @@ def test_random_goal_generator_in_malmo():
             "horizon": 250,
             "goal_generator": RandomGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -66,7 +64,6 @@ def test_simple_overhang_goal_generator():
             "horizon": 250,
             "goal_generator": SimpleOverhangGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -92,7 +89,6 @@ def test_simple_overhang_goal_generator_in_malmo():
             "horizon": 250,
             "goal_generator": SimpleOverhangGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

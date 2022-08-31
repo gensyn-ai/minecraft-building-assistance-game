@@ -29,7 +29,6 @@ def test_layer_builder_agent():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -56,7 +55,6 @@ def test_pq_agent_basic():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -84,7 +82,7 @@ def test_pq_agent_overhangs():
                 "horizon": 100,
                 "goal_generator": SimpleOverhangGoalGenerator,
                 "goal_generator_config": {},
-                "goal_visibility": [True] * num_players,
+                "players": [{}] * num_players,
                 "malmo": {
                     "use_malmo": False,
                     "use_spectator": False,
@@ -120,7 +118,7 @@ def test_pq_agent_grabcraft():
                         {"transform": "randomly_place"},
                     ],
                 },
-                "goal_visibility": [True] * num_players,
+                "players": [{}] * num_players,
                 "malmo": {
                     "use_malmo": False,
                     "use_spectator": False,
@@ -156,7 +154,6 @@ def test_malmo_pq():
             "horizon": 100,
             "goal_generator": SimpleOverhangGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -183,7 +180,6 @@ def test_rllib_heuristic_agents():
         "horizon": 100,
         "goal_generator": BasicGoalGenerator,
         "goal_generator_config": {},
-        "goal_visibility": [True],
         "malmo": {
             "use_malmo": False,
             "use_spectator": False,
@@ -337,7 +333,7 @@ def test_mirror_building_agent():
                     {"transform": "mirror", "config": {}},
                 ],
             },
-            "goal_visibility": [True, False],
+            "players": [{"goal_visible": True}, {"goal_visible": False}],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -365,7 +361,7 @@ def test_mirror_building_agent_in_malmo():
                     {"transform": "mirror", "config": {}},
                 ],
             },
-            "goal_visibility": [True, False],
+            "players": [{"goal_visible": True}, {"goal_visible": False}],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

@@ -19,7 +19,6 @@ def test_goal_generator():
                     {"transform": "randomly_place"},
                 ],
             },
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -54,7 +53,6 @@ def test_goal_generator_in_malmo():
                     {"transform": "randomly_place"},
                 ],
             },
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -90,7 +88,6 @@ def test_seam_carving_in_malmo():
                     {"transform": "randomly_place"},
                 ],
             },
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

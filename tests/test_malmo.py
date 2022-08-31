@@ -14,7 +14,6 @@ def test_malmo():
             "horizon": 100,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -37,7 +36,7 @@ def test_two_agents_in_malmo():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True, True],
+            "players": [{}, {}],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -62,7 +61,6 @@ def test_video_dir():
                 "horizon": 100,
                 "goal_generator": BasicGoalGenerator,
                 "goal_generator_config": {},
-                "goal_visibility": [True],
                 "malmo": {
                     "use_malmo": True,
                     "use_spectator": True,

@@ -43,9 +43,8 @@ class MalmoClient(object):
         self.record_fname = None
 
     def get_player_name(self, player_index: int, env_config: MbagConfigDict) -> str:
-        if env_config["malmo"]["player_names"] is not None:
-            player_name = env_config["malmo"]["player_names"][player_index]
-        else:
+        player_name = env_config["players"][player_index].get("player_name")
+        if player_name is None:
             player_name = f"player_{player_index}"
         # Player names cannot be longer than 16 character in Minecraft.
         return player_name[:16]

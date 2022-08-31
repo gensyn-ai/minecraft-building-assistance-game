@@ -16,7 +16,6 @@ def test_movement():
             "horizon": 10,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -43,7 +42,6 @@ def test_movement_in_malmo():
             "horizon": 10,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -70,7 +68,6 @@ def test_movement_with_building():
             "horizon": 30,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -97,7 +94,6 @@ def test_movement_with_building_in_malmo():
             "horizon": 30,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -124,7 +120,7 @@ def test_obstructing_agents():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "goal_generator_config": {},
-            "goal_visibility": [True for _ in range(10)],
+            "players": [{} for _ in range(10)],
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,

@@ -58,11 +58,6 @@ class MalmoConfigDict(TypedDict, total=False):
     Whether to connect to a real Minecraft instance with Project Malmo.
     """
 
-    player_names: Optional[List[str]]
-    """
-    Optional list of player names.
-    """
-
     use_spectator: bool
     """
     Adds in a spectator player to observe the game from a 3rd person point of view.
@@ -117,18 +112,45 @@ class RewardsConfigDict(TypedDict, total=False):
 class AbilitiesConfigDict(TypedDict):
     teleportation: bool
     """
-    Whether the agent can teleport or must move block by block
+    Whether the agent can teleport or must move block by block.
     """
 
     flying: bool
     """
-    Whether the agent can fly or if the agent must be standing on a block at all times
+    Whether the agent can fly or if the agent must be standing on a block at all times.
+    Not implemented yet!
     """
 
     inf_blocks: bool
     """
     True - agent has infinite blocks to build with
     False - agent must manage resources and inventory
+    """
+
+
+class MbagPlayerConfigDict(TypedDict, total=False):
+    player_name: Optional[str]
+    """A player name that will be displayed in Minecraft if connected via Malmo."""
+
+    goal_visible: bool
+    """Whether the player can observe the goal."""
+
+    is_human: bool
+    """
+    Whether this player is a human interacting via Malmo. Setting this to True requires
+    Malmo to be configured.
+    """
+
+    timestep_skip: int
+    """
+    How often the player can interact with the environment, i.e. 1 means every
+    timestep, 5 means only every 5th timestep.
+    """
+
+    rewards: RewardsConfigDict
+    """
+    Optional per-player reward configuration. Any unpopulated keys are overridden by
+    values from the overall rewards config dict.
     """
 
 
@@ -140,28 +162,32 @@ class MbagConfigDict(TypedDict, total=False):
     goal_generator: Union[Type[GoalGenerator], str]
     goal_generator_config: GoalGeneratorConfig
 
-    goal_visibility: List[bool]
-    """
-    List with one boolean for each player, indicating if the player can observe the
-    goal.
-    """
-
-    timestep_skip: List[int]
-    """
-    Each element is how often the corresponding player can interact with the
-    environment, i.e. 1 means every timestep, 5 means only every 5th timestep.
-    """
+    players: List[MbagPlayerConfigDict]
+    """List of player configuration dictionaries."""
 
     malmo: MalmoConfigDict
     """Configuration options for connecting to Minecraft with Project Malmo."""
 
-    rewards: Union[RewardsConfigDict, List[RewardsConfigDict]]
+    rewards: RewardsConfigDict
     """
-    Configuration options for environment reward, optionally different for each player.
+    Configuration options for environment reward. To configure on a per-player basis,
+    use rewards key in player configuration dictionary.
     """
 
     abilities: AbilitiesConfigDict
-    """Configuration for limits placed on the agent (flying, teleportation, inventory, etc...) """
+    """
+    Configuration for limits placed on the players (e.g., can they teleport, do they
+    have to gather resources, etc.).
+    """
+
+
+DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
+    "player_name": None,
+    "goal_visible": True,
+    "is_human": False,
+    "timestep_skip": 1,
+    "rewards": {},
+}
 
 
 DEFAULT_CONFIG: MbagConfigDict = {
@@ -176,11 +202,9 @@ DEFAULT_CONFIG: MbagConfigDict = {
             {"transform": "add_grass"},
         ],
     },
-    "goal_visibility": [True, False],
-    "timestep_skip": [1] * 10,
+    "players": [{}],
     "malmo": {
         "use_malmo": False,
-        "player_names": None,
         "use_spectator": False,
         "video_dir": None,
     },
@@ -233,33 +257,7 @@ class MbagEnv(object):
     """The maximum number of blocks a player can carry in a stack."""
 
     def __init__(self, config: MbagConfigDict):
-        self.config = copy.deepcopy(DEFAULT_CONFIG)
-        self.config.update(config)
-        if isinstance(self.config["world_size"], list):
-            self.config["world_size"] = tuple(self.config["world_size"])
-
-        self.config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
-        self.config["malmo"].update(config.get("malmo", {}))
-        passed_rewards_config = config.get("rewards", {})
-
-        if isinstance(passed_rewards_config, list):
-            rewards_configs = []
-            for incomplete_rewards_config in passed_rewards_config:
-                rewards_config = copy.deepcopy(DEFAULT_CONFIG["rewards"])
-                assert isinstance(rewards_config, dict)
-                rewards_config.update(incomplete_rewards_config)
-                rewards_configs.append(rewards_config)
-            self.config["rewards"] = rewards_configs
-        else:
-            self.config["rewards"] = copy.deepcopy(DEFAULT_CONFIG["rewards"])
-            assert isinstance(self.config["rewards"], dict)
-            self.config["rewards"].update(passed_rewards_config)
-
-        if (
-            self.config["malmo"]["video_dir"] is not None
-            and not self.config["malmo"]["use_spectator"]
-        ):
-            raise ValueError("Video recording requires using a spectator")
+        self.config = self.get_config(copy.deepcopy(config))
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
@@ -303,6 +301,50 @@ class MbagEnv(object):
             self.malmo_client = MalmoClient()
 
         self.global_timestep = 0
+
+    def get_config(self, partial_config: MbagConfigDict) -> MbagConfigDict:
+        """Get a fully populated config dict by adding defaults where necessary."""
+
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config.update(partial_config)
+        if isinstance(config["world_size"], list):
+            config["world_size"] = tuple(config["world_size"])
+
+        config["malmo"] = copy.deepcopy(DEFAULT_CONFIG["malmo"])
+        config["malmo"].update(partial_config.get("malmo", {}))
+
+        config["rewards"] = copy.deepcopy(DEFAULT_CONFIG["rewards"])
+        config["rewards"].update(partial_config.get("rewards", {}))
+
+        if len(config["players"]) != config["num_players"]:
+            raise ValueError(
+                f"MBAG config dictionary specifies {config['num_players']} player(s) "
+                f"but has configuration for {len(config['players'])} player(s)"
+            )
+
+        for player_index, partial_player_config in list(enumerate(config["players"])):
+            player_config = copy.deepcopy(DEFAULT_PLAYER_CONFIG)
+            player_config.update(partial_player_config)
+
+            partial_rewards_config = player_config["rewards"]
+            player_config["rewards"] = copy.deepcopy(config["rewards"])
+            player_config["rewards"].update(partial_rewards_config)
+
+            if player_config["is_human"] and not config["malmo"]["use_malmo"]:
+                raise ValueError(
+                    f"Player {player_index} is specified as human but Malmo is not "
+                    "enabled"
+                )
+
+            config["players"][player_index] = player_config
+
+        if (
+            config["malmo"]["video_dir"] is not None
+            and not config["malmo"]["use_spectator"]
+        ):
+            raise ValueError("Video recording requires using a spectator")
+
+        return config
 
     def update_global_timestep(self, global_timestep: int) -> None:
         self.global_timestep = global_timestep
@@ -378,7 +420,10 @@ class MbagEnv(object):
         for player_index, player_action_tuple in enumerate(action_tuples):
             # For each player, if they are acting this timestep, step the player,
             # otherwise execute NOOP.
-            if self.timestep % self.config["timestep_skip"][player_index] == 0:
+            if (
+                self.timestep % self.config["players"][player_index]["timestep_skip"]
+                == 0
+            ):
                 player_reward, player_info = self._step_player(
                     player_index, player_action_tuple
                 )
@@ -958,7 +1003,7 @@ class MbagEnv(object):
         world_obs = np.zeros(self.world_obs_shape, np.uint8)
         world_obs[CURRENT_BLOCKS] = self.current_blocks.blocks
         world_obs[CURRENT_BLOCK_STATES] = self.current_blocks.block_states
-        if self.config["goal_visibility"][player_index]:
+        if self.config["players"][player_index]["goal_visible"]:
             world_obs[GOAL_BLOCKS] = self.goal_blocks.blocks
             world_obs[GOAL_BLOCK_STATES] = self.goal_blocks.block_states
 
@@ -1012,10 +1057,7 @@ class MbagEnv(object):
             world_obs[4, x, y, z] = marker
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
-        if isinstance(self.config["rewards"], list):
-            return self.config["rewards"][player_index]
-        else:
-            return self.config["rewards"]
+        return self.config["players"][player_index]["rewards"]
 
     def _get_own_reward_prop(self, player_index: int) -> float:
         reward_config = self._get_reward_config_for_player(player_index)

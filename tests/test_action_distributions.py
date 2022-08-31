@@ -116,6 +116,7 @@ def test_mask_no_teleportation_no_inf_blocks():
         {
             "world_size": (7, 7, 7),
             "num_players": 2,
+            "players": [{}, {}],
             "abilities": {
                 "teleportation": False,
                 "flying": True,

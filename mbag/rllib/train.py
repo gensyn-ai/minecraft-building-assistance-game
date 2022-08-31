@@ -22,7 +22,7 @@ from mbag.environment.goals.goal_transform import (
     TransformedGoalGeneratorConfig,
 )
 from mbag.environment.goals.transforms import CropTransformConfig
-from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
 from .torch_models import (
@@ -123,6 +123,14 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "transforms": goal_transforms,
         }
 
+        player_configs: List[MbagPlayerConfigDict] = []
+        for player_index in range(num_players):
+            player_config: MbagPlayerConfigDict = {
+                "goal_visible": goal_visibility[player_index],
+                "timestep_skip": timestep_skip[player_index],
+            }
+            player_configs.append(player_config)
+
         environment_params: MbagConfigDict = {
             "num_players": num_players,
             "horizon": horizon,
@@ -130,10 +138,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "goal_generator_config": transformed_goal_generator_config,
             "malmo": {
                 "use_malmo": False,
-                "player_names": None,
             },
-            "goal_visibility": goal_visibility,
-            "timestep_skip": timestep_skip,
+            "players": player_configs,
             "rewards": {
                 "noop": noop_reward,
                 "action": action_reward,
@@ -293,7 +299,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 agent_index = int(agent_id[len("player_") :])
                 return policy_ids[agent_index]
 
-        environment_params["malmo"]["player_names"] = policy_ids
+        for player_index, policy_id in enumerate(policy_ids):
+            environment_params["players"][player_index]["player_name"] = policy_id
 
         loaded_policy_dict: MultiAgentPolicyConfigDict = {}
         if checkpoint_to_load_policies is not None:
