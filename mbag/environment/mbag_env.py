@@ -652,7 +652,10 @@ class MbagEnv(object):
 
         self.last_interacted[action.block_location] = player_index
 
-        if self.config["malmo"]["use_malmo"]:
+        if (
+            self.config["malmo"]["use_malmo"]
+            and not self.config["players"][player_index]["is_human"]
+        ):
             player_location, click_location = place_break_result
 
             if self.config["abilities"]["teleportation"]:
@@ -763,7 +766,10 @@ class MbagEnv(object):
         player_location = new_player_location
         self.player_locations[player_index] = player_location
 
-        if self.config["malmo"]["use_malmo"]:
+        if (
+            self.config["malmo"]["use_malmo"]
+            and not self.config["players"][player_index]["is_human"]
+        ):
             if action_mask[action_type][1] != "tp":
                 self.malmo_client.send_command(
                     player_index, action_mask[action_type][1]
@@ -859,7 +865,11 @@ class MbagEnv(object):
         player_inventory[selected_slot, 0] = block_id
         player_inventory[selected_slot, 1] += 1
 
-        if self.config["malmo"]["use_malmo"] and give_in_malmo:
+        if (
+            self.config["malmo"]["use_malmo"]
+            and give_in_malmo
+            and not self.config["players"][player_index]["is_human"]
+        ):
             player_name = self.malmo_client.get_player_name(player_index, self.config)
             block_name = MinecraftBlocks.ID2NAME[block_id]
             self.malmo_client.send_command(
@@ -908,7 +918,10 @@ class MbagEnv(object):
             if player_inventory[selected_slot, 1] == 0:
                 player_inventory[selected_slot, 0] = MinecraftBlocks.AIR
 
-            if self.config["malmo"]["use_malmo"]:
+            if (
+                self.config["malmo"]["use_malmo"]
+                and not self.config["players"][player_index]["is_human"]
+            ):
                 player_name = self.malmo_client.get_player_name(
                     player_index, self.config
                 )
