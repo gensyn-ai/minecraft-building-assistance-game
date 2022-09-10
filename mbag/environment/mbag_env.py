@@ -1134,6 +1134,8 @@ class MbagEnv(object):
             if malmo_player_state is None:
                 continue
 
+            # print(malmo_player_state)
+
             malmo_inventory: MbagInventory = np.array(
                 [
                     [

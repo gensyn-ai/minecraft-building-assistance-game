@@ -41,4 +41,4 @@ def test_human_in_malmo():
         ],
     )
     episode_info = evaluator.rollout()
-    assert episode_info.cumulative_reward == 0
+    assert episode_info.cumulative_reward == -1

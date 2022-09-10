@@ -64,7 +64,6 @@ class MalmoClient(object):
         inventory_items_xml = "\n".join(inventory_item_tags)
 
         if env_config["players"][player_index]["is_human"]:
-            # TODO: modify config for human player
             return f"""
             <AgentSection mode="Creative">
                 <Name>{self.get_player_name(player_index, env_config)}</Name>
@@ -87,6 +86,18 @@ class MalmoClient(object):
                     </ObservationFromGrid>
                     <ObservationFromFullInventory />
                     <ObservationFromFullStats />
+
+                    <ObservationFromChat/>
+                    <ObservationFromRecentCommands/>
+                    <ObservationFromNearbyEntities>
+                        <Range name="entities"
+                            xrange="100"
+                            yrange="100"
+                            zrange="100"
+                            update_frequency="5" 
+                        />
+                    </ObservationFromNearbyEntities>
+                    
                     <AbsoluteMovementCommands />
                     <DiscreteMovementCommands>
                         <ModifierList type="deny-list">
@@ -442,6 +453,8 @@ class MalmoClient(object):
             world_state.is_mission_running
             and world_state.number_of_observations_since_last_state > 0
         ):
+
+            print(json.loads(world_state.observations[-1].text))
             return cast(
                 MalmoObservationDict, json.loads(world_state.observations[-1].text)
             )
