@@ -68,6 +68,12 @@ class MalmoConfigDict(TypedDict, total=False):
     Optional directory to record video from the game into.
     """
 
+    play_survival: bool
+    """
+    If true, changes the mode of play to survival, and players are responsible for
+    maintaining health and must use tools to collect blocks
+    """
+
 
 class RewardsConfigDict(TypedDict, total=False):
     noop: float
@@ -128,6 +134,18 @@ class AbilitiesConfigDict(TypedDict):
     """
 
 
+class Item(TypedDict):
+    id: str
+    """
+    String id of a Minecraft item.
+    """
+
+    count: int
+    """
+    The number of this item to place in the player inventory
+    """
+
+
 class MbagPlayerConfigDict(TypedDict, total=False):
     player_name: Optional[str]
     """A player name that will be displayed in Minecraft if connected via Malmo."""
@@ -151,6 +169,11 @@ class MbagPlayerConfigDict(TypedDict, total=False):
     """
     Optional per-player reward configuration. Any unpopulated keys are overridden by
     values from the overall rewards config dict.
+    """
+
+    give_items: List[Item]
+    """
+    A list of items to give to the player at the beginning of the game. 
     """
 
 
@@ -187,6 +210,7 @@ DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
     "is_human": False,
     "timestep_skip": 1,
     "rewards": {},
+    "give_items": []
 }
 
 
@@ -207,6 +231,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "use_malmo": False,
         "use_spectator": False,
         "video_dir": None,
+        "play_survival": False
     },
     "rewards": {
         "noop": 0.0,
@@ -357,6 +382,11 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
+        # not sure if this works for barrier blocks
+        self.current_blocks.blocks[0, :, :], self.current_blocks.blocks[-1, :, :] = MinecraftBlocks.BARRIER
+        self.current_blocks.blocks[:, 0, :], self.current_blocks.blocks[:, -1, :] = MinecraftBlocks.BARRIER
+        self.current_blocks.blocks[:, :, 0], self.current_blocks.blocks[:, :, -1] = MinecraftBlocks.BARRIER
+
         self.last_interacted = np.zeros(self.config["world_size"])
         self.last_interacted[:] = NO_INTERACTION
 
@@ -382,8 +412,9 @@ class MbagEnv(object):
             )
             time.sleep(1)  # Wait a second for the environment to load.
 
-            # Make all players fly.
+            # pre-setup stuff
             for player_index in range(self.config["num_players"]):
+                # make players fly
                 for _ in range(2):
                     self.malmo_client.send_command(player_index, "jump 1")
                     time.sleep(0.1)
@@ -392,6 +423,20 @@ class MbagEnv(object):
                 self.malmo_client.send_command(
                     player_index,
                     "tp " + " ".join(map(str, self.player_locations[player_index])),
+                )
+
+                # give items to players
+                for item in self.config['players'][player_index]['give_items']:
+                    self.malmo_client.send_command(
+                        player_index,
+                        "give {} {}" .format(item['id'], item['count'])
+                    )
+
+            # convert players to survival mode
+            if self.config['malmo']['play_survival']:
+                self.malmo_client.send_command(
+                    0,
+                    "gamemode survival"
                 )
 
         if not self.config["abilities"]["inf_blocks"]:

@@ -48,6 +48,7 @@ class MinecraftBlocks(object):
         "stone",
         "stonebrick",
         "wool",
+        "barrier"
     ]
 
     NAME2ID: Dict[str, int] = {
@@ -58,6 +59,7 @@ class MinecraftBlocks(object):
     }
 
     AIR = NAME2ID["air"]
+    BARRIER = NAME2ID["barrier"]
     AUTO = NAME2ID["auto"]
     BEDROCK = NAME2ID["bedrock"]
     NUM_BLOCKS = len(ID2NAME)
