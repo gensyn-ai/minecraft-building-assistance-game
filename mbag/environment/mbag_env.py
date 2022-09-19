@@ -409,9 +409,9 @@ class MbagEnv(object):
         position_padding: float = 1 if self.config["malmo"]["restrict_players"] else 0
         self.player_locations = [
             (
-                (i % self.config["world_size"][0]) + position_padding,
+                (i % self.config["world_size"][0]) + 0.5 + position_padding,
                 2,
-                int(i / self.config["world_size"][0]) + position_padding,
+                int(i / self.config["world_size"][0]) + 0.5 + position_padding,
             )
             for i in range(self.config["num_players"])
         ]
