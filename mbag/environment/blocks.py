@@ -48,7 +48,7 @@ class MinecraftBlocks(object):
         "stone",
         "stonebrick",
         "wool",
-        "barrier"
+        "barrier",
     ]
 
     NAME2ID: Dict[str, int] = {

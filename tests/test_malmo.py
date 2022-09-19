@@ -77,3 +77,34 @@ def test_video_dir():
         )
         evaluator.rollout()
         assert os.path.exists(os.path.join(video_dir, "000000.mp4"))
+
+
+@pytest.mark.uses_malmo
+def test_human_collection():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (20, 20, 20),
+            "num_players": 1,
+            "horizon": 50,
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
+            "players": [
+                {
+                    "player_name": "human",
+                    "goal_visible": True,
+                    "is_human": True,
+                    "timestep_skip": 1,
+                    "rewards": {},
+                    "give_items": [{"id": "diamond_pickaxe", "count": 1}],
+                }
+            ],
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"inf_blocks": False, "teleportation": True, "flying": True},
+        },
+        [(NoopAgent, {})],
+    )
+    evaluator.rollout()
