@@ -227,7 +227,12 @@ DEFAULT_CONFIG: MbagConfigDict = {
         ],
     },
     "players": [{}],
-    "malmo": {"use_malmo": False, "use_spectator": False, "restrict_players": False, "video_dir": None},
+    "malmo": {
+        "use_malmo": False,
+        "use_spectator": False,
+        "restrict_players": False,
+        "video_dir": None,
+    },
     "rewards": {
         "noop": 0.0,
         "action": 0.0,
@@ -377,12 +382,18 @@ class MbagEnv(object):
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
 
         if self.config["malmo"]["restrict_players"]:
-            self.current_blocks.blocks[0, :, :], self.current_blocks.blocks[-1, :, :] = (
+            (
+                self.current_blocks.blocks[0, :, :],
+                self.current_blocks.blocks[-1, :, :],
+            ) = (
                 MinecraftBlocks.BARRIER,
                 MinecraftBlocks.BARRIER,
             )
             self.current_blocks.blocks[:, -1, :] = MinecraftBlocks.BARRIER
-            self.current_blocks.blocks[:, :, 0], self.current_blocks.blocks[:, :, -1] = (
+            (
+                self.current_blocks.blocks[:, :, 0],
+                self.current_blocks.blocks[:, :, -1],
+            ) = (
                 MinecraftBlocks.BARRIER,
                 MinecraftBlocks.BARRIER,
             )
