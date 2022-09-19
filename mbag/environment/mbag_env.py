@@ -63,6 +63,12 @@ class MalmoConfigDict(TypedDict, total=False):
     Adds in a spectator player to observe the game from a 3rd person point of view.
     """
 
+    restrict_players: bool
+    """
+    Places a group of barrier blocks around players that prevents them from leaving
+    the test world
+    """
+
     video_dir: Optional[str]
     """
     Optional directory to record video from the game into.
@@ -221,7 +227,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         ],
     },
     "players": [{}],
-    "malmo": {"use_malmo": False, "use_spectator": False, "video_dir": None},
+    "malmo": {"use_malmo": False, "use_spectator": False, "restrict_players": False, "video_dir": None},
     "rewards": {
         "noop": 0.0,
         "action": 0.0,
@@ -369,22 +375,20 @@ class MbagEnv(object):
         self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
+
+        if self.config["malmo"]["restrict_players"]:
+            self.current_blocks.blocks[0, :, :], self.current_blocks.blocks[-1, :, :] = (
+                MinecraftBlocks.BARRIER,
+                MinecraftBlocks.BARRIER,
+            )
+            self.current_blocks.blocks[:, -1, :] = MinecraftBlocks.BARRIER
+            self.current_blocks.blocks[:, :, 0], self.current_blocks.blocks[:, :, -1] = (
+                MinecraftBlocks.BARRIER,
+                MinecraftBlocks.BARRIER,
+            )
+
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
-
-        # not sure if this works for barrier blocks
-        self.current_blocks.blocks[0, :, :], self.current_blocks.blocks[-1, :, :] = (
-            MinecraftBlocks.BARRIER,
-            MinecraftBlocks.BARRIER,
-        )
-        self.current_blocks.blocks[:, 0, :], self.current_blocks.blocks[:, -1, :] = (
-            MinecraftBlocks.BARRIER,
-            MinecraftBlocks.BARRIER,
-        )
-        self.current_blocks.blocks[:, :, 0], self.current_blocks.blocks[:, :, -1] = (
-            MinecraftBlocks.BARRIER,
-            MinecraftBlocks.BARRIER,
-        )
 
         self.last_interacted = np.zeros(self.config["world_size"])
         self.last_interacted[:] = NO_INTERACTION
@@ -1166,6 +1170,7 @@ class MbagEnv(object):
             if malmo_player_state is None:
                 continue
 
+            # how do we add tools to malmo inventory?
             malmo_inventory: MbagInventory = np.array(
                 [
                     [

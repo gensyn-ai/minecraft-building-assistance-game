@@ -102,6 +102,7 @@ def test_human_collection():
                 "use_malmo": True,
                 "use_spectator": False,
                 "video_dir": None,
+                "restrict_players": True
             },
             "abilities": {"inf_blocks": False, "teleportation": True, "flying": True},
         },
