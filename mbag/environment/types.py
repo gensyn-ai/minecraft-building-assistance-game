@@ -40,6 +40,9 @@ num_world_obs_channels = 6
 
 MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs, NDArray[np.int32]]
 
+MbagHumanCommandType = Literal["key", "mouse"]
+MbagHumanCommand = Literal["forward", "right", "left", "back"]
+
 MbagInventory = np.ndarray
 """
 Player inventory will be stored as 2d numpy array.
@@ -138,6 +141,43 @@ class MbagAction(object):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
 
 
+class MbagHumanAction:
+    time: int
+    """
+    At what time in the step the human did the action, measured in milliseconds (or ticks?)
+    """
+
+    type: MbagHumanCommandType
+    """
+    What type of command was logged from the human
+    """
+
+    command: MbagHumanCommand
+    """
+    What the human's action meant in Minecraft
+    """
+
+    pressed: bool
+    """
+    Whether the human pressed or released
+    """
+
+    deltaX: int
+    """
+    The X-axis difference between the player's location and the location of the block clicked
+    """
+
+    deltaY: int
+    """
+    The Y-axis difference between the player's location and the location of the block clicked
+    """
+
+    deltaZ: int
+    """
+    The Z-axis difference between the player's location and the location of the block clicked
+    """
+
+
 class MbagInfoDict(TypedDict):
     goal_similarity: float
     """
@@ -181,4 +221,9 @@ class MbagInfoDict(TypedDict):
     """
     Whether an action directly contributed to the goal, either by placing the correct
     block or breakin an incorrect block.
+    """
+
+    human_actions: List[MbagHumanAction]
+    """
+    List of actions recorded by Malmo that the human did
     """

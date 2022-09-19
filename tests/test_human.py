@@ -4,14 +4,13 @@ import logging
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.hardcoded_agents import (
     HardcodedResourceAgent,
-    HardcodedInventoryDonator,
 )
-from mbag.agents.heuristic_agents import NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 
 logger = logging.getLogger(__name__)
 
-# @pytest.mark.uses_malmo
+
+@pytest.mark.uses_malmo
 def test_human_in_malmo():
     """
     Make sure the inventory agent can place blocks
@@ -41,4 +40,4 @@ def test_human_in_malmo():
         ],
     )
     episode_info = evaluator.rollout()
-    assert episode_info.cumulative_reward == -1
+    assert episode_info.cumulative_reward == 0

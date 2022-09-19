@@ -28,6 +28,7 @@ class MalmoObservationDict(TypedDict, total=False):
     XPos: float
     YPos: float
     ZPos: float
+    events: List
 
 
 class MalmoClient(object):
@@ -94,10 +95,11 @@ class MalmoClient(object):
                             xrange="100"
                             yrange="100"
                             zrange="100"
-                            update_frequency="5" 
+                            update_frequency="5"
                         />
                     </ObservationFromNearbyEntities>
-                    
+                    <ObservationFromHuman/>
+                    <ObservationFromSystem/>
                     <AbsoluteMovementCommands />
                     <DiscreteMovementCommands>
                         <ModifierList type="deny-list">
@@ -454,7 +456,7 @@ class MalmoClient(object):
             and world_state.number_of_observations_since_last_state > 0
         ):
 
-            print(json.loads(world_state.observations[-1].text))
+            # print(json.loads(world_state.observations[-1].text))
             return cast(
                 MalmoObservationDict, json.loads(world_state.observations[-1].text)
             )

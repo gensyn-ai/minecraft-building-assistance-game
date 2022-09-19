@@ -440,7 +440,8 @@ class MbagEnv(object):
 
         if self.config["malmo"]["use_malmo"]:
             time.sleep(self.malmo_client.ACTION_DELAY)
-            self._update_state_from_malmo()
+            infos = self._update_state_from_malmo(infos)
+            # print(infos)
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -601,6 +602,7 @@ class MbagEnv(object):
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "action": action if not noop else MbagAction.noop_action(),
             "action_correct": action_correct and not noop,
+            "human_actions": [],
         }
 
         return reward, info
@@ -1088,10 +1090,10 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _update_state_from_malmo(self):
+    def _update_state_from_malmo(self, infos):
         malmo_state = self.malmo_client.get_observation(0)
         if malmo_state is None:
-            return
+            return infos
 
         malmo_blocks = MinecraftBlocks.from_malmo_grid(
             self.config["world_size"], malmo_state["world"]
@@ -1134,7 +1136,11 @@ class MbagEnv(object):
             if malmo_player_state is None:
                 continue
 
-            # print(malmo_player_state)
+            # Record any actions
+            if "events" in malmo_player_state:
+                infos[player_index]["human_actions"] = malmo_player_state["events"]
+            else:
+                infos[player_index]["human_actions"] = ""
 
             malmo_inventory: MbagInventory = np.array(
                 [
@@ -1200,6 +1206,7 @@ class MbagEnv(object):
                     self.player_locations[player_index] = malmo_location
 
         self.current_blocks.blocks = malmo_blocks.blocks
+        return infos
 
     def _done(self) -> bool:
         return (
