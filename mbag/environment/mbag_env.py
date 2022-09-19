@@ -406,7 +406,7 @@ class MbagEnv(object):
 
         self.goal_blocks = self._generate_goal()
 
-        position_padding: float = 1 if self.config['malmo']['restrict_players'] else 0
+        position_padding: float = 1 if self.config["malmo"]["restrict_players"] else 0
         self.player_locations = [
             (
                 (i % self.config["world_size"][0]) + position_padding,
