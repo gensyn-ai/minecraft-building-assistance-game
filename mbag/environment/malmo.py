@@ -2,10 +2,11 @@
 Code to interface with Project Malmo.
 """
 
+from datetime import datetime
 import shutil
 import tarfile
 import tempfile
-from typing import List, Optional, TypedDict, cast
+from typing import List, Optional, Tuple, TypedDict, cast
 import MalmoPython
 import logging
 import time
@@ -417,6 +418,9 @@ class MalmoClient(object):
         self.agent_hosts = []
         for player_index in range(self._get_num_agents(env_config)):
             agent_host = MalmoPython.AgentHost()
+            agent_host.setObservationsPolicy(
+                MalmoPython.ObservationsPolicy.KEEP_ALL_OBSERVATIONS
+            )
             self.agent_hosts.append(agent_host)
             mission_spec_xml = self._get_mission_spec_xml(
                 env_config, current_blocks, goal_blocks, force_reset=player_index == 0
@@ -446,20 +450,29 @@ class MalmoClient(object):
         logger.debug(f"player {player_index} command: {command}")
         self.agent_hosts[player_index].sendCommand(command)
 
-    def get_observation(self, player_index: int) -> Optional[MalmoObservationDict]:
+    def get_observations(
+        self, player_index: int
+    ) -> List[Tuple[datetime, MalmoObservationDict]]:
         agent_host = self.agent_hosts[player_index]
         world_state = agent_host.getWorldState()
         if not world_state.is_mission_running:
-            return None
-        elif (
-            world_state.is_mission_running
-            and world_state.number_of_observations_since_last_state > 0
-        ):
+            return []
+        else:
+            observation_tuples: List[Tuple[datetime, MalmoObservationDict]] = []
+            for observation in world_state.observations:
+                observation_tuples.append(
+                    (
+                        observation.timestamp,
+                        json.loads(observation.text),
+                    )
+                )
+            return observation_tuples
 
-            # print(json.loads(world_state.observations[-1].text))
-            return cast(
-                MalmoObservationDict, json.loads(world_state.observations[-1].text)
-            )
+    def get_observation(self, player_index: int) -> Optional[MalmoObservationDict]:
+        observations = self.get_observations(player_index)
+        if len(observations) > 0:
+            timestamp, observation = observations[0]
+            return observation
         else:
             return None
 

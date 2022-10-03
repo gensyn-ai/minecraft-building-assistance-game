@@ -1,3 +1,4 @@
+import json
 from typing import (
     Dict,
     List,
@@ -1137,10 +1138,13 @@ class MbagEnv(object):
                 continue
 
             # Record any actions
-            if "events" in malmo_player_state:
-                infos[player_index]["human_actions"] = malmo_player_state["events"]
-            else:
-                infos[player_index]["human_actions"] = ""
+            infos[player_index]["human_actions"] = malmo_player_state.get("events", [])
+            if infos[player_index]["human_actions"]:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "received human actions from Malmo: "
+                        + json.dumps(infos[player_index]["human_actions"], indent=4)
+                    )
 
             malmo_inventory: MbagInventory = np.array(
                 [
