@@ -1104,7 +1104,7 @@ class MbagEnv(object):
         )
 
         # What to do about fractional blocks?
-        if env_location[0] != malmo_location[0]:
+        if env_location[0] != malmo_location[0]:  # floor
             diff = int(abs(env_location[0] - malmo_location[0]))
             for _ in range(diff):
                 actions_queue.append(
@@ -1133,9 +1133,9 @@ class MbagEnv(object):
             for _ in range(diff):
                 actions_queue.append(
                     (
-                        MbagAction.MOVE_NEG_Y
+                        MbagAction.MOVE_NEG_Z
                         if env_location[2] > malmo_location[2]
-                        else MbagAction.MOVE_POS_Y,
+                        else MbagAction.MOVE_POS_Z,
                         0,
                         0,
                     )
