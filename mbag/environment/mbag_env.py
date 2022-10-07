@@ -1091,6 +1091,105 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
+    def _get_human_actions(self, malmo_player_state, player_index):
+
+        # Compares malmo state to real state and tries to extrapolate player actions
+
+        actions_queue = []
+
+        env_location = self.player_locations[player_index]
+        malmo_location = (
+            malmo_player_state["XPos"],
+            malmo_player_state["YPos"],
+            malmo_player_state["ZPos"],
+        )
+
+        # What to do about fractional blocks?
+        if env_location[0] != malmo_location[0]:  # floor
+            diff = int(abs(env_location[0] - malmo_location[0]))
+            for _ in range(diff):
+                actions_queue.append(
+                    (
+                        MbagAction.MOVE_NEG_X
+                        if env_location[0] > malmo_location[0]
+                        else MbagAction.MOVE_POS_X,
+                        0,
+                        0,
+                    )
+                )
+        if env_location[1] != malmo_location[1]:
+            diff = int(abs(env_location[1] - malmo_location[1]))
+            for _ in range(diff):
+                actions_queue.append(
+                    (
+                        MbagAction.MOVE_NEG_Y
+                        if env_location[1] > malmo_location[1]
+                        else MbagAction.MOVE_POS_Y,
+                        0,
+                        0,
+                    )
+                )
+        if env_location[2] != malmo_location[2]:
+            diff = int(abs(env_location[2] - malmo_location[2]))
+            for _ in range(diff):
+                actions_queue.append(
+                    (
+                        MbagAction.MOVE_NEG_Z
+                        if env_location[2] > malmo_location[2]
+                        else MbagAction.MOVE_POS_Z,
+                        0,
+                        0,
+                    )
+                )
+
+        ## todo: process events in order of time to make clicks more accurate?
+        for event in malmo_player_state["events"]:
+            if event["type"] != "mouse":
+                continue
+
+            click_location = [
+                malmo_location[0] + event["deltaX"],
+                malmo_location[1] + event["deltaY"],
+                malmo_location[2] + event["deltaZ"],
+            ]
+            print(malmo_location)
+            print(event)
+
+            print(click_location)
+
+            # if self.current_blocks.blocks[click_location] == MinecraftBlocks.AIR:
+            #     actions_queue.append(
+            #         (
+            #             MbagAction.BREAK_BLOCK,
+            #             int(
+            #                 np.ravel_multi_index(
+            #                     click_location,
+            #                     self.config["world_size"],
+            #                 )
+            #             ),
+            #             0,
+            #         )
+            #     ),
+            # else:
+            #     actions_queue.append(
+            #         (
+            #             MbagAction.PLACE_BLOCK,
+            #             int(
+            #                 np.ravel_multi_index(
+            #                     click_location,
+            #                     self.config["world_size"],
+            #                 )
+            #             ),
+            #             self.current_blocks.blocks[click_location],
+            #         )
+            #     ),
+
+            # this is probably a break block? how do we do right clicks?
+            # Mouse does not distinguish between left and right clicks???
+
+        print(actions_queue)
+        return None
+
     def _update_state_from_malmo(self, infos):
         malmo_state = self.malmo_client.get_observation(0)
         if malmo_state is None:
@@ -1145,6 +1244,8 @@ class MbagEnv(object):
                         "received human actions from Malmo: "
                         + json.dumps(infos[player_index]["human_actions"], indent=4)
                     )
+                self._get_human_actions(malmo_player_state, player_index)
+
 
             malmo_inventory: MbagInventory = np.array(
                 [

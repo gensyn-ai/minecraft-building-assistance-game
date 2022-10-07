@@ -2,8 +2,8 @@ import pytest
 import logging
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.hardcoded_agents import (
-    HardcodedResourceAgent,
+from mbag.agents.heuristic_agents import (
+    NoopAgent,
 )
 from mbag.environment.goals.simple import BasicGoalGenerator
 
@@ -36,8 +36,8 @@ def test_human_in_malmo():
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
-            (HardcodedResourceAgent, {}),
+            (NoopAgent, {}),
         ],
     )
     episode_info = evaluator.rollout()
-    assert episode_info.cumulative_reward == 0
+    assert episode_info.cumulative_reward == -1
