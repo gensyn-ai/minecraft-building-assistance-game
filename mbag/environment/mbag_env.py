@@ -380,24 +380,6 @@ class MbagEnv(object):
         self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
-
-        if self.config["malmo"]["restrict_players"]:
-            (
-                self.current_blocks.blocks[0, :, :],
-                self.current_blocks.blocks[-1, :, :],
-            ) = (
-                MinecraftBlocks.BARRIER,
-                MinecraftBlocks.BARRIER,
-            )
-            self.current_blocks.blocks[:, -1, :] = MinecraftBlocks.BARRIER
-            (
-                self.current_blocks.blocks[:, :, 0],
-                self.current_blocks.blocks[:, :, -1],
-            ) = (
-                MinecraftBlocks.BARRIER,
-                MinecraftBlocks.BARRIER,
-            )
-
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
@@ -453,7 +435,7 @@ class MbagEnv(object):
 
             # convert players to survival mode
             if not self.config["abilities"]["inf_blocks"]:
-                self.malmo_client.send_command(0, "chat /gamemode survival")
+                self.malmo_client.send_command(0, "chat /gamemode 0")
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -563,12 +545,20 @@ class MbagEnv(object):
         if self.config["malmo"]["use_malmo"]:
             width, height, depth = self.config["world_size"]
             goal_palette_x = self.palette_x + width + 1
-            self.malmo_client.send_command(
-                0,
-                f"chat /clone {goal_palette_x} 0 0 "
-                f"{goal_palette_x} {height - 1} {depth - 1} "
-                f"{self.palette_x} 0 0",
-            )
+            if self.config["malmo"]["restrict_players"]:
+                self.malmo_client.send_command(
+                    0,
+                    f"chat /clone {goal_palette_x} 0 1 "
+                    f"{goal_palette_x} {height - 1} {depth - 1} "
+                    f"{self.palette_x} 0 1",
+                )
+            else:
+                self.malmo_client.send_command(
+                    0,
+                    f"chat /clone {goal_palette_x} 0 0 "
+                    f"{goal_palette_x} {height - 1} {depth - 1} "
+                    f"{self.palette_x} 0 0",
+                )
 
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple

@@ -173,11 +173,7 @@ def test_give_in_malmo():
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "players": [{}, {}],
-            "malmo": {
-                "use_malmo": True,
-                "use_spectator": False,
-                "video_dir": None,
-            },
+            "malmo": {"use_malmo": True, "use_spectator": False, "video_dir": None},
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [

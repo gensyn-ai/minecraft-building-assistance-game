@@ -5,7 +5,7 @@ Code to interface with Project Malmo.
 import shutil
 import tarfile
 import tempfile
-from typing import List, Optional, TypedDict, cast
+from typing import List, Optional, TypedDict, cast, Tuple
 import MalmoPython
 import logging
 import time
@@ -218,6 +218,28 @@ class MalmoClient(object):
             )
         return "\n".join(draw_tags)
 
+    @staticmethod
+    def _draw_wall(
+        env_config: MbagConfigDict,
+        block_type: str,
+        coord_1: Tuple[int, int, int],
+        coord_2: Tuple[int, int, int],
+    ) -> str:
+        if env_config["malmo"]["restrict_players"]:
+            return f"""
+                <DrawCuboid
+                    type="{block_type}"
+                    x1="{coord_1[0]}"
+                    y1="{coord_1[1]}"
+                    z1="{coord_1[2]}"
+                    x2="{coord_2[0]}"
+                    y2="{coord_2[1]}"
+                    z2="{coord_2[2]}"
+                />
+            """
+
+        return ""
+
     def _get_mission_spec_xml(
         self,
         env_config: MbagConfigDict,
@@ -260,8 +282,13 @@ class MalmoClient(object):
                         destroyAfterUse="true"
                     />
                     <DrawingDecorator>
-                        {self._blocks_to_drawing_decorator_xml(current_blocks)}
-                        {self._blocks_to_drawing_decorator_xml(goal_blocks, (width + 1, 0, 0))}
+                        {self._draw_wall(env_config, "bedrock", (width+1, 2, 1), (width+1, height-1, depth))}
+                        {self._draw_wall(env_config, "barrier", (0, 2, 1), (0, height-1, depth))}
+                        {self._draw_wall(env_config, "barrier", (1, 2, 0), (width, height-1, 0))}
+                        {self._draw_wall(env_config, "barrier", (1, 2, depth+1), (width, height-1, depth+1))}
+                        {self._draw_wall(env_config, "barrier", (1, height, 1), (width, height, depth))}
+                        {self._blocks_to_drawing_decorator_xml(goal_blocks, (width+1, 0, 1))}
+                        {self._blocks_to_drawing_decorator_xml(current_blocks, (1, 0, 1))}
                         {self._get_spectator_platform_drawing_decorator_xml(env_config)}
                     </DrawingDecorator>
                     <BuildBattleDecorator>

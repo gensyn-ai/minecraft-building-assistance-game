@@ -83,7 +83,7 @@ def test_video_dir():
 def test_human_collection():
     evaluator = MbagEvaluator(
         {
-            "world_size": (20, 20, 20),
+            "world_size": (10, 10, 10),
             "num_players": 1,
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
@@ -95,16 +95,16 @@ def test_human_collection():
                     "is_human": True,
                     "timestep_skip": 1,
                     "rewards": {},
-                    "give_items": [{"id": "diamond_pickaxe", "count": 1}],
+                    "give_items": [],
                 }
             ],
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
                 "video_dir": None,
-                "restrict_players": True,
+                "restrict_players": False,
             },
-            "abilities": {"inf_blocks": False, "teleportation": True, "flying": True},
+            "abilities": {"inf_blocks": True, "teleportation": True, "flying": True},
         },
         [(NoopAgent, {})],
     )
