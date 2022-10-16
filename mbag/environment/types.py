@@ -41,7 +41,9 @@ num_world_obs_channels = 6
 MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs, NDArray[np.int32]]
 
 MbagHumanCommandType = Literal["key", "mouse"]
-MbagHumanCommand = Literal["forward", "right", "left", "back"]
+MbagHumanCommand = Literal[
+    "forward", "right", "left", "back", "attack", "inventory", "use"
+]
 
 MbagInventory = np.ndarray
 """

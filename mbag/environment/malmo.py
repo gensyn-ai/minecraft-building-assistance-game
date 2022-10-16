@@ -91,14 +91,8 @@ class MalmoClient(object):
 
                     <ObservationFromChat/>
                     <ObservationFromRecentCommands/>
-                    <ObservationFromNearbyEntities>
-                        <Range name="entities"
-                            xrange="100"
-                            yrange="100"
-                            zrange="100"
-                            update_frequency="5"
-                        />
-                    </ObservationFromNearbyEntities>
+                    <ObservationFromRay />
+
                     <ObservationFromHuman/>
                     <ObservationFromSystem/>
                     <AbsoluteMovementCommands />
