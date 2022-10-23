@@ -102,9 +102,9 @@ def test_human_collection():
                 "use_malmo": True,
                 "use_spectator": False,
                 "video_dir": None,
-                "restrict_players": False,
+                "restrict_players": True,
             },
-            "abilities": {"inf_blocks": True, "teleportation": True, "flying": True},
+            "abilities": {"inf_blocks": False, "teleportation": True, "flying": True},
         },
         [(NoopAgent, {})],
     )
