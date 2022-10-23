@@ -233,6 +233,8 @@ class MbagStateDict(TypedDict):
     player_locations: List[WorldLocation]
     player_directions: List[FacingDirection]
     player_inventories: List[MbagInventory]
+    player_block_looking: List[WorldLocation]
+    player_bock_breaking: List[WorldLocation]
     last_interacted: np.ndarray
     timestep: int
 
@@ -377,6 +379,9 @@ class MbagEnv(object):
             np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
             for _ in range(self.config["num_players"])
         ]
+
+        self.player_block_looking = [None for _ in range(self.config["num_players"])]
+        self.player_block_breaking = [None for _ in range(self.config["num_players"])]
 
         if self.config["malmo"]["use_malmo"]:
             self.malmo_client.start_mission(
@@ -1093,7 +1098,11 @@ class MbagEnv(object):
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
     def _get_human_actions(
-        self, malmo_player_state, historical_player_state, player_index
+        self,
+        malmo_player_state,
+        historical_player_state,
+        player_index,
+        location_discrepancies,
     ):
 
         # Compares malmo state to real state and tries to extrapolate player actions
@@ -1156,8 +1165,40 @@ class MbagEnv(object):
                     )
                 )
 
-        ## todo: process events in order of time to make clicks more accurate?
-        for time, snapshot in historical_player_state:
+        # This is only for using
+
+        for time, snapshot in reversed(historical_player_state):
+            if (
+                self.player_block_looking[player_index]
+                and self.player_block_looking[player_index] in location_discrepancies
+            ):
+                print("Breaking", self.player_block_looking[player_index])
+                actions_queue.append(
+                    (
+                        MbagAction.BREAK_BLOCK,
+                        int(
+                            np.ravel_multi_index(
+                                self.player_block_looking[player_index],
+                                self.config["world_size"],
+                            )
+                        ),
+                        0,
+                    )
+                )
+                location_discrepancies.remove(self.player_block_looking[player_index])
+
+            if "LineOfSight" not in snapshot or not snapshot["LineOfSight"]["inRange"]:
+                continue
+
+            # print(snapshot["LineOfSight"])
+
+            block_location = (
+                int(snapshot["LineOfSight"]["x"]),
+                int(snapshot["LineOfSight"]["y"]),
+                int(snapshot["LineOfSight"]["z"]),
+            )
+            self.player_block_looking[player_index] = block_location
+
             for event in snapshot.get("events", []):
                 if (
                     "command" not in event
@@ -1167,22 +1208,8 @@ class MbagEnv(object):
                     continue
 
                 print(event)
-                print(snapshot.get("LineOfSight", {}))
 
-                if (
-                    "LineOfSight" not in snapshot
-                    or not snapshot["LineOfSight"]["inRange"]
-                ):
-                    continue
-
-                print(snapshot["LineOfSight"])
-                block_location = (
-                    int(snapshot["LineOfSight"]["x"]),
-                    int(snapshot["LineOfSight"]["y"]),
-                    int(snapshot["LineOfSight"]["z"]),
-                )
-
-                if event["type"] == "use":
+                if event["command"] == "use":
                     actions_queue.append(
                         (
                             MbagAction.PLACE_BLOCK,
@@ -1196,31 +1223,25 @@ class MbagEnv(object):
                         )
                     ),
                 else:
-                    # axis_of_placement = 2
-                    # if block_location[0] - snapshot.get("x", env_location[0]):
-                    #     axis_of_placement = 0
-                    # elif block_location[1] - snapshot.get("y", env_location[1]):
-                    #     axis_of_placement = 1
+                    if event["pressed"]:
+                        self.player_block_breaking[
+                            player_index
+                        ] = self.player_block_looking[player_index]
+                    else:
+                        # axis_of_placement = 2
+                        # if block_location[0] - snapshot.get("x", env_location[0]):
+                        #     axis_of_placement = 0
+                        # elif block_location[1] - snapshot.get("y", env_location[1]):
+                        #     axis_of_placement = 1
 
-                    # direction = (
-                    #     malmo_location[axis_of_placement]
-                    #     - block_location[axis_of_placement]
-                    # )
-                    # direction = int(abs(direction) / direction)
-                    # block_location[axis_of_placement] += direction
+                        # direction = (
+                        #     malmo_location[axis_of_placement]
+                        #     - block_location[axis_of_placement]
+                        # )
+                        # direction = int(abs(direction) / direction)
+                        # block_location[axis_of_placement] += direction
 
-                    actions_queue.append(
-                        (
-                            MbagAction.BREAK_BLOCK,
-                            int(
-                                np.ravel_multi_index(
-                                    block_location,
-                                    self.config["world_size"],
-                                )
-                            ),
-                            0,
-                        )
-                    )
+                        self.player_block_breaking[player_index] = None
 
         print(actions_queue)
         return None
@@ -1231,7 +1252,9 @@ class MbagEnv(object):
         if len(malmo_historical_state) == 0:
             return infos
 
-        malmo_state = malmo_historical_state[0][1]
+        _, malmo_state = malmo_historical_state[0]
+
+        location_discrepancies = []
         if "world" in malmo_state and "goal" in malmo_state:
             malmo_blocks = MinecraftBlocks.from_malmo_grid(
                 self.config["world_size"], malmo_state["world"]
@@ -1256,6 +1279,9 @@ class MbagEnv(object):
                     f"{MinecraftBlocks.ID2NAME[malmo_blocks.blocks[location]]} "
                     "from Malmo"
                 )
+                if MinecraftBlocks.ID2NAME[malmo_blocks.blocks[location]] == "air":
+                    location_discrepancies.append(location)
+
             for location in cast(
                 Sequence[BlockLocation],
                 map(tuple, np.argwhere(malmo_goal.blocks != self.goal_blocks.blocks)),
@@ -1298,7 +1324,10 @@ class MbagEnv(object):
 
             if self.config["players"][player_index]["is_human"]:
                 self._get_human_actions(
-                    malmo_player_state, malmo_player_historical_state, player_index
+                    malmo_player_state,
+                    malmo_player_historical_state,
+                    player_index,
+                    location_discrepancies[:],
                 )
 
             malmo_inventory: MbagInventory = np.array(
