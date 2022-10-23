@@ -282,7 +282,7 @@ class MalmoClient(object):
                         destroyAfterUse="true"
                     />
                     <DrawingDecorator>
-                        {self._draw_wall(env_config, "bedrock", (width+1, 2, 1), (width+1, height-1, depth))}
+                        {self._draw_wall(env_config, "bedrock", (width, 2, 1), (width, height-1, depth))}
                         {self._draw_wall(env_config, "barrier", (0, 2, 1), (0, height-1, depth))}
                         {self._draw_wall(env_config, "barrier", (1, 2, 0), (width, height-1, 0))}
                         {self._draw_wall(env_config, "barrier", (1, 2, depth+1), (width, height-1, depth+1))}
