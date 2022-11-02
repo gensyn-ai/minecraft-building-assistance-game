@@ -1,5 +1,3 @@
-import ray.ray_constants as ray_constants
-import logging
 
 def init(
     address=None,
@@ -11,21 +9,21 @@ def init(
     local_mode=False,
     ignore_reinit_error=False,
     include_dashboard=None,
-    dashboard_host=ray_constants.DEFAULT_DASHBOARD_IP,
+    dashboard_host=...,
     dashboard_port=None,
     job_config=None,
     configure_logging=True,
-    logging_level=logging.INFO,
-    logging_format=ray_constants.LOGGER_FORMAT,
+    logging_level=...,
+    logging_format=...,
     log_to_driver=True,
     # The following are unstable parameters and their use is discouraged.
     _enable_object_reconstruction=False,
     _redis_max_memory=None,
     _plasma_directory=None,
-    _node_ip_address=ray_constants.NODE_DEFAULT_IP,
+    _node_ip_address=...,
     _driver_object_store_memory=None,
     _memory=None,
-    _redis_password=ray_constants.REDIS_DEFAULT_PASSWORD,
+    _redis_password=...,
     _temp_dir=None,
     _lru_evict=False,
     _metrics_export_port=None,

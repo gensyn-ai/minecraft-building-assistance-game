@@ -7,39 +7,42 @@ import logging
 import numpy as np
 from ray.rllib.models.torch.attention_net import AttentionWrapper
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.agents.trainer import Trainer
+from ray.rllib.algorithms import Algorithm
 from ray.tune.registry import register_trainable
 import torch
-from typing import Collection, Dict, List, Type, Union, Callable, cast
+from typing import Collection, Dict, List, Type, Union, Callable, cast, Any
 
-from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.execution.rollout_ops import (
-    ParallelRollouts,
-    ConcatBatches,
-    SelectExperiences,
-)
-from ray.rllib.execution.train_ops import TrainOneStep
-from ray.rllib.execution.metric_ops import StandardMetricsReporting
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from ray.rllib.utils.typing import (
     PolicyID,
-    SampleBatchType,
     TrainerConfigDict,
     TensorType,
+    ResultDict,
 )
-from ray.util.iter import LocalIterator
 from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
-from ray.rllib.policy.torch_policy import (
+from ray.rllib.policy.torch_mixins import (
     LearningRateSchedule,
     EntropyCoeffSchedule,
-    TorchPolicy,
+)
+from ray.rllib.policy.torch_policy_v2 import (
+    TorchPolicyV2,
 )
 from ray.rllib.utils.torch_utils import (
     apply_grad_clipping,
     sequence_mask,
 )
 from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.execution.train_ops import (
+    train_one_step,
+    multi_gpu_train_one_step,
+)
+from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.utils.metrics import (
+    NUM_AGENT_STEPS_SAMPLED,
+    NUM_ENV_STEPS_SAMPLED,
+    SYNCH_WORKER_WEIGHTS_TIMER,
+)
 
 from .training_utils import load_policies_from_checkpoint
 
@@ -47,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 class DistillationPredictionPolicy(
-    TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule
+    TorchPolicyV2, LearningRateSchedule, EntropyCoeffSchedule
 ):
     # Cross-entropy during the first epoch of SGD. This is a more reliable metric
     # for prediction performance because the model has not yet been able to train on
@@ -55,12 +58,7 @@ class DistillationPredictionPolicy(
     _initial_cross_entropy: List[float]
 
     def __init__(self, observation_space, action_space, config):
-        # config = Trainer.merge_trainer_configs(
-        #     config,
-        #     {"worker_index": None},
-        # )
-
-        TorchPolicy.__init__(
+        TorchPolicyV2.__init__(
             self,
             observation_space,
             action_space,
@@ -156,9 +154,9 @@ class DistillationPredictionPolicy(
         return total_loss
 
     def extra_grad_process(self, local_optimizer, loss):
-        return apply_grad_clipping(self, local_optimizer, loss)
+        return apply_grad_clipping(cast(Any, self), local_optimizer, loss)
 
-    def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
+    def stats_fn(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
         return cast(
             Dict[str, TensorType],
             convert_to_numpy(
@@ -191,82 +189,9 @@ class DistillationPredictionPolicy(
             )
 
 
-class MapExperiences:
-    """
-    Callable used to transfer experiences from policies acting in the environment
-    to the policies that are being distilled onto.
-    """
-
-    def __init__(
-        self,
-        distillation_mapping_fn: Callable[[PolicyID], PolicyID],
-        policies_recurrent: Dict[PolicyID, bool],
-        trainable_policies: List[PolicyID],
-    ):
-        self.distillation_mapping_fn = distillation_mapping_fn
-        self.policies_recurrent = policies_recurrent
-        self.trainable_policies = trainable_policies
-
-    def __call__(self, samples: SampleBatchType) -> SampleBatchType:
-        assert isinstance(samples, MultiAgentBatch)
-
-        policy_batches: Dict[PolicyID, SampleBatch] = {}
-        batch: SampleBatch
-        for policy_id, batch in samples.policy_batches.items():
-            distill_policy_id = self.distillation_mapping_fn(policy_id)
-            distill_batch = batch.copy(shallow=True)
-            if distill_policy_id not in self.policies_recurrent:
-                # Not distilling this policy, ignore.
-                assert distill_policy_id not in self.trainable_policies
-            elif not self.policies_recurrent[distill_policy_id]:
-                # Remove state from batch for non-recurrent policies.
-                for key in list(distill_batch.keys()):
-                    if key.startswith("state_in_") or key.startswith("state_out_"):
-                        del distill_batch[key]
-            policy_batches[distill_policy_id] = distill_batch
-
-        samples = MultiAgentBatch(policy_batches, samples.count)
-        return samples
-
-
-class PredictionMetrics:
-    """
-    Extra logging for the distillation-prediction trainer.
-    """
-
-    def __init__(self, config: TrainerConfigDict, workers: WorkerSet):
-        self.config = config
-        self.workers = workers
-
-    def __call__(self, result):
-        policy_ids: Collection[
-            PolicyID
-        ] = self.workers.local_worker().get_policies_to_train()
-        for policy_id in policy_ids:
-            policy: DistillationPredictionPolicy = (
-                self.workers.local_worker().get_policy(policy_id)
-            )
-
-            result[f"info/learner/{policy_id}/initial_cross_entropy"] = np.mean(
-                policy._initial_cross_entropy
-            )
-            policy._initial_cross_entropy = []
-
-        return result
-
-
-class DistillationPredictionTrainer(Trainer):
-    def __init__(
-        self,
-        config=None,
-        env=None,
-        logger_creator=None,
-        remote_checkpoint_dir=None,
-        sync_function_tpl=None,
-    ):
-        super().__init__(
-            config, env, logger_creator, remote_checkpoint_dir, sync_function_tpl
-        )
+class DistillationPrediction(Algorithm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # Add view requirements for student policies that might not already be required
         # by the teacher policies.
@@ -276,13 +201,13 @@ class DistillationPredictionTrainer(Trainer):
                 lambda policy, policy_id: (policy_id, policy.view_requirements)
             )
         )
-        distillation_mapping_fn: Callable[[PolicyID], PolicyID] = self.config[
+        self.distillation_mapping_fn: Callable[[PolicyID], PolicyID] = self.config[
             "distillation_mapping_fn"
         ]
         distillation_view_requirements = {
-            policy_id: all_view_requirements[distillation_mapping_fn(policy_id)]
+            policy_id: all_view_requirements[self.distillation_mapping_fn(policy_id)]
             for policy_id in all_view_requirements.keys()
-            if distillation_mapping_fn(policy_id) in all_view_requirements
+            if self.distillation_mapping_fn(policy_id) in all_view_requirements
         }
 
         def add_trajectory_views(policy: Policy, policy_id: PolicyID):
@@ -367,49 +292,75 @@ class DistillationPredictionTrainer(Trainer):
     def get_default_policy_class(self, config: TrainerConfigDict) -> Type[Policy]:
         return DistillationPredictionPolicy
 
-    @staticmethod
-    def execution_plan(
-        workers: WorkerSet, config: TrainerConfigDict
-    ) -> LocalIterator[dict]:
-        rollouts = cast(
-            LocalIterator[SampleBatchType], ParallelRollouts(workers, mode="bulk_sync")
+    def map_experiences(self, train_batch: MultiAgentBatch) -> MultiAgentBatch:
+        """
+        Transfer experiences from policies acting in the environment to the policies
+        that are being distilled onto.
+        """
+
+        policy_batches: Dict[PolicyID, SampleBatch] = {}
+        for policy_id, batch in train_batch.policy_batches.items():
+            is_policy_recurrent = self.get_policy(policy_id).is_recurrent()
+            distill_policy_id = self.distillation_mapping_fn(policy_id)
+            distill_batch = batch.copy(shallow=True)
+            if not is_policy_recurrent:
+                # Remove state from batch for non-recurrent policies.
+                for key in list(distill_batch.keys()):
+                    if key.startswith("state_in_") or key.startswith("state_out_"):
+                        del distill_batch[key]
+            policy_batches[distill_policy_id] = distill_batch
+
+        return MultiAgentBatch(policy_batches, train_batch.count)
+
+    def training_step(self) -> ResultDict:
+        assert self.workers is not None
+
+        train_batch = synchronous_parallel_sample(
+            worker_set=self.workers, max_env_steps=self.config["train_batch_size"]
         )
+        assert not isinstance(train_batch, list)
+
+        train_batch = train_batch.as_multi_agent()
+        self._counters[NUM_AGENT_STEPS_SAMPLED] += train_batch.agent_steps()
+        self._counters[NUM_ENV_STEPS_SAMPLED] += train_batch.env_steps()
 
         # Map batches to the policies getting distilled onto.
-        policies_recurrent = dict(
-            workers.foreach_policy(
-                lambda policy, policy_id: (policy_id, policy.is_recurrent())
+        train_batch = self.map_experiences(train_batch)
+
+        # Standardize advantages
+        train_results: ResultDict
+        # Train
+        if self.config["simple_optimizer"]:
+            train_results = train_one_step(self, train_batch)
+        else:
+            train_results = multi_gpu_train_one_step(self, train_batch)
+
+        global_vars = {
+            "timestep": self._counters[NUM_AGENT_STEPS_SAMPLED],
+        }
+        # Update weights - after learning on the local worker - on all remote
+        # workers.
+        if self.workers.remote_workers():
+            with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
+                self.workers.sync_weights(global_vars=global_vars)
+
+        # Update global vars on local worker as well.
+        self.workers.local_worker().set_global_vars(global_vars)
+
+        # Extra metrics for distillation.
+        policy_ids: Collection[
+            PolicyID
+        ] = self.workers.local_worker().get_policies_to_train()
+        for policy_id in policy_ids:
+            policy = self.workers.local_worker().get_policy(policy_id)
+            assert isinstance(policy, DistillationPredictionPolicy)
+
+            train_results[f"info/learner/{policy_id}/initial_cross_entropy"] = np.mean(
+                policy._initial_cross_entropy
             )
-        )
-        rollouts = rollouts.for_each(
-            MapExperiences(
-                config["distillation_mapping_fn"],
-                policies_recurrent,
-                workers.trainable_policies(),
-            )
-        )
+            policy._initial_cross_entropy = []
 
-        # Collect batches for the trainable policies.
-        rollouts = rollouts.for_each(SelectExperiences(workers.trainable_policies()))
-        # Concatenate the SampleBatches into one.
-        rollouts = rollouts.combine(
-            ConcatBatches(
-                min_batch_size=config["train_batch_size"],
-                count_steps_by=config["multiagent"]["count_steps_by"],
-            )
-        )
-
-        train_op = rollouts.for_each(
-            TrainOneStep(
-                workers,
-                num_sgd_iter=config["num_sgd_iter"],
-                sgd_minibatch_size=config["sgd_minibatch_size"],
-            )
-        )
-
-        # Return training metrics.
-        results = StandardMetricsReporting(train_op, workers, config)
-        return results.for_each(PredictionMetrics(config, workers))
+        return train_results
 
 
-register_trainable("distillation_prediction", DistillationPredictionTrainer)
+register_trainable("distillation_prediction", DistillationPrediction)

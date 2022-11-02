@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Type, cast
+from typing import Dict, List, Tuple, Type, cast, Optional, Union, Sequence
 import gym
 import torch
 from torch import nn
@@ -7,11 +7,12 @@ import torch.nn.functional as F  # noqa: N812
 
 from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.utils.typing import TensorType, TrainerConfigDict
+from ray.rllib.utils.typing import TensorType, TrainerConfigDict, TensorStructType
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.agents.ppo import PPOTrainer, PPOTorchPolicy
 from ray.tune.registry import register_trainable
+from ray.rllib.models.action_dist import ActionDistribution
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
@@ -45,14 +46,16 @@ class MbagAgentPolicy(Policy):
 
     def compute_actions(
         self,
-        obs_batch: List[np.ndarray],
-        state_batches: List[np.ndarray],
-        prev_action_batch=None,
-        prev_reward_batch=None,
-        info_batch=None,
+        obs_batch: Union[List[TensorStructType], TensorStructType],
+        state_batches: Optional[List[TensorType]] = None,
+        prev_action_batch: Union[List[TensorStructType], TensorStructType] = None,
+        prev_reward_batch: Union[List[TensorStructType], TensorStructType] = None,
+        info_batch: Optional[Dict[str, list]] = None,
         episodes=None,
+        explore: Optional[bool] = None,
+        timestep: Optional[int] = None,
         **kwargs,
-    ):
+    ) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
         for batch_key, view_requirement in self.view_requirements.items():
             if batch_key.startswith("state_in_"):
                 view_requirement.batch_repeat_value = 1
@@ -66,8 +69,10 @@ class MbagAgentPolicy(Policy):
         actions: List[MbagActionTuple] = []
         new_states: List[List[np.ndarray]] = []
 
+        assert state_batches is not None
+
         obs: MbagObs
-        prev_state: Tuple[np.ndarray, ...]
+        prev_state: Sequence[TensorType]
         for obs, prev_state in zip(
             zip(*unflattened_obs_batch),
             zip(*state_batches)
@@ -117,12 +122,14 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
     def loss(
         self,
-        model: MbagTorchModel,
-        dist_class: Type[MbagAutoregressiveActionDistribution],
+        model,
+        dist_class: Type[ActionDistribution],
         train_batch: SampleBatch,
     ) -> TensorType:
         loss = super().loss(model, dist_class, train_batch)
         assert not isinstance(loss, list)
+
+        assert isinstance(model, MbagTorchModel)
 
         world_obs, _, _ = restore_original_dimensions(
             train_batch[SampleBatch.OBS],
@@ -161,7 +168,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
     def place_block_loss(
         self,
         model: MbagTorchModel,
-        dist_class: Type[MbagAutoregressiveActionDistribution],
+        dist_class: Type[ActionDistribution],
         goal: TensorType,
         train_batch,
     ) -> TensorType:
@@ -221,8 +228,8 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         except AssertionError:
             info[loss_name] = torch.nan
 
-    def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
-        info = super().extra_grad_info(train_batch)
+    def stats_fn(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
+        info = super().stats_fn(train_batch)
 
         self.log_mean_loss(info, "place_block_loss")
         self.log_mean_loss(info, "predict_goal_loss")

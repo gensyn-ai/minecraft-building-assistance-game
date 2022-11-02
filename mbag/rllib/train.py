@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 from typing_extensions import Literal
 from logging import Logger
 import os
@@ -15,6 +15,7 @@ from ray.rllib.policy.policy import PolicySpec
 from ray.tune.registry import get_trainable_cls
 from ray.rllib.evaluation import Episode, RolloutWorker
 from ray.rllib.policy import TorchPolicy
+from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
 
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
@@ -37,7 +38,7 @@ from .training_utils import (
 )
 from .distillation_prediction import (
     DistillationPredictionPolicy,
-    DistillationPredictionTrainer,
+    DistillationPrediction,
 )
 from .policies import MbagAgentPolicy, MbagPPOTorchPolicy
 
@@ -318,7 +319,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 policies_to_train.append(policy_id)
 
         policies: MultiAgentPolicyConfigDict = {}
-        policy_class: Optional[Type[TorchPolicy]] = None
+        policy_class: Union[None, Type[TorchPolicy], Type[TorchPolicyV2]] = None
         if "PPO" in run:
             policy_class = MbagPPOTorchPolicy
         elif "AlphaZero" in run:
@@ -418,15 +419,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         "argmax_tree_policy": argmax_tree_policy,
                         "add_dirichlet_noise": add_dirichlet_noise,
                     },
-                    "simple_optimizer": not use_replay_buffer,
-                    "buffer_size": replay_buffer_size,
                     "use_critic": use_critic,
                     "other_agent_action_predictor_loss_coeff": other_agent_action_predictor_loss_coeff,
-                    # "replay_buffer_config": {
-                    #     "type": "ReplayBuffer",
-                    #     "capacity": 10000,
-                    #     "storage_unit": "timesteps",
-                    # },
+                    "use_replay_buffer": use_replay_buffer,
+                    "replay_buffer_config": {
+                        "type": "MultiAgentReplayBuffer",
+                        "capacity": replay_buffer_size,
+                    },
                 }
             )
 
@@ -463,7 +462,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         "multiagent"
                     ]["policies"][policy_id]
                     # policies[policy_id] = loaded_policy_dict[policy_id]
-                    prev_model_config = policies[policy_id][3]["model"]
+                    prev_model_config = policies[policy_id].config["model"]
                     if (
                         prev_model_config.get("custom_model")
                         == "mbag_convolutional_model"
@@ -485,9 +484,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             config["multiagent"]["policies_to_train"] = policies_to_train
 
             # Remove extra config parameters.
-            distillation_default_config = (
-                DistillationPredictionTrainer.get_default_config()
-            )
+            distillation_default_config = DistillationPrediction.get_default_config()
             for key in list(config.keys()):
                 if key not in distillation_default_config:
                     del config[key]

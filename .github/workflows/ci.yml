@@ -30,6 +30,14 @@ jobs:
           pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           pip install flake8 black mypy pytest pytest-timeout pep8-naming
+
+      - name: Replace RLlib with custom version
+        run: |
+          git clone https://github.com/cassidylaidlaw/ray
+          cd ray
+          git checkout fixes
+          python/ray/setup-dev.py -y -s air tune train autoscaler ray_operator cloudpickle data _private scripts internal tests experimental util workflow widgets cluster_utils.py dashboard
+
       - name: Run flake8
         run: flake8 mbag tests
         if: ${{ always() }}

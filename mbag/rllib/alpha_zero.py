@@ -3,12 +3,13 @@ import torch
 import numpy as np
 import logging
 from torch import nn
-from typing import Dict, List, Optional, Tuple, Type, Union, cast
+from typing import Dict, List, Optional, Tuple, Type, Union, cast, Any
 
-from ray.rllib.policy.torch_policy import TorchPolicy, EntropyCoeffSchedule
-from ray.rllib.contrib.alpha_zero.core.alpha_zero_policy import AlphaZeroPolicy
-from ray.rllib.contrib.alpha_zero.core.alpha_zero_trainer import AlphaZeroTrainer
-from ray.rllib.contrib.alpha_zero.core.mcts import MCTS, Node, RootParentNode
+from ray.rllib.policy.torch_policy import TorchPolicy
+from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
+from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
+from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero
+from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
 from ray.rllib.evaluation.postprocessing import discount_cumsum, Postprocessing
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.models import ModelCatalog, ModelV2, ActionDistribution
@@ -18,19 +19,6 @@ from ray.rllib.utils.typing import TensorType, AgentID
 from ray.rllib.utils.torch_utils import explained_variance
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.models.modelv2 import restore_original_dimensions
-from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.execution.replay_ops import (
-    SimpleReplayBuffer,
-    Replay,
-    StoreToReplayBuffer,
-    WaitUntilTimestepsElapsed,
-)
-from ray.rllib.execution.rollout_ops import ParallelRollouts, ConcatBatches
-from ray.rllib.execution.concurrency_ops import Concurrently
-from ray.rllib.execution.train_ops import TrainOneStep
-from ray.rllib.execution.metric_ops import StandardMetricsReporting
-from ray.rllib.utils.typing import TrainerConfigDict
-from ray.util.iter import LocalIterator
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.types import (
@@ -433,7 +421,10 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 np.array(actions),
                 [],
                 self.extra_action_out(
-                    input_dict, kwargs.get("state_batches", []), self.model, None
+                    input_dict,
+                    kwargs.get("state_batches", []),
+                    self.model,
+                    cast(Any, None),
                 ),
             )
 
@@ -498,7 +489,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         logits, _ = model_out
         values = model.value_function()
         logits, values = torch.squeeze(logits), torch.squeeze(values)
-        dist: TorchCategorical = dist_class(logits)
+        dist = dist_class(logits, model=model)
+        assert isinstance(dist, TorchCategorical)
 
         # Compute actor and critic losses.
         dist.logp
@@ -533,10 +525,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         if isinstance(model, OtherAgentActionPredictorMixin):
             # Compute other agent action prediction loss.
             predicted_other_agent_action_dist = dist_class(
-                model.predict_other_agent_action()
+                cast(Any, model.predict_other_agent_action()),
+                model=model,
             )
             actual_other_agent_action_dist = dist_class(
-                train_batch[OTHER_AGENT_ACTION_DIST_INPUTS]
+                train_batch[OTHER_AGENT_ACTION_DIST_INPUTS],
+                model=model,
             )
             other_agent_action_predictor_loss = actual_other_agent_action_dist.kl(
                 predicted_other_agent_action_dist
@@ -591,78 +585,30 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             )
 
 
-class MbagAlphaZeroTrainer(AlphaZeroTrainer):
+class MbagAlphaZeroTrainer(AlphaZero):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if not self.config["use_replay_buffer"]:
+            self.local_replay_buffer = None
+
     @classmethod
     def get_default_config(cls):
         config = {
-            **AlphaZeroTrainer.get_default_config(),
+            **AlphaZero.get_default_config(),
             "vf_loss_coeff": 1.0,
             "other_agent_action_predictor_loss_coeff": 1.0,
             "goal_loss_coeff": 1.0,
             "entropy_coeff": 0,
             "entropy_coeff_schedule": 0,
             "use_critic": True,
+            "use_replay_buffer": True,
         }
         del config["vf_share_layers"]
         return config
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy
-
-    @staticmethod
-    def execution_plan(
-        workers: WorkerSet, config: TrainerConfigDict, **kwargs
-    ) -> LocalIterator[dict]:
-        assert (
-            len(kwargs) == 0
-        ), "Alpha zero execution_plan does NOT take any additional parameters"
-
-        rollouts = ParallelRollouts(workers, mode="bulk_sync")
-
-        if config["simple_optimizer"]:
-            train_op = rollouts.combine(
-                ConcatBatches(
-                    min_batch_size=config["train_batch_size"],
-                    count_steps_by=config["multiagent"]["count_steps_by"],
-                )
-            ).for_each(
-                TrainOneStep(
-                    workers,
-                    num_sgd_iter=config["num_sgd_iter"],
-                    sgd_minibatch_size=config["sgd_minibatch_size"],
-                )
-            )
-        else:
-            # TODO: use newer replay buffer API?
-            replay_buffer = SimpleReplayBuffer(config["buffer_size"])
-
-            store_op = rollouts.for_each(
-                StoreToReplayBuffer(local_buffer=replay_buffer)  # type: ignore
-            )
-
-            replay_op = (
-                Replay(local_buffer=replay_buffer)  # type: ignore
-                .filter(WaitUntilTimestepsElapsed(config["learning_starts"]))
-                .combine(
-                    ConcatBatches(
-                        min_batch_size=config["train_batch_size"],
-                        count_steps_by=config["multiagent"]["count_steps_by"],
-                    )
-                )
-                .for_each(
-                    TrainOneStep(
-                        workers,
-                        num_sgd_iter=config["num_sgd_iter"],
-                        sgd_minibatch_size=config["sgd_minibatch_size"],
-                    )
-                )
-            )
-
-            train_op = Concurrently(
-                [store_op, replay_op], mode="round_robin", output_indexes=[1]
-            )
-
-        return StandardMetricsReporting(train_op, workers, config)
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZeroTrainer)
