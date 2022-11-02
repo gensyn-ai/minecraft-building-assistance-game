@@ -120,11 +120,12 @@ class MbagMCTSNode(Node):
 
     @property
     def valid_action_types(self) -> np.ndarray:
-        return (
+        return cast(
+            np.ndarray,
             np.bincount(
                 self.action_mapping[:, 0], weights=self.valid_actions.astype(np.int32)
             )
-            > 0
+            > 0,
         )
 
     def best_action(self) -> int:

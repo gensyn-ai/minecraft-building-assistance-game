@@ -7,7 +7,7 @@ from mbag.environment.goals import RandomGoalGenerator
 
 def test_not_same():
     blocks = MinecraftBlocks((3, 3, 3))
-    blocks.blocks.flat[:] = np.arange(27)
+    blocks.blocks.flat[:] = np.arange(27)  # type: ignore
     blocks.blocks[1, 1, 1] = 27
     # Shouldn't produce the same block as was there before, because we want to replace
     # it.
