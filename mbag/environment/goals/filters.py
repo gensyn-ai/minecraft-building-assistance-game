@@ -34,6 +34,8 @@ class SingleConnectedComponentFilter(GoalFilter):
     """
 
     def filter(self, size: WorldSize, goal: MinecraftBlocks) -> bool:
+        if goal.size == (1, 1, 1):
+            return True
         return goal.is_single_cc()
 
 
