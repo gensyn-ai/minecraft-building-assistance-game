@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import defaultdict
 from typing import (
     Dict,
     List,
@@ -253,6 +254,8 @@ class MbagEnv(object):
     # reconstruct their actions.
     human_block_looking_at: List[Optional[BlockLocation]]
     """For each player, which block they are currently looking at."""
+    human_blocks_on_ground: np.ndarray
+    """For each player, number of blocks of each inventory type that is on the ground"""
     human_is_breaking: List[bool]
     human_is_placing: List[bool]
     """For each player, whether they are currently holding the place/break keys."""
@@ -403,6 +406,9 @@ class MbagEnv(object):
         ]
 
         self.human_block_looking_at = [None for _ in range(self.config["num_players"])]
+        self.human_blocks_on_ground = [
+            defaultdict(int) for _ in range(self.config["num_players"])
+        ]
         self.human_is_breaking = [False for _ in range(self.config["num_players"])]
         self.human_is_placing = [False for _ in range(self.config["num_players"])]
         self.human_locations = [
@@ -1141,7 +1147,7 @@ class MbagEnv(object):
         actions: List[MbagActionTuple] = []
 
         current_malmo_blocks = self.malmo_blocks
-        block_discrepancies: Dict[BlockLocation, int] = {}
+        block_discrepancies: Dict[BlockLocation, (int, int)] = {}
         for observation_time, malmo_observation in sorted(malmo_observations):
             # logger.info(f"{time} {malmo_observation}")
             # Find block discrepencies.
@@ -1159,10 +1165,55 @@ class MbagEnv(object):
                         ),
                     ),
                 ):
-                    block_discrepancies[location] = current_malmo_blocks.blocks[
-                        location
-                    ]
+                    block_discrepancies[location] = (
+                        current_malmo_blocks.blocks[location],
+                        prev_malmo_blocks.blocks[location],
+                    )
             # logger.info(block_discrepancies)
+
+            player_inventory = self.player_inventories[player_index]
+            malmo_inventory: MbagInventory = np.zeros(
+                (self.INVENTORY_NUM_SLOTS, 2), dtype=int
+            )
+            for slot in range(self.INVENTORY_NUM_SLOTS):
+                item_name = malmo_observation[f"InventorySlot_{slot}_item"]  # type: ignore
+                malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
+                malmo_inventory[slot, 1] = malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore
+
+            # Mapping id of each block --> number of each block we think is dropped
+            dropped_blocks = defaultdict(int)
+
+            # Mapping id of each block --> number of each block we think is picked up
+            picked_up_blocks = defaultdict(int)
+
+            for slot in np.nonzero(np.any(malmo_inventory != player_inventory, axis=1))[
+                0
+            ]:
+                if MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]] == "air" or (
+                    player_inventory[slot, 0] == malmo_inventory[slot, 0]
+                    and player_inventory[slot, 1] > malmo_inventory[slot, 1]
+                ):
+                    dropped_blocks[player_inventory[slot, 0]] += (
+                        player_inventory[slot, 1] - malmo_inventory[slot, 1]
+                    )
+
+                if MinecraftBlocks.ID2NAME[player_inventory[slot, 0]] == "air" or (
+                    player_inventory[slot, 0] == malmo_inventory[slot, 0]
+                    and player_inventory[slot, 1] < malmo_inventory[slot, 1]
+                ):
+                    picked_up_blocks[malmo_inventory[slot, 0]] += (
+                        malmo_inventory[slot, 1] - player_inventory[slot, 1]
+                    )
+
+                logger.warning(
+                    f"inventory discrepancy at slot {slot}: "
+                    f"expected {player_inventory[slot, 1]} x "
+                    f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
+                    f"but received {malmo_inventory[slot, 1]} x "
+                    f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
+                    "from Malmo"
+                )
+                player_inventory[slot] = malmo_inventory[slot]
 
             # Handle movement actions.
             current_x, current_y, current_z = self.human_locations[player_index]
@@ -1199,6 +1250,22 @@ class MbagEnv(object):
                 elif event.get("command") == "attack":
                     self.human_is_breaking[player_index] = event["pressed"]
                     breaking_this_timestep = breaking_this_timestep or event["pressed"]
+                # Handle drop events
+                # How to ensure that the other player got the item?
+                elif event.get("command") == "drop":
+                    logger.info(event)
+                #     actions.append(
+                #         (
+                #             MbagAction.GIVE_BLOCK,
+                #             int(
+                #                 np.ravel_multi_index(
+                #                     block_location,
+                #                     self.config["world_size"],
+                #                 )
+                #             ),
+                #             new_block_id,
+                #         )
+                #     )
 
             # Update human_last_placing and human_last_breaking.
             block_looking_at = self.human_block_looking_at[player_index]
@@ -1238,18 +1305,22 @@ class MbagEnv(object):
             self.human_block_looking_at[player_index] = block_looking_at
 
             # Handle place/break actions.
-            for block_location, new_block_id in list(block_discrepancies.items()):
+            for block_location, (new_block_id, current_block_id) in list(
+                block_discrepancies.items()
+            ):
                 action_type: Optional[MbagActionType] = None
                 if (
                     self.human_last_placing[block_location] == player_index
                     and new_block_id != MinecraftBlocks.AIR
                 ):
                     action_type = MbagAction.PLACE_BLOCK
+                    dropped_blocks[new_block_id] -= 1
                 if (
                     self.human_last_breaking[block_location] == player_index
                     and new_block_id == MinecraftBlocks.AIR
                 ):
                     action_type = MbagAction.BREAK_BLOCK
+                    dropped_blocks[current_block_id] += 1
                 if action_type is not None:
                     actions.append(
                         (
@@ -1265,6 +1336,41 @@ class MbagEnv(object):
                     )
                     del block_discrepancies[block_location]
                     self.num_pending_human_iteractions[block_location] += 1
+
+            # Write remaining dropped blocks into the player's dropped blocks log
+            for dropped_block_id, dropped_block_quantity in list(
+                dropped_blocks.items()
+            ):
+                self.human_blocks_on_ground[player_index][
+                    dropped_block_id
+                ] += dropped_block_quantity
+
+            # Handle effects of picking up a block
+            for picked_block_id, picked_block_quantity in list(
+                picked_up_blocks.items()
+            ):
+                players_to_iterate = [player_index] + list(
+                    range(self.config["num_players"])
+                )
+                for player in players_to_iterate:
+                    if (
+                        self.human_blocks_on_ground[player][picked_block_id]
+                        > picked_block_quantity
+                    ):
+                        self.human_blocks_on_ground[player][
+                            picked_block_id
+                        ] -= picked_block_quantity
+                        break
+                    else:
+                        picked_block_quantity -= self.human_blocks_on_ground[player][
+                            picked_block_id
+                        ]
+                        self.human_blocks_on_ground[player][picked_block_id] = 0
+
+            if len(dropped_blocks.keys()) > 0 or len(picked_up_blocks.keys()) > 0:
+                logger.info(dropped_blocks)
+                logger.info(picked_up_blocks)
+                logger.info(self.human_blocks_on_ground[player_index])
 
         for action_tuple in actions:
             logger.info(
@@ -1294,7 +1400,6 @@ class MbagEnv(object):
                 continue
 
             _, latest_malmo_player_observation = sorted(malmo_player_observations)[-1]
-
             # Record any actions
             # infos[player_index]["human_actions"] = malmo_player_state.get("events", [])
             # if infos[player_index]["human_actions"]:
@@ -1322,39 +1427,40 @@ class MbagEnv(object):
                 malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
                 malmo_inventory[slot, 1] = latest_malmo_player_observation[f"InventorySlot_{slot}_size"]  # type: ignore
 
-            if not self.config["players"][player_index]["is_human"]:
-                if self.config["abilities"]["inf_blocks"]:
-                    # Make sure inventory is organized as expected.
-                    for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
-                        if malmo_inventory[block_id, 0] != block_id:
-                            logger.warning(
-                                f"inventory discrepancy at slot {block_id}: "
-                                f"expected {MinecraftBlocks.ID2NAME[block_id]} "
-                                "but received "
-                                f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
-                                "from Malmo"
-                            )
-                            swap_slot = malmo_inventory[:, 0].tolist().index(block_id)
-                            self.malmo_client.send_command(
-                                player_index,
-                                f"swapInventoryItems {block_id} {swap_slot}",
-                            )
-                            time.sleep(0.1)
-                else:
-                    # Make sure inventory in Malmo matches up with what's in our inventory.
-                    player_inventory = self.player_inventories[player_index]
-                    for slot in np.nonzero(
-                        np.any(malmo_inventory != player_inventory, axis=1)
-                    )[0]:
+            # if not self.config["players"][player_index]["is_human"]:
+            if self.config["abilities"]["inf_blocks"]:
+                # Make sure inventory is organized as expected.
+                for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                    if malmo_inventory[block_id, 0] != block_id:
                         logger.warning(
-                            f"inventory discrepancy at slot {slot}: "
-                            f"expected {player_inventory[slot, 1]} x "
-                            f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
-                            f"but received {malmo_inventory[slot, 1]} x "
-                            f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
+                            f"inventory discrepancy at slot {block_id}: "
+                            f"expected {MinecraftBlocks.ID2NAME[block_id]} "
+                            "but received "
+                            f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
                             "from Malmo"
                         )
-                        player_inventory[slot] = malmo_inventory[slot]
+                        swap_slot = malmo_inventory[:, 0].tolist().index(block_id)
+                        self.malmo_client.send_command(
+                            player_index,
+                            f"swapInventoryItems {block_id} {swap_slot}",
+                        )
+                        time.sleep(0.1)
+            else:
+                # Make sure inventory in Malmo matches up with what's in our inventory.
+
+                player_inventory = self.player_inventories[player_index]
+                for slot in np.nonzero(
+                    np.any(malmo_inventory != player_inventory, axis=1)
+                )[0]:
+                    logger.warning(
+                        f"inventory discrepancy at slot {slot}: "
+                        f"expected {player_inventory[slot, 1]} x "
+                        f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
+                        f"but received {malmo_inventory[slot, 1]} x "
+                        f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
+                        "from Malmo"
+                    )
+                    player_inventory[slot] = malmo_inventory[slot]
 
                 if not self.config["abilities"]["teleportation"]:
                     # Make sure position is as expected.
