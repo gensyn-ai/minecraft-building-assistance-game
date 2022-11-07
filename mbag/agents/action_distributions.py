@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Dict, List, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Set, Tuple, Union, cast
 import numpy as np
 from scipy import ndimage
 
@@ -131,7 +131,7 @@ class MbagActionDistribution(object):
                 mapping_part[:, 2] = block_ids_grid.flat
                 mapping_parts.append(mapping_part)
 
-        return np.concatenate(mapping_parts, axis=0)
+        return cast(np.ndarray, np.concatenate(mapping_parts, axis=0))
 
     @staticmethod
     def to_flat(
@@ -156,7 +156,7 @@ class MbagActionDistribution(object):
                         probs[:, channel], axis=(-3, -2, -1)
                     ).reshape((batch_size, -1))
                 flat_pieces.append(flat_piece)
-        return np.concatenate(flat_pieces, axis=1)
+        return cast(np.ndarray, np.concatenate(flat_pieces, axis=1))
 
     @staticmethod
     def to_flat_torch(

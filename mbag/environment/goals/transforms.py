@@ -166,16 +166,13 @@ class SeamCarvingTransform(GoalTransform):
     config: SeamCarvingTransformConfig
 
     def _get_relative_positions(self, size: WorldSize) -> np.ndarray:
-        return cast(
-            np.ndarray,
-            np.stack(
-                np.meshgrid(*[np.linspace(0, 1, size[axis]) for axis in range(3)]),
-                axis=-1,
-            ).transpose((1, 0, 2, 3)),
-        )
+        return np.stack(
+            np.meshgrid(*[np.linspace(0, 1, size[axis]) for axis in range(3)]),
+            axis=-1,
+        ).transpose((1, 0, 2, 3))
 
     def _slice(self, axis: int, index: int, arr: np.ndarray) -> np.ndarray:
-        return np.delete(arr, [index], axis=axis)
+        return cast(np.ndarray, np.delete(arr, [index], axis=axis))
 
     def _slice_cost(
         self,

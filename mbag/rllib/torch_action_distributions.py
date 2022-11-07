@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, cast
+from typing import List, Optional, Tuple, cast, Any
 import gym
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 import torch
@@ -165,7 +165,9 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         )
         return entropy
 
-    def kl(self, other: "MbagAutoregressiveActionDistribution"):
+    def kl(self, other: ActionDistribution):
+        assert isinstance(other, MbagAutoregressiveActionDistribution)
+
         action_type_location_dist = self._action_type_location_distribution()
         if (
             self._cached_action_type is not None
@@ -293,7 +295,9 @@ class ActionTypeLocationDistribution(TorchCategorical):
     ):
         self._world_obs = world_obs
         assert inputs.size()[1] == MbagAction.NUM_ACTION_TYPES
-        super().__init__(self._mask_logits(inputs).flatten(start_dim=1), model=model)
+        super().__init__(
+            cast(Any, self._mask_logits(inputs).flatten(start_dim=1)), model=model
+        )
         self._world_size = inputs.size()[-3:]
         self._num_world_blocks = int(np.prod(self._world_size))
 
@@ -373,8 +377,12 @@ class ActionTypeLocationDistribution(TorchCategorical):
     def deterministic_sample(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self._index_to_tuple(super().deterministic_sample())
 
-    def logp(self, action_type, location) -> torch.Tensor:
-        indices = self._tuple_to_index(action_type, location)
+    def logp(
+        self, indices: Optional[torch.Tensor] = None, action_type=None, location=None
+    ) -> torch.Tensor:
+        if action_type is not None and location is not None:
+            indices = self._tuple_to_index(action_type, location)
+        assert indices is not None
         logp: torch.Tensor = super().logp(indices)
         # If for some reason some of the locations given to this method are invalid
         # (i.e., a block can't be placed/broken there), then just set the log probs
@@ -424,7 +432,8 @@ class ActionTypeLocationDistribution(TorchCategorical):
     def entropy(self) -> torch.Tensor:
         return cast(torch.Tensor, Categorical(probs=self._combined_probs).entropy())
 
-    def kl(self, other: "ActionTypeLocationDistribution") -> torch.Tensor:
+    def kl(self, other: ActionDistribution) -> torch.Tensor:
+        assert isinstance(other, ActionTypeLocationDistribution)
         return kl_categorical_categorical_no_inf(
             Categorical(probs=self._combined_probs),
             Categorical(probs=other._combined_probs),

@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 class CraftAssistGoalConfig(TypedDict):
     data_dir: str
-    train: bool
+    subset: str
+
+
+DEFAULT_CONFIG: CraftAssistGoalConfig = {
+    "data_dir": "data/craftassist",
+    "subset": "train",
+}
 
 
 class CraftAssistStats(TypedDict):
@@ -34,6 +40,10 @@ class CraftAssistGoalGenerator(GoalGenerator):
     block_map: Dict[str, Optional[Tuple[str, Optional[str]]]]
 
     def __init__(self, config: dict):
+        config = {
+            **DEFAULT_CONFIG,
+            **config,
+        }
         super().__init__(config)
         self._load_block_map()
         self._load_house_ids()
@@ -61,7 +71,7 @@ class CraftAssistGoalGenerator(GoalGenerator):
             os.path.join(
                 self.config["data_dir"],
                 "houses",
-                "train" if self.config["train"] else "test",
+                self.config["subset"],
                 "*",
             )
         ):
@@ -77,7 +87,7 @@ class CraftAssistGoalGenerator(GoalGenerator):
             schematic_fname = os.path.join(
                 self.config["data_dir"],
                 "houses",
-                "train" if self.config["train"] else "test",
+                self.config["subset"],
                 house_id,
                 "schematic.npy",
             )
@@ -94,28 +104,28 @@ class CraftAssistGoalGenerator(GoalGenerator):
             y_air_start, y_air_end = y_air_slices.argmin(), y_air_slices[::-1].argmin()
             z_air_slices = np.all(house_is_air, axis=(0, 1))
             z_air_start, z_air_end = z_air_slices.argmin(), z_air_slices[::-1].argmin()
-            logger.info(house_data.shape[:3])
+            # logger.info(house_data.shape[:3])
             house_data = house_data[
                 x_air_start : -x_air_end or None,
                 y_air_start : -y_air_end or None,
                 z_air_start : -z_air_end or None,
             ]
-            logger.info(
-                " ".join(
-                    map(
-                        str,
-                        [
-                            x_air_start,
-                            x_air_end,
-                            y_air_start,
-                            y_air_end,
-                            z_air_start,
-                            z_air_end,
-                        ],
-                    )
-                )
-            )
-            logger.info(house_data.shape[:3])
+            # logger.info(
+            #     " ".join(
+            #         map(
+            #             str,
+            #             [
+            #                 x_air_start,
+            #                 x_air_end,
+            #                 y_air_start,
+            #                 y_air_end,
+            #                 z_air_start,
+            #                 z_air_end,
+            #             ],
+            #         )
+            #     )
+            # )
+            # logger.info(house_data.shape[:3])
 
             # First, check if structure is too big.
             structure_size = house_data.shape[:3]

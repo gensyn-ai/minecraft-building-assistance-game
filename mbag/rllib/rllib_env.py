@@ -2,11 +2,11 @@
 RLLib-compatible MBAG environment.
 """
 
-from typing import Union, cast, Tuple
+from typing import Union, cast, Tuple, Optional, List
 from gym import spaces
 
 from ray.rllib.env import MultiAgentEnv
-from ray.rllib.utils.typing import MultiAgentDict
+from ray.rllib.utils.typing import MultiAgentDict, AgentID
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
@@ -17,7 +17,9 @@ class MbagRllibWrapper(MultiAgentEnv):
     action_space: spaces.Space
     env: Union["MbagRllibWrapper", MbagEnv]
 
-    def action_space_sample(self, agent_ids: list = None) -> MultiAgentDict:
+    def action_space_sample(
+        self, agent_ids: Optional[List[AgentID]] = None
+    ) -> MultiAgentDict:
         if agent_ids is None:
             agent_ids = list(self._agent_ids)
         return {agent_id: self.action_space.sample() for agent_id in agent_ids}
