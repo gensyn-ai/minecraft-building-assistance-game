@@ -409,9 +409,9 @@ class MbagEnv(object):
             )
             time.sleep(1)  # Wait a second for the environment to load.
 
-            # pre-setup stuff
+            # Pre-episode setup in Malmo.
             for player_index in range(self.config["num_players"]):
-                # make players fly
+                # Make players fly.
                 for _ in range(2):
                     self.malmo_client.send_command(player_index, "jump 1")
                     time.sleep(0.1)
@@ -422,7 +422,7 @@ class MbagEnv(object):
                     "tp " + " ".join(map(str, self.player_locations[player_index])),
                 )
 
-                # give items to players
+                # Give items to players.
                 for item in self.config["players"][player_index]["give_items"]:
                     self.malmo_client.send_command(
                         player_index,
@@ -433,7 +433,7 @@ class MbagEnv(object):
                         ),
                     )
 
-            # convert players to survival mode
+            # Convert players to survival mode.
             if not self.config["abilities"]["inf_blocks"]:
                 self.malmo_client.send_command(0, "chat /gamemode 0")
 
