@@ -110,7 +110,7 @@ class MbagMCTSNode(Node):
         return Q
 
     def action_type_U(self):  # noqa: N802
-        number_visits = np.bincount(
+        number_visits: np.ndarray = np.bincount(
             self.action_mapping[:, 0], weights=self.child_number_visits
         )
         priors = np.bincount(self.action_mapping[:, 0], weights=self.child_priors)
@@ -486,7 +486,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         assert isinstance(model, MbagTorchModel)
 
         # Forward pass in model.
-        model_out = model(train_batch, None, [1])
+        model_out = model(train_batch, [], [1])
         logits, _ = model_out
         values = model.value_function()
         logits, values = torch.squeeze(logits), torch.squeeze(values)
