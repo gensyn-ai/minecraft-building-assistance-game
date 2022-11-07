@@ -44,6 +44,7 @@ def sacred_config():
         "multiagent": {},
         "num_gpus": 1 if torch.cuda.is_available() else 0,
         "disable_env_checking": True,
+        "evaluation_sample_timeout_s": 365 * 24 * 3600,
     }
     extra_config_updates = {}  # noqa: F841
 

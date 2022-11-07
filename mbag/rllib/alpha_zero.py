@@ -587,8 +587,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
 
 class MbagAlphaZeroTrainer(AlphaZero):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, config, *args, **kwargs):
+        if "ranked_rewards" in config:
+            del config["ranked_rewards"]
+
+        super().__init__(config, *args, **kwargs)
 
         if not self.config["use_replay_buffer"]:
             self.local_replay_buffer = None

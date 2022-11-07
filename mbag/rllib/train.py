@@ -425,6 +425,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     "replay_buffer_config": {
                         "type": "MultiAgentReplayBuffer",
                         "capacity": replay_buffer_size,
+                        "storage_unit": "fragments",
                     },
                 }
             )
