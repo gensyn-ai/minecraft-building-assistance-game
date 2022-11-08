@@ -114,6 +114,8 @@ class CropTransform(GoalTransform):
             # Generate a goal with effectively no size limits so we can crop it down.
             goal = self.goal_generator.generate_goal((100, 100, 100))
             struct_density = goal.density()
+            if struct_density == 0:
+                continue
 
             crop_size = (
                 min(size[0], goal.size[0]),

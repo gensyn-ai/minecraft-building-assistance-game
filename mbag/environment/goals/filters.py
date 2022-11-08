@@ -3,10 +3,14 @@ Various GoalTransforms which filter the possible goals.
 """
 
 from typing import TypedDict
+import logging
 
 from ..types import WorldSize
 from ..blocks import MinecraftBlocks
 from .goal_transform import GoalTransform
+
+
+logger = logging.getLogger(__name__)
 
 
 class GoalFilter(GoalTransform):
@@ -23,6 +27,8 @@ class GoalFilter(GoalTransform):
         while not success:
             goal = super().generate_goal(size)
             success = self.filter(size, goal)
+            if not success:
+                logger.info(f"{self.__class__.__name__} rejected goal")
         return goal
 
 
