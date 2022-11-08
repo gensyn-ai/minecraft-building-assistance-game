@@ -11,9 +11,7 @@ from gym import spaces
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.algorithms.alpha_zero.models.custom_torch_models import (
-    ActorCriticModel,
-)
+from ray.rllib.algorithms.alpha_zero.models.custom_torch_models import ActorCriticModel
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from ray.rllib.models.modelv2 import restore_original_dimensions
 

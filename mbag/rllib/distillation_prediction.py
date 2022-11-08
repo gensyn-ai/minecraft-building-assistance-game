@@ -25,9 +25,7 @@ from ray.rllib.policy.torch_mixins import (
     LearningRateSchedule,
     EntropyCoeffSchedule,
 )
-from ray.rllib.policy.torch_policy_v2 import (
-    TorchPolicyV2,
-)
+from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
 from ray.rllib.utils.torch_utils import (
     apply_grad_clipping,
     sequence_mask,
