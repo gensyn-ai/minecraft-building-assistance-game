@@ -15,17 +15,30 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.models import ModelCatalog, ModelV2, ActionDistribution
 from ray.tune.registry import _global_registry, ENV_CREATOR, register_trainable
 from ray.rllib.evaluation import SampleBatch
-from ray.rllib.utils.typing import TensorType, AgentID
+from ray.rllib.utils.typing import TensorType, AgentID, ResultDict
 from ray.rllib.utils.torch_utils import explained_variance
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.execution.train_ops import (
+    multi_gpu_train_one_step,
+    train_one_step,
+)
+from ray.rllib.policy.sample_batch import concat_samples
+from ray.rllib.utils.metrics import (
+    NUM_AGENT_STEPS_SAMPLED,
+    NUM_ENV_STEPS_SAMPLED,
+    SYNCH_WORKER_WEIGHTS_TIMER,
+)
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.types import (
+    CURRENT_BLOCKS,
     GOAL_BLOCKS,
     MbagActionTuple,
     MbagAction,
 )
+from mbag.environment.blocks import MinecraftBlocks
 from .rllib_env import unwrap_mbag_env
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
 from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
@@ -512,8 +525,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             tensorlib=torch,
         )
         goal = world_obs[:, GOAL_BLOCKS].long()
-        ce = nn.CrossEntropyLoss()
-        goal_loss = ce(goal_logits, goal)
+        ce = nn.CrossEntropyLoss(reduction="none")
+        goal_ce = ce(goal_logits, goal)
+        goal_loss = goal_ce.mean()
+
+        unplaced_blocks = (goal != MinecraftBlocks.AIR) & (
+            world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR
+        )
+        unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
         # Compute total loss.
         total_loss = (
@@ -553,6 +572,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             train_batch[Postprocessing.VALUE_TARGETS], values
         )
         model.tower_stats["goal_loss"] = goal_loss
+        model.tower_stats["unplaced_blocks_goal_loss"] = unplaced_blocks_goal_loss
         model.tower_stats["entropy"] = entropy
 
         return total_loss
@@ -567,6 +587,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             "vf_loss",
             "vf_explained_var",
             "goal_loss",
+            "unplaced_blocks_goal_loss",
             "entropy",
             "other_agent_action_predictor_loss",
         ]:
@@ -600,6 +621,7 @@ class MbagAlphaZeroTrainer(AlphaZero):
     def get_default_config(cls):
         config = {
             **AlphaZero.get_default_config(),
+            "sample_batch_size": 1000,
             "vf_loss_coeff": 1.0,
             "other_agent_action_predictor_loss_coeff": 1.0,
             "goal_loss_coeff": 1.0,
@@ -607,12 +629,68 @@ class MbagAlphaZeroTrainer(AlphaZero):
             "entropy_coeff_schedule": 0,
             "use_critic": True,
             "use_replay_buffer": True,
+            "num_steps_sampled_before_learning_starts": 0,
         }
         del config["vf_share_layers"]
         return config
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy
+
+    def training_step(self) -> ResultDict:
+        assert self.workers is not None
+
+        # Sample n MultiAgentBatches from n workers.
+        new_sample_batches = synchronous_parallel_sample(
+            worker_set=self.workers,
+            concat=False,
+            max_env_steps=self.config["sample_batch_size"],
+        )
+
+        new_sample_batch = concat_samples(new_sample_batches)
+        # Update sampling step counters.
+        self._counters[NUM_ENV_STEPS_SAMPLED] += new_sample_batch.env_steps()
+        self._counters[NUM_AGENT_STEPS_SAMPLED] += new_sample_batch.agent_steps()
+        # Store new samples in the replay buffer.
+        if self.local_replay_buffer is not None:
+            self.local_replay_buffer.add(new_sample_batch)
+
+        if self.local_replay_buffer is not None:
+            cur_ts = self._counters[
+                NUM_AGENT_STEPS_SAMPLED
+                if self._by_agent_steps
+                else NUM_ENV_STEPS_SAMPLED
+            ]
+
+            if cur_ts > self.config["num_steps_sampled_before_learning_starts"]:
+                train_batch = self.local_replay_buffer.sample(
+                    self.config["train_batch_size"]
+                )
+            else:
+                train_batch = None
+        else:
+            train_batch = new_sample_batch
+
+        # Learn on the training batch.
+        # Use simple optimizer (only for multi-agent or tf-eager; all other
+        # cases should use the multi-GPU optimizer, even if only using 1 GPU)
+        train_results = {}
+        if train_batch is not None:
+            if self.config.get("simple_optimizer") is True:
+                train_results = train_one_step(self, train_batch)
+            else:
+                train_results = multi_gpu_train_one_step(self, train_batch)
+
+        # Update weights and global_vars - after learning on the local worker - on all
+        # remote workers.
+        global_vars = {
+            "timestep": self._counters[NUM_ENV_STEPS_SAMPLED],
+        }
+        with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
+            self.workers.sync_weights(global_vars=global_vars)
+
+        # Return all collected metrics for the iteration.
+        return train_results
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZeroTrainer)

@@ -16,6 +16,7 @@ from ray.tune.registry import get_trainable_cls
 from ray.rllib.evaluation import Episode, RolloutWorker
 from ray.rllib.policy import TorchPolicy
 from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
+from ray.rllib.utils.replay_buffers import StorageUnit
 
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
@@ -49,7 +50,8 @@ from sacred import SETTINGS as SACRED_SETTINGS
 ex = Experiment("train_mbag")
 SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
-torch.autograd.set_detect_anomaly(True)
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 
 def make_mbag_sacred_config(ex: Experiment):  # noqa
@@ -164,6 +166,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         input = "sampler"
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
+        sample_batch_size = 5000
         train_batch_size = 5000
         sgd_minibatch_size = 512
         rollout_fragment_length = horizon
@@ -186,6 +189,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         replay_buffer_size = 10
         use_critic = True
         other_agent_action_predictor_loss_coeff = 1.0
+        simple_optimizer = False
 
         # MCTS
         puct_coefficient = 1.0
@@ -383,6 +387,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             ],
             "compress_observations": compress_observations,
             "rollout_fragment_length": rollout_fragment_length,
+            "simple_optimizer": simple_optimizer,
             "seed": seed,
             "framework": "torch",
         }
@@ -410,7 +415,9 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         if "AlphaZero" in run:
             config.update(
                 {
+                    "sample_batch_size": sample_batch_size,
                     "ranked_rewards": {"enable": False},
+                    "num_steps_sampled_before_learning_starts": 0,
                     "mcts_config": {
                         "puct_coefficient": puct_coefficient,
                         "num_simulations": num_simulations,
@@ -425,7 +432,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     "replay_buffer_config": {
                         "type": "MultiAgentReplayBuffer",
                         "capacity": replay_buffer_size,
-                        "storage_unit": "fragments",
+                        "storage_unit": StorageUnit.FRAGMENTS,
                     },
                 }
             )
