@@ -1250,22 +1250,6 @@ class MbagEnv(object):
                 elif event.get("command") == "attack":
                     self.human_is_breaking[player_index] = event["pressed"]
                     breaking_this_timestep = breaking_this_timestep or event["pressed"]
-                # Handle drop events
-                # How to ensure that the other player got the item?
-                elif event.get("command") == "drop":
-                    logger.info(event)
-                #     actions.append(
-                #         (
-                #             MbagAction.GIVE_BLOCK,
-                #             int(
-                #                 np.ravel_multi_index(
-                #                     block_location,
-                #                     self.config["world_size"],
-                #                 )
-                #             ),
-                #             new_block_id,
-                #         )
-                #     )
 
             # Update human_last_placing and human_last_breaking.
             block_looking_at = self.human_block_looking_at[player_index]
@@ -1334,6 +1318,7 @@ class MbagEnv(object):
                             new_block_id,
                         )
                     )
+
                     del block_discrepancies[block_location]
                     self.num_pending_human_iteractions[block_location] += 1
 
@@ -1344,6 +1329,20 @@ class MbagEnv(object):
                 self.human_blocks_on_ground[player_index][
                     dropped_block_id
                 ] += dropped_block_quantity
+
+                for _ in range(dropped_block_quantity):
+                    actions.append(
+                        (
+                            MbagAction.GIVE_BLOCK,
+                            int(
+                                np.ravel_multi_index(
+                                    self.human_locations[player_index],
+                                    self.config["world_size"],
+                                )
+                            ),
+                            dropped_block_id,
+                        )
+                    )
 
             # Handle effects of picking up a block
             for picked_block_id, picked_block_quantity in list(
