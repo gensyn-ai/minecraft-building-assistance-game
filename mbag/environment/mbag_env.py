@@ -1221,22 +1221,22 @@ class MbagEnv(object):
             malmo_y = int(malmo_observation.get("YPos", current_y))
             malmo_z = int(malmo_observation.get("ZPos", current_z))
             while current_x < malmo_x:
-                actions.append((MbagAction.MOVE_POS_X, 0, 0))
+                actions.append((player_index, (MbagAction.MOVE_POS_X, 0, 0)))
                 current_x += 1
             while current_x > malmo_x:
-                actions.append((MbagAction.MOVE_NEG_X, 0, 0))
+                actions.append((player_index, (MbagAction.MOVE_NEG_X, 0, 0)))
                 current_x -= 1
             while current_y < malmo_y:
-                actions.append((MbagAction.MOVE_POS_Y, 0, 0))
+                actions.append((player_index, (MbagAction.MOVE_POS_Y, 0, 0)))
                 current_y += 1
             while current_y > malmo_y:
-                actions.append((MbagAction.MOVE_NEG_Y, 0, 0))
+                actions.append((player_index, (MbagAction.MOVE_NEG_Y, 0, 0)))
                 current_y -= 1
             while current_z < malmo_z:
-                actions.append((MbagAction.MOVE_POS_Z, 0, 0))
+                actions.append((player_index, (MbagAction.MOVE_POS_Z, 0, 0)))
                 current_z += 1
             while current_z > malmo_z:
-                actions.append((MbagAction.MOVE_NEG_Z, 0, 0))
+                actions.append((player_index, (MbagAction.MOVE_NEG_Z, 0, 0)))
                 current_z -= 1
             self.human_locations[player_index] = (current_x, current_y, current_z)
 
@@ -1308,14 +1308,17 @@ class MbagEnv(object):
                 if action_type is not None:
                     actions.append(
                         (
-                            action_type,
-                            int(
-                                np.ravel_multi_index(
-                                    block_location,
-                                    self.config["world_size"],
-                                )
+                            player_index,
+                            (
+                                action_type,
+                                int(
+                                    np.ravel_multi_index(
+                                        block_location,
+                                        self.config["world_size"],
+                                    )
+                                ),
+                                new_block_id,
                             ),
-                            new_block_id,
                         )
                     )
 
@@ -1330,20 +1333,6 @@ class MbagEnv(object):
                     dropped_block_id
                 ] += dropped_block_quantity
 
-                for _ in range(dropped_block_quantity):
-                    actions.append(
-                        (
-                            MbagAction.GIVE_BLOCK,
-                            int(
-                                np.ravel_multi_index(
-                                    self.human_locations[player_index],
-                                    self.config["world_size"],
-                                )
-                            ),
-                            dropped_block_id,
-                        )
-                    )
-
             # Handle effects of picking up a block
             for picked_block_id, picked_block_quantity in list(
                 picked_up_blocks.items()
@@ -1352,19 +1341,36 @@ class MbagEnv(object):
                     range(self.config["num_players"])
                 )
                 for player in players_to_iterate:
-                    if (
-                        self.human_blocks_on_ground[player][picked_block_id]
-                        > picked_block_quantity
-                    ):
-                        self.human_blocks_on_ground[player][
-                            picked_block_id
-                        ] -= picked_block_quantity
-                        break
-                    else:
-                        picked_block_quantity -= self.human_blocks_on_ground[player][
-                            picked_block_id
-                        ]
-                        self.human_blocks_on_ground[player][picked_block_id] = 0
+
+                    player_picked_blocks = min(
+                        self.human_blocks_on_ground[player][picked_block_id],
+                        picked_up_blocks,
+                    )
+
+                    picked_block_quantity -= player_picked_blocks
+                    self.human_blocks_on_ground[player][
+                        picked_block_id
+                    ] -= player_picked_blocks
+
+                    if player != player_index:
+                        actions.extend(
+                            [
+                                (
+                                    player,
+                                    (
+                                        MbagAction.GIVE_BLOCK,
+                                        int(
+                                            np.ravel_multi_index(
+                                                self.human_locations[player_index],
+                                                self.config["world_size"],
+                                            )
+                                        ),
+                                        picked_block_id,
+                                    ),
+                                )
+                            ]
+                            for _ in range(player_picked_blocks)
+                        )
 
             if len(dropped_blocks.keys()) > 0 or len(picked_up_blocks.keys()) > 0:
                 logger.info(dropped_blocks)
