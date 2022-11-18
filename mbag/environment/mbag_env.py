@@ -387,13 +387,11 @@ class MbagEnv(object):
         self.last_interacted[:] = NO_INTERACTION
 
         self.goal_blocks = self._generate_goal()
-
-        position_padding: float = 1 if self.config["malmo"]["restrict_players"] else 0
         self.player_locations = [
             (
-                (i % self.config["world_size"][0]) + 0.5 + position_padding,
+                (i % self.config["world_size"][0]) + 0.5,
                 2,
-                int(i / self.config["world_size"][0]) + 0.5 + position_padding,
+                int(i / self.config["world_size"][0]) + 0.5,
             )
             for i in range(self.config["num_players"])
         ]
@@ -545,20 +543,13 @@ class MbagEnv(object):
         if self.config["malmo"]["use_malmo"]:
             width, height, depth = self.config["world_size"]
             goal_palette_x = self.palette_x + width + 1
-            if self.config["malmo"]["restrict_players"]:
-                self.malmo_client.send_command(
-                    0,
-                    f"chat /clone {goal_palette_x} 0 1 "
-                    f"{goal_palette_x} {height - 1} {depth - 1} "
-                    f"{self.palette_x} 0 1",
-                )
-            else:
-                self.malmo_client.send_command(
-                    0,
-                    f"chat /clone {goal_palette_x} 0 0 "
-                    f"{goal_palette_x} {height - 1} {depth - 1} "
-                    f"{self.palette_x} 0 0",
-                )
+
+            self.malmo_client.send_command(
+                0,
+                f"chat /clone {goal_palette_x} 0 0 "
+                f"{goal_palette_x} {height - 1} {depth - 1} "
+                f"{self.palette_x} 0 0",
+            )
 
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple

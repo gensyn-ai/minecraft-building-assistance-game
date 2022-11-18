@@ -282,13 +282,13 @@ class MalmoClient(object):
                         destroyAfterUse="true"
                     />
                     <DrawingDecorator>
-                        {self._draw_wall(env_config, "bedrock", (width, 2, 1), (width, height-1, depth))}
-                        {self._draw_wall(env_config, "barrier", (0, 2, 1), (0, height-1, depth))}
-                        {self._draw_wall(env_config, "barrier", (1, 2, 0), (width, height-1, 0))}
-                        {self._draw_wall(env_config, "barrier", (1, 2, depth+1), (width, height-1, depth+1))}
-                        {self._draw_wall(env_config, "barrier", (1, height, 1), (width, height, depth))}
-                        {self._blocks_to_drawing_decorator_xml(goal_blocks, (width+1, 0, 1))}
-                        {self._blocks_to_drawing_decorator_xml(current_blocks, (1, 0, 1))}
+                        {self._draw_wall(env_config, "bedrock", (width, 2, -1), (width, height, depth))}
+                        {self._draw_wall(env_config, "barrier", (-1, 2, -1), (-1, height, depth))}
+                        {self._draw_wall(env_config, "barrier", (-1, 2, -1), (width, height, -1))}
+                        {self._draw_wall(env_config, "barrier", (-1, 2, depth), (width, height, depth))}
+                        {self._draw_wall(env_config, "barrier", (-1, height, -1), (width, height, depth))}
+                        {self._blocks_to_drawing_decorator_xml(goal_blocks, (width+1, 0, 0))}
+                        {self._blocks_to_drawing_decorator_xml(current_blocks)}
                         {self._get_spectator_platform_drawing_decorator_xml(env_config)}
                     </DrawingDecorator>
                     <BuildBattleDecorator>

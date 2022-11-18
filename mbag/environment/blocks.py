@@ -55,6 +55,7 @@ class MinecraftBlocks(object):
         # Alias names:
         "grass": 2,
         "auto": 28,
+        "barrier": 29
     }
 
     AIR = NAME2ID["air"]
