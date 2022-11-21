@@ -30,6 +30,7 @@ from ray.rllib.utils.metrics import (
     NUM_ENV_STEPS_SAMPLED,
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
+from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.types import (
@@ -95,7 +96,9 @@ class MbagMCTSNode(Node):
         self.other_agent_action_dist = None
 
     def child_Q(self):  # noqa: N802
-        Q = self.child_total_value / self.child_number_visits  # noqa: N806
+        Q = self.child_total_value / np.maximum(  # noqa: N806
+            self.child_number_visits, 1
+        )
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
@@ -112,7 +115,7 @@ class MbagMCTSNode(Node):
         number_visits = np.bincount(
             self.action_mapping[:, 0], weights=self.child_number_visits
         )
-        Q = total_value / number_visits  # noqa: N806
+        Q = total_value / np.maximum(number_visits, 1)  # noqa: N806
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
@@ -267,10 +270,25 @@ class MbagMCTSNode(Node):
 
 
 class MbagMCTS(MCTS):
+    _temperature_schedule: Optional[Schedule]
+
     def __init__(self, model, mcts_param, gamma: float, use_critic=True):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
+
+        self._temperature_schedule = None
+        if mcts_param["temperature_schedule"] is not None:
+            self._temperature_schedule = PiecewiseSchedule(
+                mcts_param["temperature_schedule"],
+                outside_value=mcts_param["temperature_schedule"][-1][-1],
+                framework=None,
+            )
+            self.temperature = self._temperature_schedule.value(0)
+
+    def update_temperature(self, global_timestep: int):
+        if self._temperature_schedule is not None:
+            self.temperature = self._temperature_schedule.value(global_timestep)
 
     def compute_action(self, node: MbagMCTSNode):
         for _ in range(self.num_sims):
@@ -280,6 +298,7 @@ class MbagMCTS(MCTS):
             else:
                 self.model.eval()
                 child_priors, value = self.model.compute_priors_and_value(leaf.obs)
+
                 if not self.use_critic:
                     value = 0
 
@@ -400,6 +419,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         with torch.no_grad():
             actions = []
+            expected_rewards: List[float] = []
+            expected_own_rewards: List[float] = []
             for i, episode in enumerate(episodes):
                 env_state = episode.user_data["state"]
                 # verify if env has been wrapped for ranked rewards
@@ -425,21 +446,31 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 # record action
                 actions.append(action)
 
-                # store mcts policies vectors and current tree root node
+                # Store MCTS policies vectors and other info.
                 if episode.length == 0:
                     episode.user_data[MCTS_POLICIES] = [mcts_policy]
                 else:
                     episode.user_data[MCTS_POLICIES].append(mcts_policy)
 
+                expected_rewards.append(tree_node.reward)
+                if tree_node.info is not None:
+                    expected_own_rewards.append(tree_node.info["own_reward"])
+                else:
+                    expected_own_rewards.append(np.nan)
+
             return (
                 np.array(actions),
                 [],
-                self.extra_action_out(
-                    input_dict,
-                    kwargs.get("state_batches", []),
-                    self.model,
-                    cast(Any, None),
-                ),
+                {
+                    **self.extra_action_out(
+                        input_dict,
+                        kwargs.get("state_batches", []),
+                        self.model,
+                        cast(Any, None),
+                    ),
+                    "expected_reward": np.array(expected_rewards),
+                    "expected_own_reward": np.array(expected_own_rewards),
+                },
             )
 
     def postprocess_trajectory(
@@ -580,6 +611,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
         grad_info: Dict[str, TensorType] = {
             "entropy_coeff": self.entropy_coeff,
+            "mcts/temperature": self.mcts.temperature,
         }
         for metric in [
             "total_loss",
@@ -605,6 +637,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             self.entropy_coeff = self._entropy_coeff_schedule.value(
                 global_vars["timestep"]
             )
+        self.mcts.update_temperature(global_timestep=global_vars["timestep"])
 
 
 class MbagAlphaZeroTrainer(AlphaZero):
@@ -632,6 +665,7 @@ class MbagAlphaZeroTrainer(AlphaZero):
             "num_steps_sampled_before_learning_starts": 0,
         }
         del config["vf_share_layers"]
+        cast(dict, config["mcts_config"])["temperature_schedule"] = None
         return config
 
     def get_default_policy_class(self, config):

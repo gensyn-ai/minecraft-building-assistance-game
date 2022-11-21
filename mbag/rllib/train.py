@@ -3,6 +3,8 @@ from typing_extensions import Literal
 from logging import Logger
 import os
 import torch
+import faulthandler
+import signal
 
 import ray
 from ray.rllib.utils.typing import (
@@ -53,6 +55,9 @@ SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
+# Useful for debugging when training freezes.
+faulthandler.register(signal.SIGUSR1)
+
 
 def make_mbag_sacred_config(ex: Experiment):  # noqa
     @ex.config
@@ -93,8 +98,6 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         min_width, min_height, min_depth = width // 2, height // 2, depth // 2
         if uniform_block_type:
             goal_transforms.append({"transform": "uniform_block_type"})
-        if force_single_cc:
-            goal_transforms.append({"transform": "single_cc_filter"})
         min_size_config: MinSizeFilterConfig = {
             "min_size": (min_width, min_height, min_depth)
         }
@@ -108,6 +111,8 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "wall": wall,
             }
             goal_transforms.append({"transform": "crop", "config": crop_config})
+        if force_single_cc:
+            goal_transforms.append({"transform": "single_cc_filter"})
         density_config: DensityFilterConfig = {
             "min_density": min_density,
             "max_density": max_density,
@@ -163,6 +168,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         # Training
         num_workers = 2
+        num_cpus_per_worker = 0.5
         input = "sampler"
         seed = 0
         num_gpus = 1 if torch.cuda.is_available() else 0
@@ -195,6 +201,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         puct_coefficient = 1.0
         num_simulations = 30
         temperature = 1.5
+        temperature_start = temperature
+        temperature_end = temperature
+        temperature_horizon = (
+            max(train_batch_size, sample_batch_size) * num_training_iters
+        )
         dirichlet_epsilon = 0.25
         argmax_tree_policy = False
         add_dirichlet_noise = True
@@ -349,6 +360,16 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                     {"mbag_agent": mbag_agent},
                 )
 
+        # Evaluation
+        evaluation_num_workers = num_workers
+        evaluation_interval = 5
+        evaluation_duration = max(evaluation_num_workers, 1)
+        evaluation_duration_unit = "episodes"
+        evaluation_explore = False
+        evaluation_config = {
+            "explore": evaluation_explore,
+        }
+
         # Logging
         save_freq = 25  # noqa: F841
         log_dir = "data/logs"  # noqa: F841
@@ -371,6 +392,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             },
             "callbacks": MbagCallbacks,
             "num_workers": num_workers,
+            "num_cpus_per_worker": num_cpus_per_worker,
             "num_gpus": num_gpus,
             "input": input,
             "input_evaluation": [],
@@ -390,6 +412,11 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "simple_optimizer": simple_optimizer,
             "seed": seed,
             "framework": "torch",
+            "evaluation_num_workers": evaluation_num_workers,
+            "evaluation_interval": evaluation_interval,
+            "evaluation_duration": evaluation_duration,
+            "evaluation_duration_unit": evaluation_duration_unit,
+            "evaluation_config": evaluation_config,
         }
         policy_config.update(
             {
@@ -422,6 +449,10 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         "puct_coefficient": puct_coefficient,
                         "num_simulations": num_simulations,
                         "temperature": temperature,
+                        "temperature_schedule": [
+                            (0, temperature_start),
+                            (temperature_horizon, temperature_end),
+                        ],
                         "dirichlet_epsilon": dirichlet_epsilon,
                         "argmax_tree_policy": argmax_tree_policy,
                         "add_dirichlet_noise": add_dirichlet_noise,
