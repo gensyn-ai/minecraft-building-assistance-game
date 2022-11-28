@@ -1,7 +1,11 @@
-from typing import List, Tuple, cast
+from typing import List, Tuple, cast, TYPE_CHECKING
 from typing_extensions import Literal, TypedDict
 import numpy as np
 from numpy.typing import NDArray
+from datetime import datetime
+
+if TYPE_CHECKING:
+    from .malmo import MalmoObservationDict
 
 
 WorldSize = Tuple[int, int, int]
@@ -164,17 +168,17 @@ class MbagHumanAction:
     Whether the human pressed or released
     """
 
-    deltaX: int
+    deltaX: int  # noqa: N815
     """
     The X-axis difference between the player's location and the location of the block clicked
     """
 
-    deltaY: int
+    deltaY: int  # noqa: N815
     """
     The Y-axis difference between the player's location and the location of the block clicked
     """
 
-    deltaZ: int
+    deltaZ: int  # noqa: N815
     """
     The Z-axis difference between the player's location and the location of the block clicked
     """
@@ -225,7 +229,14 @@ class MbagInfoDict(TypedDict):
     block or breakin an incorrect block.
     """
 
+    malmo_observations: List[Tuple[datetime, "MalmoObservationDict"]]
+    """
+    If this player is a human agent, then this is the full timestamped list of
+    observations from Malmo since the last timestep.
+    """
+
     human_actions: List[MbagHumanAction]
     """
-    List of actions recorded by Malmo that the human did
+    If this player is a human agent, then this is a list of actions that have been
+    deduced from what the human is doing in Malmo.
     """

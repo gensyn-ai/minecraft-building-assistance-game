@@ -104,12 +104,12 @@ class MalmoClient(object):
                     <ObservationFromFullInventory />
                     <ObservationFromFullStats />
 
-                    <ObservationFromChat/>
-                    <ObservationFromRecentCommands/>
+                    <ObservationFromChat />
+                    <ObservationFromRecentCommands />
                     <ObservationFromRay />
 
-                    <ObservationFromHuman/>
-                    <ObservationFromSystem/>
+                    <ObservationFromHuman />
+                    <ObservationFromSystem />
                     <AbsoluteMovementCommands />
                     <DiscreteMovementCommands>
                         <ModifierList type="deny-list">

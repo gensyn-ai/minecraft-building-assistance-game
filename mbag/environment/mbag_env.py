@@ -655,6 +655,7 @@ class MbagEnv(object):
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "action": action if not noop else MbagAction.noop_action(),
             "action_correct": action_correct and not noop,
+            "malmo_observations": [],
             "human_actions": [],
         }
 
@@ -1144,14 +1145,14 @@ class MbagEnv(object):
         self,
         player_index: int,
         malmo_observations: List[Tuple[datetime, MalmoObservationDict]],
-    ) -> List[MbagActionTuple]:
+    ) -> List[Tuple[int, MbagActionTuple]]:
         """
         Compares malmo state to real state and tries to extrapolate player actions.
-        Takes in the player index, the observation dictionaries from Malmo, and a list
-        of locations where the blocks in Malmo differ from the blocks in Minecraft.
+        Takes in the player index and the observation dictionaries from Malmo, and
+        returns a list of (player_index, action_tuple) pairs.
         """
 
-        actions: List[MbagActionTuple] = []
+        actions: List[Tuple[int, MbagActionTuple]] = []
 
         current_malmo_blocks = self.malmo_blocks
         block_discrepancies: Dict[BlockLocation, (int, int)] = {}
@@ -1394,12 +1395,19 @@ class MbagEnv(object):
         return actions
 
     def _update_state_from_malmo(self, infos):
+        """
+        Resolve any discrepencies between the environment state and the state of the
+        Minecraft game via Malmo. This generates human actions for human players.
+        """
+
         malmo_observations = self.malmo_client.get_observations(0)
 
         if len(malmo_observations) == 0:
             return infos
 
         _, latest_malmo_observation = sorted(malmo_observations)[-1]
+
+        human_actions: List[Tuple[int, MbagActionTuple]] = []
 
         for player_index in range(self.config["num_players"]):
             malmo_player_observations = []
@@ -1414,24 +1422,15 @@ class MbagEnv(object):
                 continue
 
             _, latest_malmo_player_observation = sorted(malmo_player_observations)[-1]
-            # Record any actions
-            # infos[player_index]["human_actions"] = malmo_player_state.get("events", [])
-            # if infos[player_index]["human_actions"]:
-            #     if logger.isEnabledFor(logging.DEBUG):
-            #         logger.debug(
-            #             "received human actions from Malmo: "
-            #             + json.dumps(infos[player_index]["human_actions"], indent=4)
-            #         )
-            #     print(
-            #         "received human actions from Malmo: "
-            #         + json.dumps(infos[player_index]["human_actions"], indent=4)
-            #     )
 
             if self.config["players"][player_index]["is_human"]:
-                actions = self._get_human_actions(
-                    player_index,
-                    malmo_player_observations,
+                human_actions.extend(
+                    self._get_human_actions(
+                        player_index,
+                        malmo_player_observations,
+                    )
                 )
+                infos[player_index]["malmo_observations"] = malmo_player_observations
 
             malmo_inventory: MbagInventory = np.zeros(
                 (self.INVENTORY_NUM_SLOTS, 2), dtype=int
@@ -1539,6 +1538,11 @@ class MbagEnv(object):
         self.current_blocks.blocks[
             self.num_pending_human_iteractions == 0
         ] = self.malmo_blocks.blocks[self.num_pending_human_iteractions == 0]
+
+        for player_index, human_action in human_actions:
+            assert self.config["players"][player_index]["is_human"]
+            infos[player_index]["human_actions"].append(human_action)
+
         return infos
 
     def _done(self) -> bool:
