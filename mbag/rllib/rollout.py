@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List, Optional
 import gym
 import torch
@@ -10,6 +11,7 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.utils.typing import PolicyID
 from ray.rllib.agents import Trainer
+from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import Experiment
 from sacred import SETTINGS
 
@@ -44,6 +46,7 @@ def sacred_config():
         "multiagent": {},
         "num_gpus": 1 if torch.cuda.is_available() else 0,
         "disable_env_checking": True,
+        "evaluation_sample_timeout_s": 365 * 24 * 3600,
     }
     extra_config_updates = {}  # noqa: F841
 
@@ -126,5 +129,10 @@ def main(
     eval_result = trainer.evaluate()["evaluation"]
     saver.end_rollout()
     trainer.stop()
+
+    result_fname = os.path.join(out_dir, "result.json")
+    _log.info(f"saving results to {result_fname}")
+    with open(result_fname, "w") as result_file:
+        json.dump(eval_result, result_file, cls=SafeFallbackEncoder)
 
     return eval_result

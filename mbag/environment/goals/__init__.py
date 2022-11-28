@@ -2,9 +2,7 @@ from typing import Dict, Type
 
 from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
-from .grabcraft import (
-    GrabcraftGoalGenerator,
-)
+from .grabcraft import GrabcraftGoalGenerator
 from .simple import BasicGoalGenerator, RandomGoalGenerator
 from .craftassist import CraftAssistGoalGenerator
 from .filters import SingleConnectedComponentFilter, DensityFilter, MinSizeFilter

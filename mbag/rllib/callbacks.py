@@ -1,9 +1,7 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 import numpy as np
 
-from ray.rllib.contrib.alpha_zero.core.alpha_zero_trainer import (
-    AlphaZeroDefaultCallbacks,
-)
+from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZeroDefaultCallbacks
 from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.rollout_worker import RolloutWorker
@@ -63,8 +61,16 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             own_reward_key = f"{policy_id}/own_reward"
             if own_reward_key not in episode.custom_metrics:
                 episode.custom_metrics[own_reward_key] = 0
-            info_dict: MbagInfoDict = episode.last_info_for(agent_id)
+            info_dict = cast(MbagInfoDict, episode.last_info_for(agent_id))
             episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
+
+            action_out = episode.last_extra_action_outs_for(agent_id)
+            for metric in ["expected_reward", "expected_own_reward"]:
+                if metric in action_out:
+                    metric_key = f"{policy_id}/{metric}"
+                    if metric_key not in episode.custom_metrics:
+                        episode.custom_metrics[metric_key] = 0
+                    episode.custom_metrics[metric_key] += action_out[metric]
 
             # Log what action the agent made
             action_type_name = MbagAction.ACTION_TYPE_NAMES[
@@ -108,12 +114,12 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             **kwargs,
         )
 
-        info_dict: MbagInfoDict = episode.last_info_for("player_0")
+        info_dict = cast(MbagInfoDict, episode.last_info_for("player_0"))
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
 
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
-            info_dict = episode.last_info_for(agent_id)
+            info_dict = cast(MbagInfoDict, episode.last_info_for(agent_id))
             episode.custom_metrics[f"{policy_id}/own_reward_prop"] = info_dict[
                 "own_reward_prop"
             ]

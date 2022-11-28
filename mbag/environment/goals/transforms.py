@@ -114,6 +114,8 @@ class CropTransform(GoalTransform):
             # Generate a goal with effectively no size limits so we can crop it down.
             goal = self.goal_generator.generate_goal((100, 100, 100))
             struct_density = goal.density()
+            if struct_density == 0:
+                continue
 
             crop_size = (
                 min(size[0], goal.size[0]),
@@ -166,16 +168,13 @@ class SeamCarvingTransform(GoalTransform):
     config: SeamCarvingTransformConfig
 
     def _get_relative_positions(self, size: WorldSize) -> np.ndarray:
-        return cast(
-            np.ndarray,
-            np.stack(
-                np.meshgrid(*[np.linspace(0, 1, size[axis]) for axis in range(3)]),
-                axis=-1,
-            ).transpose((1, 0, 2, 3)),
-        )
+        return np.stack(
+            np.meshgrid(*[np.linspace(0, 1, size[axis]) for axis in range(3)]),
+            axis=-1,
+        ).transpose((1, 0, 2, 3))
 
     def _slice(self, axis: int, index: int, arr: np.ndarray) -> np.ndarray:
-        return np.delete(arr, [index], axis=axis)
+        return cast(np.ndarray, np.delete(arr, [index], axis=axis))
 
     def _slice_cost(
         self,

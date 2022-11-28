@@ -3,41 +3,43 @@ import torch
 import numpy as np
 import logging
 from torch import nn
-from typing import Dict, List, Optional, Tuple, Type, Union, cast
+from typing import Dict, List, Optional, Tuple, Type, Union, cast, Any
 
-from ray.rllib.policy.torch_policy import TorchPolicy, EntropyCoeffSchedule
-from ray.rllib.contrib.alpha_zero.core.alpha_zero_policy import AlphaZeroPolicy
-from ray.rllib.contrib.alpha_zero.core.alpha_zero_trainer import AlphaZeroTrainer
-from ray.rllib.contrib.alpha_zero.core.mcts import MCTS, Node, RootParentNode
+from ray.rllib.policy.torch_policy import TorchPolicy
+from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
+from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
+from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero
+from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
 from ray.rllib.evaluation.postprocessing import discount_cumsum, Postprocessing
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.models import ModelCatalog, ModelV2, ActionDistribution
 from ray.tune.registry import _global_registry, ENV_CREATOR, register_trainable
 from ray.rllib.evaluation import SampleBatch
-from ray.rllib.utils.typing import TensorType, AgentID
+from ray.rllib.utils.typing import TensorType, AgentID, ResultDict
 from ray.rllib.utils.torch_utils import explained_variance
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.models.modelv2 import restore_original_dimensions
-from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.execution.replay_ops import (
-    SimpleReplayBuffer,
-    Replay,
-    StoreToReplayBuffer,
-    WaitUntilTimestepsElapsed,
+from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.execution.train_ops import (
+    multi_gpu_train_one_step,
+    train_one_step,
 )
-from ray.rllib.execution.rollout_ops import ParallelRollouts, ConcatBatches
-from ray.rllib.execution.concurrency_ops import Concurrently
-from ray.rllib.execution.train_ops import TrainOneStep
-from ray.rllib.execution.metric_ops import StandardMetricsReporting
-from ray.rllib.utils.typing import TrainerConfigDict
-from ray.util.iter import LocalIterator
+from ray.rllib.policy.sample_batch import concat_samples
+from ray.rllib.utils.metrics import (
+    NUM_AGENT_STEPS_SAMPLED,
+    NUM_ENV_STEPS_SAMPLED,
+    SYNCH_WORKER_WEIGHTS_TIMER,
+)
+from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.types import (
+    CURRENT_BLOCKS,
     GOAL_BLOCKS,
     MbagActionTuple,
     MbagAction,
 )
+from mbag.environment.blocks import MinecraftBlocks
 from .rllib_env import unwrap_mbag_env
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
 from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
@@ -94,7 +96,9 @@ class MbagMCTSNode(Node):
         self.other_agent_action_dist = None
 
     def child_Q(self):  # noqa: N802
-        Q = self.child_total_value / self.child_number_visits  # noqa: N806
+        Q = self.child_total_value / np.maximum(  # noqa: N806
+            self.child_number_visits, 1
+        )
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
@@ -111,7 +115,7 @@ class MbagMCTSNode(Node):
         number_visits = np.bincount(
             self.action_mapping[:, 0], weights=self.child_number_visits
         )
-        Q = total_value / number_visits  # noqa: N806
+        Q = total_value / np.maximum(number_visits, 1)  # noqa: N806
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
@@ -122,7 +126,7 @@ class MbagMCTSNode(Node):
         return Q
 
     def action_type_U(self):  # noqa: N802
-        number_visits = np.bincount(
+        number_visits: np.ndarray = np.bincount(
             self.action_mapping[:, 0], weights=self.child_number_visits
         )
         priors = np.bincount(self.action_mapping[:, 0], weights=self.child_priors)
@@ -132,11 +136,12 @@ class MbagMCTSNode(Node):
 
     @property
     def valid_action_types(self) -> np.ndarray:
-        return (
+        return cast(
+            np.ndarray,
             np.bincount(
                 self.action_mapping[:, 0], weights=self.valid_actions.astype(np.int32)
             )
-            > 0
+            > 0,
         )
 
     def best_action(self) -> int:
@@ -265,10 +270,25 @@ class MbagMCTSNode(Node):
 
 
 class MbagMCTS(MCTS):
+    _temperature_schedule: Optional[Schedule]
+
     def __init__(self, model, mcts_param, gamma: float, use_critic=True):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
+
+        self._temperature_schedule = None
+        if mcts_param["temperature_schedule"] is not None:
+            self._temperature_schedule = PiecewiseSchedule(
+                mcts_param["temperature_schedule"],
+                outside_value=mcts_param["temperature_schedule"][-1][-1],
+                framework=None,
+            )
+            self.temperature = self._temperature_schedule.value(0)
+
+    def update_temperature(self, global_timestep: int):
+        if self._temperature_schedule is not None:
+            self.temperature = self._temperature_schedule.value(global_timestep)
 
     def compute_action(self, node: MbagMCTSNode):
         for _ in range(self.num_sims):
@@ -278,6 +298,7 @@ class MbagMCTS(MCTS):
             else:
                 self.model.eval()
                 child_priors, value = self.model.compute_priors_and_value(leaf.obs)
+
                 if not self.use_critic:
                     value = 0
 
@@ -398,6 +419,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         with torch.no_grad():
             actions = []
+            expected_rewards: List[float] = []
+            expected_own_rewards: List[float] = []
             for i, episode in enumerate(episodes):
                 env_state = episode.user_data["state"]
                 # verify if env has been wrapped for ranked rewards
@@ -423,18 +446,31 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 # record action
                 actions.append(action)
 
-                # store mcts policies vectors and current tree root node
+                # Store MCTS policies vectors and other info.
                 if episode.length == 0:
                     episode.user_data[MCTS_POLICIES] = [mcts_policy]
                 else:
                     episode.user_data[MCTS_POLICIES].append(mcts_policy)
 
+                expected_rewards.append(tree_node.reward)
+                if tree_node.info is not None:
+                    expected_own_rewards.append(tree_node.info["own_reward"])
+                else:
+                    expected_own_rewards.append(np.nan)
+
             return (
                 np.array(actions),
                 [],
-                self.extra_action_out(
-                    input_dict, kwargs.get("state_batches", []), self.model, None
-                ),
+                {
+                    **self.extra_action_out(
+                        input_dict,
+                        kwargs.get("state_batches", []),
+                        self.model,
+                        cast(Any, None),
+                    ),
+                    "expected_reward": np.array(expected_rewards),
+                    "expected_own_reward": np.array(expected_own_rewards),
+                },
             )
 
     def postprocess_trajectory(
@@ -494,11 +530,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         assert isinstance(model, MbagTorchModel)
 
         # Forward pass in model.
-        model_out = model(train_batch, None, [1])
+        model_out = model(train_batch, [], [1])
         logits, _ = model_out
         values = model.value_function()
         logits, values = torch.squeeze(logits), torch.squeeze(values)
-        dist: TorchCategorical = dist_class(logits)
+        dist = dist_class(logits, model=model)
+        assert isinstance(dist, TorchCategorical)
 
         # Compute actor and critic losses.
         dist.logp
@@ -519,8 +556,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             tensorlib=torch,
         )
         goal = world_obs[:, GOAL_BLOCKS].long()
-        ce = nn.CrossEntropyLoss()
-        goal_loss = ce(goal_logits, goal)
+        ce = nn.CrossEntropyLoss(reduction="none")
+        goal_ce = ce(goal_logits, goal)
+        goal_loss = goal_ce.mean()
+
+        unplaced_blocks = (goal != MinecraftBlocks.AIR) & (
+            world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR
+        )
+        unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
         # Compute total loss.
         total_loss = (
@@ -533,10 +576,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         if isinstance(model, OtherAgentActionPredictorMixin):
             # Compute other agent action prediction loss.
             predicted_other_agent_action_dist = dist_class(
-                model.predict_other_agent_action()
+                cast(Any, model.predict_other_agent_action()),
+                model=model,
             )
             actual_other_agent_action_dist = dist_class(
-                train_batch[OTHER_AGENT_ACTION_DIST_INPUTS]
+                train_batch[OTHER_AGENT_ACTION_DIST_INPUTS],
+                model=model,
             )
             other_agent_action_predictor_loss = actual_other_agent_action_dist.kl(
                 predicted_other_agent_action_dist
@@ -558,6 +603,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             train_batch[Postprocessing.VALUE_TARGETS], values
         )
         model.tower_stats["goal_loss"] = goal_loss
+        model.tower_stats["unplaced_blocks_goal_loss"] = unplaced_blocks_goal_loss
         model.tower_stats["entropy"] = entropy
 
         return total_loss
@@ -565,6 +611,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
         grad_info: Dict[str, TensorType] = {
             "entropy_coeff": self.entropy_coeff,
+            "mcts/temperature": self.mcts.temperature,
         }
         for metric in [
             "total_loss",
@@ -572,6 +619,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             "vf_loss",
             "vf_explained_var",
             "goal_loss",
+            "unplaced_blocks_goal_loss",
             "entropy",
             "other_agent_action_predictor_loss",
         ]:
@@ -589,80 +637,94 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             self.entropy_coeff = self._entropy_coeff_schedule.value(
                 global_vars["timestep"]
             )
+        self.mcts.update_temperature(global_timestep=global_vars["timestep"])
 
 
-class MbagAlphaZeroTrainer(AlphaZeroTrainer):
+class MbagAlphaZeroTrainer(AlphaZero):
+    def __init__(self, config, *args, **kwargs):
+        if "ranked_rewards" in config:
+            del config["ranked_rewards"]
+
+        super().__init__(config, *args, **kwargs)
+
+        if not self.config["use_replay_buffer"]:
+            self.local_replay_buffer = None
+
     @classmethod
     def get_default_config(cls):
         config = {
-            **AlphaZeroTrainer.get_default_config(),
+            **AlphaZero.get_default_config(),
+            "sample_batch_size": 1000,
             "vf_loss_coeff": 1.0,
             "other_agent_action_predictor_loss_coeff": 1.0,
             "goal_loss_coeff": 1.0,
             "entropy_coeff": 0,
             "entropy_coeff_schedule": 0,
             "use_critic": True,
+            "use_replay_buffer": True,
+            "num_steps_sampled_before_learning_starts": 0,
         }
         del config["vf_share_layers"]
+        cast(dict, config["mcts_config"])["temperature_schedule"] = None
         return config
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy
 
-    @staticmethod
-    def execution_plan(
-        workers: WorkerSet, config: TrainerConfigDict, **kwargs
-    ) -> LocalIterator[dict]:
-        assert (
-            len(kwargs) == 0
-        ), "Alpha zero execution_plan does NOT take any additional parameters"
+    def training_step(self) -> ResultDict:
+        assert self.workers is not None
 
-        rollouts = ParallelRollouts(workers, mode="bulk_sync")
+        # Sample n MultiAgentBatches from n workers.
+        new_sample_batches = synchronous_parallel_sample(
+            worker_set=self.workers,
+            concat=False,
+            max_env_steps=self.config["sample_batch_size"],
+        )
 
-        if config["simple_optimizer"]:
-            train_op = rollouts.combine(
-                ConcatBatches(
-                    min_batch_size=config["train_batch_size"],
-                    count_steps_by=config["multiagent"]["count_steps_by"],
+        new_sample_batch = concat_samples(new_sample_batches)
+        # Update sampling step counters.
+        self._counters[NUM_ENV_STEPS_SAMPLED] += new_sample_batch.env_steps()
+        self._counters[NUM_AGENT_STEPS_SAMPLED] += new_sample_batch.agent_steps()
+        # Store new samples in the replay buffer.
+        if self.local_replay_buffer is not None:
+            self.local_replay_buffer.add(new_sample_batch)
+
+        if self.local_replay_buffer is not None:
+            cur_ts = self._counters[
+                NUM_AGENT_STEPS_SAMPLED
+                if self._by_agent_steps
+                else NUM_ENV_STEPS_SAMPLED
+            ]
+
+            if cur_ts > self.config["num_steps_sampled_before_learning_starts"]:
+                train_batch = self.local_replay_buffer.sample(
+                    self.config["train_batch_size"]
                 )
-            ).for_each(
-                TrainOneStep(
-                    workers,
-                    num_sgd_iter=config["num_sgd_iter"],
-                    sgd_minibatch_size=config["sgd_minibatch_size"],
-                )
-            )
+            else:
+                train_batch = None
         else:
-            # TODO: use newer replay buffer API?
-            replay_buffer = SimpleReplayBuffer(config["buffer_size"])
+            train_batch = new_sample_batch
 
-            store_op = rollouts.for_each(
-                StoreToReplayBuffer(local_buffer=replay_buffer)  # type: ignore
-            )
+        # Learn on the training batch.
+        # Use simple optimizer (only for multi-agent or tf-eager; all other
+        # cases should use the multi-GPU optimizer, even if only using 1 GPU)
+        train_results = {}
+        if train_batch is not None:
+            if self.config.get("simple_optimizer") is True:
+                train_results = train_one_step(self, train_batch)
+            else:
+                train_results = multi_gpu_train_one_step(self, train_batch)
 
-            replay_op = (
-                Replay(local_buffer=replay_buffer)  # type: ignore
-                .filter(WaitUntilTimestepsElapsed(config["learning_starts"]))
-                .combine(
-                    ConcatBatches(
-                        min_batch_size=config["train_batch_size"],
-                        count_steps_by=config["multiagent"]["count_steps_by"],
-                    )
-                )
-                .for_each(
-                    TrainOneStep(
-                        workers,
-                        num_sgd_iter=config["num_sgd_iter"],
-                        sgd_minibatch_size=config["sgd_minibatch_size"],
-                    )
-                )
-            )
+        # Update weights and global_vars - after learning on the local worker - on all
+        # remote workers.
+        global_vars = {
+            "timestep": self._counters[NUM_ENV_STEPS_SAMPLED],
+        }
+        with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
+            self.workers.sync_weights(global_vars=global_vars)
 
-            train_op = Concurrently(
-                [store_op, replay_op], mode="round_robin", output_indexes=[1]
-            )
-
-        return StandardMetricsReporting(train_op, workers, config)
+        # Return all collected metrics for the iteration.
+        return train_results
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZeroTrainer)

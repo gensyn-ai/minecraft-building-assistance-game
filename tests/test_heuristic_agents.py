@@ -172,7 +172,7 @@ def test_malmo_pq():
 
 
 def test_rllib_heuristic_agents():
-    from ray.rllib.agents.pg.pg import PGTrainer
+    from ray.rllib.algorithms.pg import PG
     from ray.rllib.rollout import rollout
     from mbag.rllib.policies import MbagAgentPolicy
 
@@ -192,7 +192,7 @@ def test_rllib_heuristic_agents():
     for heuristic_agent_id, heuristic_agent_cls in ALL_HEURISTIC_AGENTS.items():
         logger.info(f"Testing {heuristic_agent_id} agent...")
         heuristic_agent = heuristic_agent_cls({}, env_config)
-        trainer = PGTrainer(
+        trainer = PG(
             {
                 "env": "MBAG-v1",
                 "env_config": env_config,
