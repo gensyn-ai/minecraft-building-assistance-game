@@ -1305,7 +1305,7 @@ class MbagEnv(object):
                     and new_block_id != MinecraftBlocks.AIR
                 ):
                     action_type = MbagAction.PLACE_BLOCK
-                    picked_up_blocks[new_block_id] += 1
+                    dropped_blocks[new_block_id] -= 1
                 if (
                     self.human_last_breaking[block_location] == player_index
                     and new_block_id == MinecraftBlocks.AIR
