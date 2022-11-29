@@ -254,12 +254,12 @@ class MbagEnv(object):
     # reconstruct their actions.
     human_block_looking_at: List[Optional[BlockLocation]]
     """For each player, which block they are currently looking at."""
-    human_blocks_on_ground: np.ndarray
+    human_blocks_on_ground: List[defaultdict]
     """For each player, number of blocks of each inventory type that is on the ground"""
     human_is_breaking: List[bool]
     human_is_placing: List[bool]
     """For each player, whether they are currently holding the place/break keys."""
-    human_locations: List[WorldLocation]
+    human_locations: List[BlockLocation]
     """The current location of each human in Malmo (may be ahead of env state)."""
     human_last_placing: np.ndarray
     """For each block, the player index of which human was last holding break on it."""
@@ -1155,7 +1155,7 @@ class MbagEnv(object):
         actions: List[Tuple[int, MbagActionTuple]] = []
 
         current_malmo_blocks = self.malmo_blocks
-        block_discrepancies: Dict[BlockLocation, (int, int)] = {}
+        block_discrepancies: Dict[BlockLocation, Tuple[int, int]] = {}
         for observation_time, malmo_observation in sorted(malmo_observations):
             # logger.info(f"{time} {malmo_observation}")
             # Find block discrepencies.
@@ -1189,10 +1189,10 @@ class MbagEnv(object):
                 malmo_inventory[slot, 1] = malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore
 
             # Mapping id of each block --> number of each block we think is dropped
-            dropped_blocks = defaultdict(int)
+            dropped_blocks: defaultdict = defaultdict(int)
 
             # Mapping id of each block --> number of each block we think is picked up
-            picked_up_blocks = defaultdict(int)
+            picked_up_blocks: defaultdict = defaultdict(int)
 
             for slot in np.nonzero(
                 np.any(malmo_inventory != past_malmo_inventory, axis=1)
@@ -1378,8 +1378,8 @@ class MbagEnv(object):
                                         picked_block_id,
                                     ),
                                 )
+                                for _ in range(player_picked_blocks)
                             ]
-                            for _ in range(player_picked_blocks)
                         )
 
             if len(dropped_blocks.keys()) > 0 or len(picked_up_blocks.keys()) > 0:
