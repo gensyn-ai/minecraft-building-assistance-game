@@ -48,6 +48,14 @@ class MinecraftBlocks(object):
         "stone",
         "stonebrick",
         "wool",
+        "ghost_dirt",
+        "ghost_cobblestone",
+        "ghost_glass",
+        "ghost_log",
+        "ghost_planks",
+        "ghost_stone",
+        "ghost_stonebrick",
+        "ghost_wool"
     ]
 
     NAME2ID: Dict[str, int] = {
@@ -56,6 +64,14 @@ class MinecraftBlocks(object):
         "grass": 2,
         "auto": 28,
         "barrier": 29,
+        "ghost_dirt": 0,
+        "ghost_cobblestone": 0,
+        "ghost_glass": 0,
+        "ghost_log": 0,
+        "ghost_planks": 0,
+        "ghost_stone": 0,
+        "ghost_stonebrick": 0,
+        "ghost_wool": 0
     }
 
     AIR = NAME2ID["air"]
