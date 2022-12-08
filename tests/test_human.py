@@ -42,3 +42,37 @@ def test_human_in_malmo():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward == -1
+
+
+@pytest.mark.uses_malmo
+@pytest.mark.timeout(3600)
+def test_two_humans_in_malmo():
+    """
+    Make sure the inventory agent can place blocks
+    """
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 6, 5),
+            "num_players": 2,
+            "horizon": 1000,
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {"pallette": True},
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "players": [
+                {"is_human": True},
+                {"is_human": True},
+            ],
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (NoopAgent, {}),
+            (NoopAgent, {}),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == -1
