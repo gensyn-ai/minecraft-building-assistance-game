@@ -1,10 +1,8 @@
 from __future__ import annotations
-from collections import defaultdict
 from typing import (
     Dict,
     List,
     Optional,
-    TYPE_CHECKING,
     Tuple,
     Type,
     Union,
@@ -18,7 +16,6 @@ import time
 import copy
 import random
 import logging
-from datetime import datetime
 
 
 from .blocks import MinecraftBlocks
@@ -48,9 +45,8 @@ from .goals import (
     TransformedGoalGenerator,
     GoalGeneratorConfig,
 )
+from .human_actions import HumanActionDetector
 
-if TYPE_CHECKING:
-    from .malmo import MalmoObservationDict
 
 logger = logging.getLogger(__name__)
 
@@ -250,33 +246,7 @@ class MbagEnv(object):
     timestep: int
     global_timestep: int
 
-    # Various variables to keep track of the human's state in Malmo so we can
-    # reconstruct their actions.
-    human_block_looking_at: List[Optional[BlockLocation]]
-    """For each player, which block they are currently looking at."""
-    human_blocks_on_ground: List[defaultdict]
-    """For each player, number of blocks of each inventory type that is on the ground"""
-    human_is_breaking: List[bool]
-    human_is_placing: List[bool]
-    """For each player, whether they are currently holding the place/break keys."""
-    human_locations: List[BlockLocation]
-    """The current location of each human in Malmo (may be ahead of env state)."""
-    human_last_placing: np.ndarray
-    """For each block, the player index of which human was last holding break on it."""
-    human_last_breaking: np.ndarray
-    """For each block, the player index of which human was last holding place on it."""
-    malmo_blocks: MinecraftBlocks
-    """The last blocks from Malmo."""
-    malmo_inventories: List[MbagInventory]
-    """The last inventories from Malmo"""
-    num_pending_human_iteractions: np.ndarray
-    """
-    How many human interactions have occurred with each block that have yet to be
-    reflected in the Python env. This is incremented each time a new human action is
-    generated and decremented each time an action is passed to the env and updates
-    that location. For locations where this is nonzero, discrepencies between Malmo
-    and the Python env are ignored since they reflect human changes.
-    """
+    human_action_detector: HumanActionDetector
 
     BLOCKS_TO_GIVE = 5
     """The number of blocks given in a GIVE_BLOCK action."""
@@ -332,6 +302,8 @@ class MbagEnv(object):
             self.malmo_client = MalmoClient()
 
         self.global_timestep = 0
+
+        self.human_action_detector = HumanActionDetector(self.config)
 
     def get_config(self, partial_config: MbagConfigDict) -> MbagConfigDict:
         """Get a fully populated config dict by adding defaults where necessary."""
@@ -407,25 +379,9 @@ class MbagEnv(object):
             for _ in range(self.config["num_players"])
         ]
 
-        self.human_block_looking_at = [None for _ in range(self.config["num_players"])]
-        self.human_blocks_on_ground = [
-            defaultdict(int) for _ in range(self.config["num_players"])
-        ]
-        self.human_is_breaking = [False for _ in range(self.config["num_players"])]
-        self.human_is_placing = [False for _ in range(self.config["num_players"])]
-        self.human_locations = [
-            (int(x), int(y), int(z)) for x, y, z in self.player_locations
-        ]
-        self.human_last_breaking = np.full(self.config["world_size"], -1, dtype=np.int8)
-        self.human_last_placing = np.full(self.config["world_size"], -1, dtype=np.int8)
-        self.malmo_blocks = self.current_blocks.copy()
-        self.malmo_inventories = [
-            np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=int)
-            for _ in range(self.config["num_players"])
-        ]
-
-        self.num_pending_human_iteractions = np.zeros(
-            self.config["world_size"], dtype=np.int8
+        self.human_action_detector.reset(
+            self.player_locations,
+            self.current_blocks,
         )
 
         if self.config["malmo"]["use_malmo"]:
@@ -704,8 +660,8 @@ class MbagEnv(object):
             self.player_locations[player_index] = player_location
         self.last_interacted[action.block_location] = player_index
 
-        if self.num_pending_human_iteractions[action.block_location] > 0:
-            self.num_pending_human_iteractions[action.block_location] -= 1
+        if self.config["players"][player_index]["is_human"]:
+            self.human_action_detector.record_human_interaction(action.block_location)
 
         if (
             self.config["malmo"]["use_malmo"]
@@ -1141,259 +1097,6 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _get_human_actions(  # noqa: C901
-        self,
-        player_index: int,
-        malmo_observations: List[Tuple[datetime, MalmoObservationDict]],
-    ) -> List[Tuple[int, MbagActionTuple]]:
-        """
-        Compares malmo state to real state and tries to extrapolate player actions.
-        Takes in the player index and the observation dictionaries from Malmo, and
-        returns a list of (player_index, action_tuple) pairs.
-        """
-
-        actions: List[Tuple[int, MbagActionTuple]] = []
-
-        current_malmo_blocks = self.malmo_blocks
-        block_discrepancies: Dict[BlockLocation, Tuple[int, int]] = {}
-        for observation_time, malmo_observation in sorted(malmo_observations):
-            # logger.info(f"{time} {malmo_observation}")
-            # Find block discrepencies.
-            if "world" in malmo_observation:
-                prev_malmo_blocks = current_malmo_blocks
-                current_malmo_blocks = MinecraftBlocks.from_malmo_grid(
-                    self.config["world_size"], malmo_observation["world"]
-                )
-                for location in cast(
-                    Sequence[BlockLocation],
-                    map(
-                        tuple,
-                        np.argwhere(
-                            current_malmo_blocks.blocks != prev_malmo_blocks.blocks
-                        ),
-                    ),
-                ):
-                    block_discrepancies[location] = (
-                        current_malmo_blocks.blocks[location],
-                        prev_malmo_blocks.blocks[location],
-                    )
-            # logger.info(block_discrepancies)
-
-            past_malmo_inventory = self.malmo_inventories[player_index]
-            malmo_inventory: MbagInventory = np.zeros(
-                (self.INVENTORY_NUM_SLOTS, 2), dtype=int
-            )
-            for slot in range(self.INVENTORY_NUM_SLOTS):
-                item_name = malmo_observation[f"InventorySlot_{slot}_item"]  # type: ignore
-                malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
-                malmo_inventory[slot, 1] = malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore
-
-            # Mapping id of each block --> number of each block we think is dropped
-            dropped_blocks: defaultdict = defaultdict(int)
-
-            # Mapping id of each block --> number of each block we think is picked up
-            picked_up_blocks: defaultdict = defaultdict(int)
-
-            for slot in np.nonzero(
-                np.any(malmo_inventory != past_malmo_inventory, axis=1)
-            )[0]:
-                if MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]] == "air" or (
-                    past_malmo_inventory[slot, 0] == malmo_inventory[slot, 0]
-                    and past_malmo_inventory[slot, 1] > malmo_inventory[slot, 1]
-                ):
-                    dropped_blocks[past_malmo_inventory[slot, 0]] += (
-                        past_malmo_inventory[slot, 1] - malmo_inventory[slot, 1]
-                    )
-
-                if MinecraftBlocks.ID2NAME[past_malmo_inventory[slot, 0]] == "air" or (
-                    past_malmo_inventory[slot, 0] == malmo_inventory[slot, 0]
-                    and past_malmo_inventory[slot, 1] < malmo_inventory[slot, 1]
-                ):
-                    picked_up_blocks[malmo_inventory[slot, 0]] += (
-                        malmo_inventory[slot, 1] - past_malmo_inventory[slot, 1]
-                    )
-
-                logger.info(
-                    f"inventory discrepancy at slot {slot}: "
-                    f"expected {past_malmo_inventory[slot, 1]} x "
-                    f"{MinecraftBlocks.ID2NAME[past_malmo_inventory[slot, 0]]} "
-                    f"but received {malmo_inventory[slot, 1]} x "
-                    f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
-                    "from Malmo"
-                )
-            self.malmo_inventories[player_index] = malmo_inventory
-
-            # Handle movement actions.
-            current_x, current_y, current_z = self.human_locations[player_index]
-            malmo_x = int(malmo_observation.get("XPos", current_x))
-            malmo_y = int(malmo_observation.get("YPos", current_y))
-            malmo_z = int(malmo_observation.get("ZPos", current_z))
-            while current_x < malmo_x:
-                actions.append((player_index, (MbagAction.MOVE_POS_X, 0, 0)))
-                current_x += 1
-            while current_x > malmo_x:
-                actions.append((player_index, (MbagAction.MOVE_NEG_X, 0, 0)))
-                current_x -= 1
-            while current_y < malmo_y:
-                actions.append((player_index, (MbagAction.MOVE_POS_Y, 0, 0)))
-                current_y += 1
-            while current_y > malmo_y:
-                actions.append((player_index, (MbagAction.MOVE_NEG_Y, 0, 0)))
-                current_y -= 1
-            while current_z < malmo_z:
-                actions.append((player_index, (MbagAction.MOVE_POS_Z, 0, 0)))
-                current_z += 1
-            while current_z > malmo_z:
-                actions.append((player_index, (MbagAction.MOVE_NEG_Z, 0, 0)))
-                current_z -= 1
-            self.human_locations[player_index] = (current_x, current_y, current_z)
-
-            # Update human_is_placing and human_is_breaking.
-            placing_this_timestep = self.human_is_placing[player_index]
-            breaking_this_timestep = self.human_is_breaking[player_index]
-            for event in malmo_observation.get("events", []):
-                if event.get("command") == "use":
-                    self.human_is_placing[player_index] = event["pressed"]
-                    placing_this_timestep = placing_this_timestep or event["pressed"]
-                elif event.get("command") == "attack":
-                    self.human_is_breaking[player_index] = event["pressed"]
-                    breaking_this_timestep = breaking_this_timestep or event["pressed"]
-
-            # Update human_last_placing and human_last_breaking.
-            block_looking_at = self.human_block_looking_at[player_index]
-            # logger.info(f"{block_looking_at} {self.human_is_placing} {self.human_is_breaking}")
-            if block_looking_at is not None:
-                if placing_this_timestep:
-                    self.human_last_placing[block_looking_at] = player_index
-                if breaking_this_timestep:
-                    self.human_last_breaking[block_looking_at] = player_index
-
-            # Update human_block_looking_at.
-            block_looking_at = None
-            if "LineOfSight" in malmo_observation:
-                line_of_sight = malmo_observation["LineOfSight"]
-                if line_of_sight.get("inRange") and line_of_sight["hitType"] == "block":
-                    looking_x = line_of_sight["x"]
-                    looking_y = line_of_sight["y"]
-                    looking_z = line_of_sight["z"]
-                    if current_x >= looking_x and looking_x.is_integer():
-                        looking_x -= 1
-                    if looking_y <= current_y + 1.6 and looking_y.is_integer():
-                        looking_y -= 1
-                    if looking_z <= current_z and looking_z.is_integer():
-                        looking_z -= 1
-
-                    width, height, depth = self.config["world_size"]
-                    if (
-                        0 <= looking_x < width
-                        and 0 <= looking_y < height
-                        and 0 <= looking_z < depth
-                    ):
-                        block_looking_at = (
-                            int(looking_x),
-                            int(looking_y),
-                            int(looking_z),
-                        )
-            self.human_block_looking_at[player_index] = block_looking_at
-
-            # Handle place/break actions.
-            for block_location, (new_block_id, current_block_id) in list(
-                block_discrepancies.items()
-            ):
-                action_type: Optional[MbagActionType] = None
-                if (
-                    self.human_last_placing[block_location] == player_index
-                    and new_block_id != MinecraftBlocks.AIR
-                ):
-                    action_type = MbagAction.PLACE_BLOCK
-                    dropped_blocks[new_block_id] -= 1
-                if (
-                    self.human_last_breaking[block_location] == player_index
-                    and new_block_id == MinecraftBlocks.AIR
-                ):
-                    action_type = MbagAction.BREAK_BLOCK
-                    dropped_blocks[current_block_id] += 1
-                if action_type is not None:
-                    actions.append(
-                        (
-                            player_index,
-                            (
-                                action_type,
-                                int(
-                                    np.ravel_multi_index(
-                                        block_location,
-                                        self.config["world_size"],
-                                    )
-                                ),
-                                new_block_id,
-                            ),
-                        )
-                    )
-
-                    del block_discrepancies[block_location]
-                    self.num_pending_human_iteractions[block_location] += 1
-
-            # Write remaining dropped blocks into the player's dropped blocks log
-            for dropped_block_id, dropped_block_quantity in list(
-                dropped_blocks.items()
-            ):
-                self.human_blocks_on_ground[player_index][
-                    dropped_block_id
-                ] += dropped_block_quantity
-
-            # Handle effects of picking up a block
-            for picked_block_id, picked_block_quantity in list(
-                picked_up_blocks.items()
-            ):
-                players_to_iterate = [player_index] + list(
-                    range(self.config["num_players"])
-                )
-                for other_player_index in players_to_iterate:
-
-                    player_picked_blocks = min(
-                        self.human_blocks_on_ground[other_player_index][
-                            picked_block_id
-                        ],
-                        picked_block_quantity,
-                    )
-
-                    picked_block_quantity -= player_picked_blocks
-                    self.human_blocks_on_ground[other_player_index][
-                        picked_block_id
-                    ] -= player_picked_blocks
-
-                    if other_player_index != player_index:
-                        actions.extend(
-                            [
-                                (
-                                    other_player_index,
-                                    (
-                                        MbagAction.GIVE_BLOCK,
-                                        int(
-                                            np.ravel_multi_index(
-                                                self.human_locations[player_index],
-                                                self.config["world_size"],
-                                            )
-                                        ),
-                                        picked_block_id,
-                                    ),
-                                )
-                                for _ in range(player_picked_blocks)
-                            ]
-                        )
-
-            if len(dropped_blocks.keys()) > 0 or len(picked_up_blocks.keys()) > 0:
-                logger.info(dropped_blocks)
-                logger.info(picked_up_blocks)
-                logger.info(self.human_blocks_on_ground[player_index])
-
-        for _, action_tuple in actions:
-            logger.info(
-                f"human action from player {player_index}: "
-                + str(MbagAction(action_tuple, self.config["world_size"]))
-            )
-        return actions
-
     def _update_state_from_malmo(self, infos):
         """
         Resolve any discrepencies between the environment state and the state of the
@@ -1425,7 +1128,7 @@ class MbagEnv(object):
 
             if self.config["players"][player_index]["is_human"]:
                 human_actions.extend(
-                    self._get_human_actions(
+                    self.human_action_detector.get_human_actions(
                         player_index,
                         malmo_player_observations,
                     )
@@ -1510,7 +1213,7 @@ class MbagEnv(object):
                     tuple,
                     np.argwhere(
                         (self.malmo_blocks.blocks != self.current_blocks.blocks)
-                        & (self.num_pending_human_iteractions == 0)
+                        & self.human_action_detector.blocks_with_no_pending_human_interactions
                     ),
                 ),
             ):
@@ -1536,8 +1239,10 @@ class MbagEnv(object):
                 )
 
         self.current_blocks.blocks[
-            self.num_pending_human_iteractions == 0
-        ] = self.malmo_blocks.blocks[self.num_pending_human_iteractions == 0]
+            self.human_action_detector.blocks_with_no_pending_human_interactions
+        ] = self.malmo_blocks.blocks[
+            self.human_action_detector.blocks_with_no_pending_human_interactions
+        ]
 
         for player_index, human_action in human_actions:
             assert self.config["players"][player_index]["is_human"]

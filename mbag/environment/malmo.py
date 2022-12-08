@@ -6,7 +6,7 @@ from datetime import datetime
 import shutil
 import tarfile
 import tempfile
-from typing import List, Optional, Tuple, TypedDict
+from typing import List, Optional, Tuple, TypedDict, TYPE_CHECKING
 from typing_extensions import Literal
 import MalmoPython
 import logging
@@ -19,7 +19,9 @@ import numpy as np
 
 from .types import BlockLocation
 from .blocks import MinecraftBlocks
-from .mbag_env import MbagConfigDict
+
+if TYPE_CHECKING:
+    from .mbag_env import MbagConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +61,14 @@ class MalmoClient(object):
         self.client_pool_size = 0
         self.record_fname = None
 
-    def get_player_name(self, player_index: int, env_config: MbagConfigDict) -> str:
+    def get_player_name(self, player_index: int, env_config: "MbagConfigDict") -> str:
         player_name = env_config["players"][player_index].get("player_name")
         if player_name is None:
             player_name = f"player_{player_index}"
         # Player names cannot be longer than 16 character in Minecraft.
         return player_name[:16]
 
-    def _get_agent_section_xml(self, player_index: int, env_config: MbagConfigDict):
+    def _get_agent_section_xml(self, player_index: int, env_config: "MbagConfigDict"):
         width, height, depth = env_config["world_size"]
 
         inventory_item_tags: List[str] = []
@@ -168,14 +170,14 @@ class MalmoClient(object):
             </AgentSection>
             """
 
-    def _get_spectator_position(self, env_config: MbagConfigDict) -> BlockLocation:
+    def _get_spectator_position(self, env_config: "MbagConfigDict") -> BlockLocation:
         width, height, depth = env_config["world_size"]
         x = width
         y = height // 2 + 1
         z = -width
         return x, y, z
 
-    def _get_spectator_agent_section_xml(self, env_config: MbagConfigDict) -> str:
+    def _get_spectator_agent_section_xml(self, env_config: "MbagConfigDict") -> str:
         width, height, depth = env_config["world_size"]
         x, y, z = self._get_spectator_position(env_config)
         pitch = np.rad2deg(np.arctan((y - height / 2) / (depth / 2 - z)))
@@ -195,7 +197,7 @@ class MalmoClient(object):
         """
 
     def _get_spectator_platform_drawing_decorator_xml(
-        self, env_config: MbagConfigDict
+        self, env_config: "MbagConfigDict"
     ) -> str:
         if env_config["malmo"]["use_spectator"]:
             x, y, z = self._get_spectator_position(env_config)
@@ -243,7 +245,7 @@ class MalmoClient(object):
 
     def _get_mission_spec_xml(
         self,
-        env_config: MbagConfigDict,
+        env_config: "MbagConfigDict",
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
         force_reset: bool = True,
@@ -392,19 +394,19 @@ class MalmoClient(object):
             logger.error("timed out while waiting for mission to start")
             raise RuntimeError("timed out while waiting for mission to start")
 
-    def _get_num_agents(self, env_config: MbagConfigDict):
+    def _get_num_agents(self, env_config: "MbagConfigDict"):
         num_agents = env_config["num_players"]
         if env_config["malmo"]["use_spectator"]:
             num_agents += 1
         return num_agents
 
-    def _get_spectator_agent_index(self, env_config: MbagConfigDict) -> Optional[int]:
+    def _get_spectator_agent_index(self, env_config: "MbagConfigDict") -> Optional[int]:
         if env_config["malmo"]["use_spectator"]:
             return env_config["num_players"]
         else:
             return None
 
-    def _generate_record_fname(self, env_config: MbagConfigDict):
+    def _generate_record_fname(self, env_config: "MbagConfigDict"):
         video_dir = env_config["malmo"]["video_dir"]
         assert video_dir is not None
         video_index = 0
@@ -416,7 +418,7 @@ class MalmoClient(object):
 
     def start_mission(
         self,
-        env_config: MbagConfigDict,
+        env_config: "MbagConfigDict",
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
     ):
