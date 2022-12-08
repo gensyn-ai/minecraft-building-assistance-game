@@ -12,10 +12,10 @@ from .types import (
     MbagAction,
     MbagActionType,
 )
-from .malmo import MalmoObservationDict
 from .blocks import MinecraftBlocks
 
 if TYPE_CHECKING:
+    from .malmo import MalmoObservationDict
     from .mbag_env import MbagConfigDict
 
 
@@ -98,7 +98,7 @@ class HumanActionDetector(object):
     def get_human_actions(
         self,
         player_index: int,
-        malmo_observations: List[Tuple[datetime, MalmoObservationDict]],
+        malmo_observations: List[Tuple[datetime, "MalmoObservationDict"]],
     ) -> List[Tuple[int, MbagActionTuple]]:
         """
         Given a player index and a list of observation dictionaries from Malmo,
@@ -141,7 +141,7 @@ class HumanActionDetector(object):
         return actions
 
     def _get_block_discrepancies(
-        self, player_index: int, malmo_observation: MalmoObservationDict
+        self, player_index: int, malmo_observation: "MalmoObservationDict"
     ) -> Dict[BlockLocation, Tuple[int, int]]:
         """
         Given an observation dict from Malmo, returns a dict mapping from all
@@ -172,7 +172,7 @@ class HumanActionDetector(object):
         return block_discrepancies
 
     def _get_movement_actions(
-        self, player_index: int, malmo_observation: MalmoObservationDict
+        self, player_index: int, malmo_observation: "MalmoObservationDict"
     ) -> List[Tuple[int, MbagActionTuple]]:
         """
         Given an observation dict from Malmo for a particular player, compares the
@@ -208,7 +208,7 @@ class HumanActionDetector(object):
     def _get_place_break_actions(
         self,
         player_index: int,
-        malmo_observation: MalmoObservationDict,
+        malmo_observation: "MalmoObservationDict",
         block_discrepancies: Dict[BlockLocation, Tuple[int, int]],
         dropped_blocks: Dict[int, int],
     ) -> List[Tuple[int, MbagActionTuple]]:
@@ -301,7 +301,7 @@ class HumanActionDetector(object):
         return place_break_actions
 
     def _get_dropped_picked_up_blocks(
-        self, player_index: int, malmo_observation: MalmoObservationDict
+        self, player_index: int, malmo_observation: "MalmoObservationDict"
     ) -> Tuple[Dict[int, int], Dict[int, int]]:
         """
         Compares the player's latest Malmo inventory to the last one received and
