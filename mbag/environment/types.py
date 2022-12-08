@@ -1,7 +1,11 @@
-from typing import List, Tuple, cast
+from typing import List, Tuple, cast, TYPE_CHECKING
 from typing_extensions import Literal, TypedDict
 import numpy as np
 from numpy.typing import NDArray
+from datetime import datetime
+
+if TYPE_CHECKING:
+    from .malmo import MalmoObservationDict
 
 
 WorldSize = Tuple[int, int, int]
@@ -39,6 +43,11 @@ LAST_INTERACTED = 5
 num_world_obs_channels = 6
 
 MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs, NDArray[np.int32]]
+
+MbagHumanCommandType = Literal["key", "mouse"]
+MbagHumanCommand = Literal[
+    "forward", "right", "left", "back", "attack", "inventory", "use"
+]
 
 MbagInventory = np.ndarray
 """
@@ -138,6 +147,43 @@ class MbagAction(object):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
 
 
+class MbagHumanAction:
+    time: int
+    """
+    At what time in the step the human did the action, measured in milliseconds (or ticks?)
+    """
+
+    type: MbagHumanCommandType
+    """
+    What type of command was logged from the human
+    """
+
+    command: MbagHumanCommand
+    """
+    What the human's action meant in Minecraft
+    """
+
+    pressed: bool
+    """
+    Whether the human pressed or released
+    """
+
+    deltaX: int  # noqa: N815
+    """
+    The X-axis difference between the player's location and the location of the block clicked
+    """
+
+    deltaY: int  # noqa: N815
+    """
+    The Y-axis difference between the player's location and the location of the block clicked
+    """
+
+    deltaZ: int  # noqa: N815
+    """
+    The Z-axis difference between the player's location and the location of the block clicked
+    """
+
+
 class MbagInfoDict(TypedDict):
     goal_similarity: float
     """
@@ -181,4 +227,16 @@ class MbagInfoDict(TypedDict):
     """
     Whether an action directly contributed to the goal, either by placing the correct
     block or breakin an incorrect block.
+    """
+
+    malmo_observations: List[Tuple[datetime, "MalmoObservationDict"]]
+    """
+    If this player is a human agent, then this is the full timestamped list of
+    observations from Malmo since the last timestep.
+    """
+
+    human_actions: List[MbagHumanAction]
+    """
+    If this player is a human agent, then this is a list of actions that have been
+    deduced from what the human is doing in Malmo.
     """
