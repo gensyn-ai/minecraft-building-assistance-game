@@ -20,7 +20,6 @@ import random
 import logging
 from datetime import datetime
 
-
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
