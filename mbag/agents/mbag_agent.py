@@ -3,7 +3,13 @@ from typing import Any, List, cast
 from mbag.environment.blocks import MinecraftBlocks
 import numpy as np
 
-from ..environment.types import MbagAction, MbagActionType, MbagObs, MbagActionTuple
+from ..environment.types import (
+    MbagAction,
+    MbagActionType,
+    MbagInfoDict,
+    MbagObs,
+    MbagActionTuple,
+)
 from ..environment.mbag_env import MbagConfigDict
 
 
@@ -59,6 +65,13 @@ class MbagAgent(ABC):
         uniform_dist = np.ones(self.env_config["world_size"])
         uniform_dist /= uniform_dist.sum()
         return uniform_dist
+
+    def get_action_with_info(self, obs: MbagObs, info: MbagInfoDict) -> MbagActionTuple:
+        """
+        Allows for the info dict to be passed in getting an action
+        If not overridden, ignores the info dict and calls get_action
+        """
+        return self.get_action(obs)
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         """

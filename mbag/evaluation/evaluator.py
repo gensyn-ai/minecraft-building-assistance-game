@@ -45,6 +45,8 @@ class MbagEvaluator(object):
             for agent_class, agent_config in agent_configs
         ]
         self.force_get_set_state = force_get_set_state
+        self.previous_infos = [{} for _ in self.agents]
+        self.episodes = []
 
     def rollout(self) -> EpisodeInfo:
         """
@@ -66,7 +68,8 @@ class MbagEvaluator(object):
                     agent.reset()
                     agent.set_state(state)
             all_actions = [
-                agent.get_action(obs) for agent, obs in zip(self.agents, all_obs)
+                agent.get_action_with_info(obs, info)
+                for agent, obs, info in zip(self.agents, all_obs, self.previous_infos)
             ]
             all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)
             done = all_done[0]
@@ -74,10 +77,16 @@ class MbagEvaluator(object):
             timestep += 1
             if self.force_get_set_state:
                 agent_states = [agent.get_state() for agent in self.agents]
+            self.previous_infos = all_infos
 
-        return EpisodeInfo(
+        episode_info = EpisodeInfo(
             cumulative_reward=cumulative_reward,
             length=timestep,
             last_obs=all_obs,
             last_infos=all_infos,
         )
+        self.episodes.append(episode_info)
+        return episode_info
+
+    def log_episodes(self):
+        print(self.episodes)
