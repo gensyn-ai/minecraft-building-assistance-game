@@ -3,7 +3,13 @@ from typing import Any, List, cast
 from mbag.environment.blocks import MinecraftBlocks
 import numpy as np
 
-from ..environment.types import MbagAction, MbagActionType, MbagObs, MbagActionTuple
+from ..environment.types import (
+    MbagAction,
+    MbagActionType,
+    MbagInfoDict,
+    MbagObs,
+    MbagActionTuple,
+)
 from ..environment.mbag_env import MbagConfigDict
 from .mbag_agent import MbagAgent
 
@@ -22,18 +28,17 @@ class HumanAgent(MbagAgent):
         """
         self.actions_queue = []
 
-    def get_action(self, obs: MbagObs) -> MbagActionTuple:
+    def get_action_with_info(self, obs: MbagObs, info: MbagInfoDict) -> MbagActionTuple:
         """
         This should return an action ID to take in the environment. Either this or the
         get_action_*_distribution methods should be overridden.
         """
+        self.actions_queue.extend(info.get("human_actions", []))
+
         action_type, block_location, block_id = MbagAction.NOOP, 0, 0
         if len(self.actions_queue > 0):
             action_type, block_location, block_id = self.actions_queue.pop(0)
         return action_type, block_location, block_id
-
-    def add_actions(self, incoming_actions: List[MbagAction]) -> None:
-        self.actions_queue.extend(incoming_actions)
 
     def get_state(self) -> List[np.ndarray]:
         """
