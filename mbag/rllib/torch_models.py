@@ -116,7 +116,7 @@ class MbagTorchModel(ActorCriticModel):
         self.hidden_size = extra_config["hidden_size"]
         self.num_action_layers = extra_config["num_action_layers"]
         self.num_value_layers = extra_config["num_value_layers"]
-        self.use_per_location_lstm = extra_config["use_per_location_lstm"]
+        self.use_per_location_lstm = extra_config.get("use_per_location_lstm", False)
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -419,15 +419,18 @@ class MbagTorchModel(ActorCriticModel):
             else:
                 return super().get_initial_state()
 
-    def compute_priors_and_value(self, input_dict):
+    def compute_priors_and_value(self, input_dict, state_in=[]):
         obs = convert_to_torch_tensor(
             self.preprocessor.transform(input_dict["obs"])[None]
         )
         input_dict = restore_original_dimensions(obs, self.obs_space, "torch")
+        tensor_state_in = [convert_to_torch_tensor(state)[None] for state in state_in]
 
         with torch.no_grad():
-            model_out = self.forward(input_dict, None, [1], mask_logits=False)
-            logits, _ = model_out
+            model_out = self.forward(
+                input_dict, tensor_state_in, np.array([1]), mask_logits=False
+            )
+            logits, state_out = model_out
             value = self.value_function()
             logits, value = torch.squeeze(logits), torch.squeeze(value)
             priors = nn.Softmax(dim=-1)(logits)
@@ -435,7 +438,7 @@ class MbagTorchModel(ActorCriticModel):
             priors = priors.cpu().numpy()
             value = value.cpu().numpy()
 
-            return priors, value
+            return priors, value, [state[0].cpu().numpy() for state in state_out]
 
 
 class ResidualBlock(nn.Module):
