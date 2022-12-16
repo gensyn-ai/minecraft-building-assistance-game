@@ -14,6 +14,7 @@ from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.algorithms.alpha_zero.models.custom_torch_models import ActorCriticModel
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.policy.rnn_sequencing import add_time_dimension
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
@@ -59,6 +60,8 @@ class MbagModelConfig(TypedDict, total=False):
     """Number of extra layers for the action head."""
     num_value_layers: int
     """Number of extra layers for the value head."""
+    use_per_location_lstm: bool
+    """Include a LSTM operating per-location."""
 
 
 DEFAULT_CONFIG: MbagModelConfig = {
@@ -113,6 +116,7 @@ class MbagTorchModel(ActorCriticModel):
         self.hidden_size = extra_config["hidden_size"]
         self.num_action_layers = extra_config["num_action_layers"]
         self.num_value_layers = extra_config["num_value_layers"]
+        self.use_per_location_lstm = extra_config["use_per_location_lstm"]
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -134,6 +138,16 @@ class MbagTorchModel(ActorCriticModel):
         self.action_head = self._construct_action_head()
         self.value_head = self._construct_value_head()
         self.goal_head = self._construct_goal_head()
+
+        if self.use_per_location_lstm:
+            assert self.vf_share_layers
+            assert not self.model_config.get("_time_major", False)
+            self.per_location_lstm = nn.LSTM(
+                input_size=self.hidden_size,
+                hidden_size=self.hidden_size,
+                num_layers=1,
+                batch_first=True,
+            )
 
     def _get_in_planes(self) -> int:
         """
@@ -285,6 +299,56 @@ class MbagTorchModel(ActorCriticModel):
 
         return embedded_obs.permute(0, 4, 1, 2, 3)
 
+    def _run_lstm(
+        self, backbone_out: torch.Tensor, state_in: List[torch.Tensor], seq_lens
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        flat_backbone_out = backbone_out.flatten(start_dim=1)
+        flat_backone_out_with_time: torch.Tensor = add_time_dimension(
+            flat_backbone_out,
+            seq_lens=seq_lens,
+            framework="torch",
+            time_major=False,
+        )
+        # Should be of size (batch_size, max_seq_len, hidden_size, width, height, depth).
+        backbone_out_with_time = flat_backone_out_with_time.reshape(
+            *flat_backone_out_with_time.size()[:2],
+            *backbone_out.size()[1:],
+        )
+        batch_size, max_seq_len = backbone_out_with_time.size()[:2]
+        assert (
+            backbone_out_with_time.size()[2:] == (self.hidden_size,) + self.world_size
+        )
+        backbone_out_per_location = backbone_out_with_time.permute(
+            0, 3, 4, 5, 1, 2
+        ).flatten(end_dim=3)
+        # State in should be of size (batch_size, hidden_size, width, height, depth).
+        state_in_per_location = tuple(
+            state.permute(0, 2, 3, 4, 1).flatten(end_dim=3)[None].contiguous()
+            for state in state_in
+        )
+
+        lstm_out_per_location: torch.Tensor
+        state_out_per_location: torch.Tensor
+        lstm_out_per_location, state_out_per_location = self.per_location_lstm(
+            backbone_out_per_location, state_in_per_location
+        )
+        lstm_out_with_time = lstm_out_per_location.reshape(
+            batch_size,
+            *self.world_size,
+            max_seq_len,
+            self.hidden_size,
+        ).permute(0, 4, 5, 1, 2, 3)
+        state_out = [
+            state.reshape(batch_size, *self.world_size, self.hidden_size).permute(
+                0, 4, 1, 2, 3
+            )
+            for state in state_out_per_location
+        ]
+
+        lstm_out = lstm_out_with_time.flatten(end_dim=1)
+
+        return lstm_out, state_out
+
     def forward(self, input_dict, state, seq_lens, mask_logits=True):
         # Seems like AlphaZero trainer likes to give just observations instead of
         # an input dict.
@@ -310,6 +374,11 @@ class MbagTorchModel(ActorCriticModel):
             self._backbone_out = self.action_backbone(self._embedded_obs)
         self._backbone_out_shape = self._backbone_out.size()[1:]
         assert self._backbone_out_shape[0] == self._get_head_in_channels()
+
+        if self.use_per_location_lstm:
+            self._backbone_out, state = self._run_lstm(
+                self._backbone_out, state, seq_lens
+            )
 
         self._logits = self.action_head(self._backbone_out)
         self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
@@ -342,10 +411,13 @@ class MbagTorchModel(ActorCriticModel):
         return self.goal_head(self._backbone_out)
 
     def get_initial_state(self):
-        if self.fake_state:
-            return [np.zeros(1)]
+        if self.use_per_location_lstm:
+            return [torch.zeros((self.hidden_size, *self.world_size)) for _ in range(2)]
         else:
-            return super().get_initial_state()
+            if self.fake_state:
+                return [np.zeros(1)]
+            else:
+                return super().get_initial_state()
 
     def compute_priors_and_value(self, input_dict):
         obs = convert_to_torch_tensor(

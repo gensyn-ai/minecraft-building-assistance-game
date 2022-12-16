@@ -227,6 +227,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         hidden_size = hidden_channels
         num_action_layers = 2
         num_value_layers = 2
+        use_per_location_lstm = False
         num_heads = 4
         use_separated_transformer = False
         use_resnet = False
@@ -252,6 +253,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "hidden_channels": hidden_channels,
                 "num_action_layers": num_action_layers,
                 "num_value_layers": num_value_layers,
+                "use_per_location_lstm": use_per_location_lstm,
                 "num_unet_layers": num_unet_layers,
                 "unet_grow_factor": unet_grow_factor,
                 "unet_use_bn": unet_use_bn,
@@ -270,6 +272,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "hidden_size": hidden_size,
                 "num_action_layers": num_action_layers,
                 "num_value_layers": num_value_layers,
+                "use_per_location_lstm": use_per_location_lstm,
                 "use_separated_transformer": use_separated_transformer,
             }
             model_config["custom_model_config"] = transformer_config

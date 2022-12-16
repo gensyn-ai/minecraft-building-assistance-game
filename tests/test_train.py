@@ -55,6 +55,21 @@ def test_single_agent(default_config):
 
 
 @pytest.mark.uses_rllib
+def test_lstm(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "use_per_location_lstm": True,
+            "max_seq_len": 5,
+            "sgd_minibatch_size": 20,
+            "vf_share_layers": True,
+        }
+    ).result
+
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
 def test_transformer(default_config):
     result = ex.run(
         config_updates={
