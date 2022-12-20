@@ -3,7 +3,10 @@ import pytest
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import PriorityQueueAgent, NoopAgent
-from mbag.environment.goals.grabcraft import ScaledDownGrabcraftGoalGenerator, GrabcraftGoalGenerator
+from mbag.environment.goals.grabcraft import (
+    ScaledDownGrabcraftGoalGenerator,
+    GrabcraftGoalGenerator,
+)
 
 
 def test_goal_generator():
@@ -83,10 +86,7 @@ def test_get_full_grabcraft_structure():
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": GrabcraftGoalGenerator,
-            "goal_generator_config": {
-                "data_dir": "data/grabcraft",
-                "subset": "train"
-            },
+            "goal_generator_config": {"data_dir": "data/grabcraft", "subset": "train"},
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -112,10 +112,7 @@ def test_get_scaled_down_grabcraft_structure():
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": ScaledDownGrabcraftGoalGenerator,
-            "goal_generator_config": {
-                "data_dir": "data/grabcraft",
-                "subset": "train"
-            },
+            "goal_generator_config": {"data_dir": "data/grabcraft", "subset": "train"},
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

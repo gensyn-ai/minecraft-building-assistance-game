@@ -247,20 +247,22 @@ class ScaledDownGrabcraftGoalGenerator(GrabcraftGoalGenerator):
 
         return self.scale_down_structure(structure, size)
 
-    def scale_down_structure(self, structure: Optional[MinecraftBlocks], size: WorldSize) -> MinecraftBlocks:
+    def scale_down_structure(
+        self, structure: Optional[MinecraftBlocks], size: WorldSize
+    ) -> MinecraftBlocks:
         assert structure is not None, "Must pass in a valid structure to scale down"
 
         structure_size = structure.size
         scale_factor = max(
             math.ceil(structure_size[0] / size[0]),
             math.ceil(structure_size[1] / size[1]),
-            math.ceil(structure_size[2] / size[2])
+            math.ceil(structure_size[2] / size[2]),
         )
         scaled_down_structure = MinecraftBlocks(
             (
                 int(math.ceil(structure_size[0] / scale_factor)),
                 int(math.ceil(structure_size[1] / scale_factor)),
-                int(math.ceil(structure_size[2] / scale_factor))
+                int(math.ceil(structure_size[2] / scale_factor)),
             )
         )
 

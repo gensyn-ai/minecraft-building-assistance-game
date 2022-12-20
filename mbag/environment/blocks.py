@@ -439,7 +439,9 @@ class MinecraftBlocks(object):
         ]
 
     @staticmethod
-    def _pad_blocks(original_blocks: np.ndarray, axis: int, num_rows: int, value: int = -1):
+    def _pad_blocks(
+        original_blocks: np.ndarray, axis: int, num_rows: int, value: int = -1
+    ):
         """
         Pads original blocks with the specified values along the specified axis for
         num_rows
@@ -447,13 +449,13 @@ class MinecraftBlocks(object):
         shape = original_blocks.shape
         if axis == 0:
             new_matrix = np.full((shape[0] + num_rows, shape[1], shape[2]), value)
-            new_matrix[:shape[0], :shape[1], :shape[2]] = original_blocks
+            new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
         elif axis == 1:
             new_matrix = np.full((shape[0], shape[1] + num_rows, shape[2]), value)
-            new_matrix[:shape[0], :shape[1], :shape[2]] = original_blocks
+            new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
         elif axis == 2:
             new_matrix = np.full((shape[0], shape[1], shape[2] + num_rows), value)
-            new_matrix[:shape[0], :shape[1], :shape[2]] = original_blocks
+            new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
         else:
             raise ValueError("Invalid axis value. Axis must be 0, 1, or 2.")
 
@@ -466,11 +468,17 @@ class MinecraftBlocks(object):
         """
         work_array = np.copy(self.blocks)
         if self.size[0] % chunk_size[0] != 0:
-            work_array = MinecraftBlocks._pad_blocks(work_array, 0, chunk_size[0] - (self.size[0] % chunk_size[0]))
+            work_array = MinecraftBlocks._pad_blocks(
+                work_array, 0, chunk_size[0] - (self.size[0] % chunk_size[0])
+            )
         if self.size[1] % chunk_size[1] != 0:
-            work_array = MinecraftBlocks._pad_blocks(work_array, 1, chunk_size[1] - (self.size[1] % chunk_size[1]))
+            work_array = MinecraftBlocks._pad_blocks(
+                work_array, 1, chunk_size[1] - (self.size[1] % chunk_size[1])
+            )
         if self.size[2] % chunk_size[2] != 0:
-            work_array = MinecraftBlocks._pad_blocks(work_array, 2, chunk_size[2] - (self.size[2] % chunk_size[2]))
+            work_array = MinecraftBlocks._pad_blocks(
+                work_array, 2, chunk_size[2] - (self.size[2] % chunk_size[2])
+            )
 
         # print(work_array.shape)
         blocks: NDArray = view_as_blocks(work_array, chunk_size)
