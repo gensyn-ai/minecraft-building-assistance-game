@@ -524,5 +524,5 @@ class MinecraftBlocks(object):
     ) -> "MinecraftBlocks":
         block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
         blocks = MinecraftBlocks(size)
-        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids
+        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
         return blocks
