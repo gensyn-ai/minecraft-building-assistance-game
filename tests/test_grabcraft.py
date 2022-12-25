@@ -82,7 +82,7 @@ def test_goal_generator_in_malmo():
 def test_get_full_grabcraft_structure():
     evaluator = MbagEvaluator(
         {
-            "world_size": (17, 20, 19),
+            "world_size": (25, 25, 25),
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": GrabcraftGoalGenerator,
@@ -108,7 +108,7 @@ def test_get_full_grabcraft_structure():
 def test_get_scaled_down_grabcraft_structure():
     evaluator = MbagEvaluator(
         {
-            "world_size": (10, 11, 11),
+            "world_size": (25, 25, 25),
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": ScaledDownGrabcraftGoalGenerator,

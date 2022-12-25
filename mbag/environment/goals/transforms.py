@@ -166,7 +166,7 @@ class SeamCarvingTransform(GoalTransform):
     config: SeamCarvingTransformConfig
 
     def _get_relative_positions(self, size: WorldSize) -> np.ndarray:
-        return np.stack(
+        return np.stack(  # type: ignore
             np.meshgrid(*[np.linspace(0, 1, size[axis]) for axis in range(3)]),
             axis=-1,
         ).transpose((1, 0, 2, 3))

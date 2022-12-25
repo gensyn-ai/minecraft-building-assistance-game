@@ -267,6 +267,7 @@ class ScaledDownGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         )
 
         chunk_size = (scale_factor, scale_factor, scale_factor)
+        print(chunk_size)
 
         idx = [
             (i, j, k)
@@ -282,8 +283,12 @@ class ScaledDownGrabcraftGoalGenerator(GrabcraftGoalGenerator):
         return scaled_down_structure
 
     def _most_common_block(self, array: np.ndarray):
+        mask = (array != 0) & (array != -1)
+        if np.sum(mask) < array.size / 2:
+            return 0
+
         flat_arr = array.flatten()
-        filtered_arr = flat_arr[flat_arr != -1]
+        filtered_arr = flat_arr[(flat_arr != -1) & (flat_arr != 0)]
         counts = np.bincount(filtered_arr)
         ties = np.where(counts == counts[np.argmax(counts)])[0]
 

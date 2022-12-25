@@ -4,7 +4,7 @@ import numpy as np
 import cc3d
 from numpy.typing import NDArray
 from random import Random
-from skimage.util import view_as_blocks
+from skimage.util import view_as_blocks  # type: ignore
 
 from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize
 
@@ -482,7 +482,7 @@ class MinecraftBlocks(object):
 
         # print(work_array.shape)
         blocks: NDArray = view_as_blocks(work_array, chunk_size)
-        return np.concatenate(blocks).ravel().reshape((-1, *chunk_size))
+        return np.concatenate(blocks).ravel().reshape((-1, *chunk_size))  # type: ignore
 
     def is_single_cc(self) -> bool:
         structure_mask = self.blocks != MinecraftBlocks.AIR
@@ -524,5 +524,5 @@ class MinecraftBlocks(object):
     ) -> "MinecraftBlocks":
         block_ids = [MinecraftBlocks.NAME2ID[block_name] for block_name in block_names]
         blocks = MinecraftBlocks(size)
-        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
+        np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids
         return blocks

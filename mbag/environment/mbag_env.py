@@ -387,7 +387,7 @@ class MbagEnv(object):
         self.last_interacted[:] = NO_INTERACTION
 
         self.goal_blocks = self._generate_goal()
-        print(self.goal_blocks.blocks)
+        print("goal blocks: ", self.goal_blocks)
         self.player_locations = [
             (
                 (i % self.config["world_size"][0]) + 0.5,
@@ -511,17 +511,22 @@ class MbagEnv(object):
             goal_size = (world_size[0] - 3, world_size[1] - 1, world_size[2] - 2)
             self.palette_x = world_size[0] - 1
 
+        print("yo")
         small_goal = self.goal_generator.generate_goal(goal_size)
+        print(small_goal, "FUCK")
 
         goal = self.current_blocks.copy()
 
-        if self.config["abilities"]["inf_blocks"]:
-            goal.blocks[1:-1, 1:, 1:-1] = small_goal.blocks
-            goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
-        else:
-            goal.blocks[1:-2, 1:, 1:-1] = small_goal.blocks
-            goal.block_states[1:-2, 1:, 1:-1] = small_goal.block_states
+        shape = small_goal.size
 
+        goal.blocks[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.blocks
+        goal.block_states[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.block_states
+
+        if not self.config["abilities"]["inf_blocks"]:
             for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
                 if index >= world_size[2]:
                     break
