@@ -95,7 +95,11 @@ def main(
         config_updates["multiagent"]["policy_mapping_fn"] = policy_mapping_fn
         config_updates["env_config"]["num_players"] = len(policy_ids)
 
-    config_updates["env_config"]["malmo"]["player_names"] = player_names
+    if player_names is not None:
+        assert "players" not in config_updates["env_config"]
+        config_updates["env_config"]["players"] = [
+            {"player_name": player_name} for player_name in player_names
+        ]
 
     if record_video:
         config_updates["env_config"]["malmo"].update(
