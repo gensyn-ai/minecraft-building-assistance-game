@@ -1,16 +1,12 @@
-from abc import ABC
-from typing import Any, List, cast
-from mbag.environment.blocks import MinecraftBlocks
+from typing import List
 import numpy as np
 
 from ..environment.types import (
     MbagAction,
-    MbagActionType,
     MbagInfoDict,
     MbagObs,
     MbagActionTuple,
 )
-from ..environment.mbag_env import MbagConfigDict
 from .mbag_agent import MbagAgent
 
 
@@ -19,7 +15,7 @@ class HumanAgent(MbagAgent):
     An MBAG agent which chooses actions based on a queue that is fed in.
     """
 
-    actions_queue: List[MbagAction]
+    actions_queue: List[MbagActionTuple]
 
     def reset(self) -> None:
         """
@@ -36,7 +32,7 @@ class HumanAgent(MbagAgent):
         self.actions_queue.extend(info.get("human_actions", []))
 
         action_type, block_location, block_id = MbagAction.NOOP, 0, 0
-        if len(self.actions_queue > 0):
+        if len(self.actions_queue) > 0:
             action_type, block_location, block_id = self.actions_queue.pop(0)
         return action_type, block_location, block_id
 
