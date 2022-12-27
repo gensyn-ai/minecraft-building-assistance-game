@@ -108,6 +108,7 @@ class MbagAction(object):
     }
 
     action_type: MbagActionType
+    block_location_index: int
     block_location: BlockLocation
     block_id: int
 
@@ -124,9 +125,10 @@ class MbagAction(object):
     ]
 
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
-        self.action_type, block_location_index, self.block_id = action_tuple
+        self.action_type, self.block_location_index, self.block_id = action_tuple
         self.block_location = cast(
-            BlockLocation, tuple(np.unravel_index(block_location_index, world_size))
+            BlockLocation,
+            tuple(np.unravel_index(self.block_location_index, world_size)),
         )
 
     def __str__(self):
@@ -141,6 +143,14 @@ class MbagAction(object):
 
     def __repr__(self):
         return f"MbagAction<{self}>"
+
+    def to_tuple(self) -> MbagActionTuple:
+        return (self.action_type, self.block_location_index, self.block_id)
+
+    def __eq__(self, other_action: object):
+        if not isinstance(other_action, MbagAction):
+            return False
+        return self.to_tuple() == other_action.to_tuple()
 
     @classmethod
     def noop_action(cls):

@@ -168,7 +168,7 @@ class HumanActionDetector(object):
                     current_malmo_blocks.blocks[location],
                     prev_malmo_blocks.blocks[location],
                 )
-        self.malmo_blocks[player_index] = current_malmo_blocks
+            self.malmo_blocks[player_index] = current_malmo_blocks
         return block_discrepancies
 
     def _get_movement_actions(
@@ -310,6 +310,9 @@ class HumanActionDetector(object):
         of that type that have been dropped and picked up, respectively. Also
         updates malmo_inventories for the given player.
         """
+
+        if "InventorySlot_0_item" not in malmo_observation:
+            return {}, {}
 
         from .mbag_env import MbagEnv
 
