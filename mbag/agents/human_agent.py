@@ -1,5 +1,6 @@
 from typing import List
 import numpy as np
+import logging
 
 from ..environment.types import (
     MbagAction,
@@ -8,6 +9,8 @@ from ..environment.types import (
     MbagActionTuple,
 )
 from .mbag_agent import MbagAgent
+
+logger = logging.getLogger(__name__)
 
 
 class HumanAgent(MbagAgent):
@@ -34,7 +37,11 @@ class HumanAgent(MbagAgent):
         action_type, block_location, block_id = MbagAction.NOOP, 0, 0
         if len(self.actions_queue) > 0:
             action_type, block_location, block_id = self.actions_queue.pop(0)
-        return action_type, block_location, block_id
+            logger.info(
+                f"Human action being replayed:({action_type}, {block_location}, {block_id})"
+            )
+
+        return (action_type, block_location, block_id)
 
     def get_state(self) -> List[np.ndarray]:
         """
