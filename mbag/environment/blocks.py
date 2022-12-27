@@ -21,7 +21,7 @@ def cartesian_product(*arrays):
     return arr.reshape(-1, la)
 
 
-MAX_PLAYER_REACH = 3
+MAX_PLAYER_REACH = 4.5
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
