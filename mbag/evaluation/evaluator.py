@@ -14,9 +14,12 @@ An MbagAgent subclass together with the agent config for that agent.
 
 @dataclass
 class EpisodeInfo:
+    reward_history: List[float]
     cumulative_reward: float
     length: int
+    obs_history: List[List[MbagObs]]
     last_obs: List[MbagObs]
+    info_history: List[List[MbagInfoDict]]
     last_infos: List[MbagInfoDict]
 
     def to_json(self) -> dict:
@@ -45,6 +48,8 @@ class MbagEvaluator(object):
             for agent_class, agent_config in agent_configs
         ]
         self.force_get_set_state = force_get_set_state
+        self.previous_infos = [{} for _ in self.agents]
+        self.episodes = []
 
     def rollout(self) -> EpisodeInfo:
         """
@@ -55,10 +60,14 @@ class MbagEvaluator(object):
             agent.reset()
         all_obs = self.env.reset()
         done = False
-        cumulative_reward = 0.0
         timestep = 0
         if self.force_get_set_state:
             agent_states = [agent.get_state() for agent in self.agents]
+
+        # should the initial setting be included?
+        reward_history = [0.0]
+        obs_history = [all_obs]
+        info_history = [self.previous_infos]
 
         while not done:
             if self.force_get_set_state:
@@ -66,18 +75,31 @@ class MbagEvaluator(object):
                     agent.reset()
                     agent.set_state(state)
             all_actions = [
-                agent.get_action(obs) for agent, obs in zip(self.agents, all_obs)
+                agent.get_action_with_info(obs, info)
+                for agent, obs, info in zip(self.agents, all_obs, self.previous_infos)
             ]
             all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)
             done = all_done[0]
-            cumulative_reward += all_rewards[0]
+            reward_history.append(all_rewards[0])
+            obs_history.append(all_obs)
+            info_history.append(all_infos)
             timestep += 1
+
             if self.force_get_set_state:
                 agent_states = [agent.get_state() for agent in self.agents]
+            self.previous_infos = all_infos
 
-        return EpisodeInfo(
-            cumulative_reward=cumulative_reward,
+        episode_info = EpisodeInfo(
+            reward_history=reward_history,
+            cumulative_reward=sum(reward_history),
             length=timestep,
             last_obs=all_obs,
             last_infos=all_infos,
+            obs_history=obs_history,
+            info_history=info_history,
         )
+        self.episodes.append(episode_info)
+        return episode_info
+
+    def log_episodes(self):
+        print(self.episodes)

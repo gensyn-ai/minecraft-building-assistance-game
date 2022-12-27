@@ -17,7 +17,6 @@ import copy
 import random
 import logging
 
-
 from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,

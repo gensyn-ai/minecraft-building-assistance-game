@@ -1,10 +1,10 @@
 import pytest
 import logging
+from mbag.agents.heuristic_agents import NoopAgent
+from mbag.agents.human_agent import HumanAgent
 
 from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import (
-    NoopAgent,
-)
+
 from mbag.environment.goals.simple import BasicGoalGenerator
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def test_human_in_malmo():
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
-            (NoopAgent, {}),
+            (HumanAgent, {}),
         ],
     )
     episode_info = evaluator.rollout()
