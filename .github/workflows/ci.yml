@@ -47,7 +47,7 @@ jobs:
         if: ${{ always() }}
 
       - name: Run isort
-        run: isort --check-only mbag tests
+        run: isort --check --diff mbag tests
         if: ${{ always() }}
 
       - name: Check types

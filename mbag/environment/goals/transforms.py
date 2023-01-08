@@ -150,6 +150,8 @@ class CropTransform(GoalTransform):
 
                 return crop
 
+            logger.info("CropTransform was unable to find a valid crop")
+
 
 class SeamCarvingTransformConfig(TypedDict):
     position_coefficient: float

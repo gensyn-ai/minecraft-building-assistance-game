@@ -4,7 +4,17 @@ import copy
 import logging
 import random
 import time
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+    cast,
+)
 
 import numpy as np
 from gym import spaces
@@ -38,6 +48,10 @@ from .types import (
     WorldSize,
     num_world_obs_channels,
 )
+
+if TYPE_CHECKING:
+    from .malmo import MalmoObservationDict
+
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +263,7 @@ class MbagEnv(object):
     """The maximum number of blocks a player can carry in a stack."""
 
     def __init__(self, config: MbagConfigDict):
-        self.config = self.get_config(copy.deepcopy(config))
+        self.config = self.get_config(config)
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
@@ -295,10 +309,20 @@ class MbagEnv(object):
         self.global_timestep = 0
 
         self.human_action_detector = HumanActionDetector(self.config)
+        if any(
+            player_config["is_human"] for player_config in self.config["players"]
+        ) and any(
+            not player_config["is_human"] for player_config in self.config["players"]
+        ):
+            raise ValueError(
+                "environment does not yet support human and non-human players at the same time"
+            )
 
-    def get_config(self, partial_config: MbagConfigDict) -> MbagConfigDict:
+    @staticmethod
+    def get_config(partial_config: MbagConfigDict) -> MbagConfigDict:
         """Get a fully populated config dict by adding defaults where necessary."""
 
+        partial_config = copy.deepcopy(partial_config)
         config = copy.deepcopy(DEFAULT_CONFIG)
         config.update(partial_config)
         if isinstance(config["world_size"], list):
@@ -1126,48 +1150,56 @@ class MbagEnv(object):
                 )
                 infos[player_index]["malmo_observations"] = malmo_player_observations
 
-            malmo_inventory: MbagInventory = np.zeros(
-                (self.INVENTORY_NUM_SLOTS, 2), dtype=int
-            )
-            for slot in range(self.INVENTORY_NUM_SLOTS):
-                item_name = latest_malmo_player_observation[f"InventorySlot_{slot}_item"]  # type: ignore
-                malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
-                malmo_inventory[slot, 1] = latest_malmo_player_observation[f"InventorySlot_{slot}_size"]  # type: ignore
+            malmo_inventory: Optional[MbagInventory] = None
+            if "InventorySlot_0_item" in latest_malmo_player_observation:
+                malmo_inventory = np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=int)
+                for slot in range(self.INVENTORY_NUM_SLOTS):
+                    item_name = latest_malmo_player_observation[f"InventorySlot_{slot}_item"]  # type: ignore
+                    malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
+                    malmo_inventory[slot, 1] = latest_malmo_player_observation[f"InventorySlot_{slot}_size"]  # type: ignore
+            else:
+                logger.warn(
+                    "missing inventory information from Malmo observation "
+                    f"(keys = {latest_malmo_player_observation.keys()})"
+                )
 
             if not self.config["players"][player_index]["is_human"]:
                 if self.config["abilities"]["inf_blocks"]:
-                    # Make sure inventory is organized as expected.
-                    for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
-                        if malmo_inventory[block_id, 0] != block_id:
+                    if malmo_inventory is not None:
+                        # Make sure inventory is organized as expected.
+                        for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                            if malmo_inventory[block_id, 0] != block_id:
+                                logger.warning(
+                                    f"inventory discrepancy at slot {block_id}: "
+                                    f"expected {MinecraftBlocks.ID2NAME[block_id]} "
+                                    "but received "
+                                    f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
+                                    "from Malmo"
+                                )
+                                swap_slot = (
+                                    malmo_inventory[:, 0].tolist().index(block_id)
+                                )
+                                self.malmo_client.send_command(
+                                    player_index,
+                                    f"swapInventoryItems {block_id} {swap_slot}",
+                                )
+                                time.sleep(0.1)
+                else:
+                    if malmo_inventory is not None:
+                        # Make sure inventory in Malmo matches up with what's in our inventory.
+                        player_inventory = self.player_inventories[player_index]
+                        for slot in np.nonzero(
+                            np.any(malmo_inventory != player_inventory, axis=1)
+                        )[0]:
                             logger.warning(
-                                f"inventory discrepancy at slot {block_id}: "
-                                f"expected {MinecraftBlocks.ID2NAME[block_id]} "
-                                "but received "
-                                f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
+                                f"inventory discrepancy at slot {slot}: "
+                                f"expected {player_inventory[slot, 1]} x "
+                                f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
+                                f"but received {malmo_inventory[slot, 1]} x "
+                                f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
                                 "from Malmo"
                             )
-                            swap_slot = malmo_inventory[:, 0].tolist().index(block_id)
-                            self.malmo_client.send_command(
-                                player_index,
-                                f"swapInventoryItems {block_id} {swap_slot}",
-                            )
-                            time.sleep(0.1)
-                else:
-                    # Make sure inventory in Malmo matches up with what's in our inventory.
-
-                    player_inventory = self.player_inventories[player_index]
-                    for slot in np.nonzero(
-                        np.any(malmo_inventory != player_inventory, axis=1)
-                    )[0]:
-                        logger.warning(
-                            f"inventory discrepancy at slot {slot}: "
-                            f"expected {player_inventory[slot, 1]} x "
-                            f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
-                            f"but received {malmo_inventory[slot, 1]} x "
-                            f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
-                            "from Malmo"
-                        )
-                        player_inventory[slot] = malmo_inventory[slot]
+                            player_inventory[slot] = malmo_inventory[slot]
 
                     if not self.config["abilities"]["teleportation"]:
                         # Make sure position is as expected.
@@ -1189,6 +1221,17 @@ class MbagEnv(object):
                             )
                             self.player_locations[player_index] = malmo_location
 
+        self._update_blocks_from_malmo(latest_malmo_observation)
+
+        for player_index, human_action in human_actions:
+            assert self.config["players"][player_index]["is_human"]
+            infos[player_index]["human_actions"].append(human_action)
+
+        return infos
+
+    def _update_blocks_from_malmo(
+        self, latest_malmo_observation: "MalmoObservationDict"
+    ):
         if "world" in latest_malmo_observation and "goal" in latest_malmo_observation:
             self.malmo_blocks = MinecraftBlocks.from_malmo_grid(
                 self.config["world_size"], latest_malmo_observation["world"]
@@ -1234,12 +1277,6 @@ class MbagEnv(object):
         ] = self.malmo_blocks.blocks[
             self.human_action_detector.blocks_with_no_pending_human_interactions
         ]
-
-        for player_index, human_action in human_actions:
-            assert self.config["players"][player_index]["is_human"]
-            infos[player_index]["human_actions"].append(human_action)
-
-        return infos
 
     def _done(self) -> bool:
         return (

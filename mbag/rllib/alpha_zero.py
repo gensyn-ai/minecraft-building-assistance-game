@@ -8,6 +8,7 @@ from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero
 from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
 from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
 from ray.rllib.evaluation import SampleBatch
+from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
 from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
 from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
@@ -24,7 +25,7 @@ from ray.rllib.utils.metrics import (
 )
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
-from ray.rllib.utils.torch_utils import explained_variance
+from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
 from ray.rllib.utils.typing import AgentID, ResultDict, TensorType
 from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
 from torch import nn
@@ -66,6 +67,8 @@ class MbagMCTSNode(Node):
     goal_logits: Optional[np.ndarray]
     other_agent_action_dist: Optional[np.ndarray]
     other_reward: float
+    model_state_in: List[np.ndarray]
+    model_state_out: List[np.ndarray]
 
     def __init__(
         self,
@@ -76,6 +79,7 @@ class MbagMCTSNode(Node):
         reward,
         state,
         mcts,
+        model_state_in,
         parent=None,
     ):
         super().__init__(action, obs, done, reward, state, mcts, parent)
@@ -91,6 +95,8 @@ class MbagMCTSNode(Node):
 
         self.goal_logits = None
         self.other_agent_action_dist = None
+
+        self.model_state_in = model_state_in
 
     def child_Q(self):  # noqa: N802
         Q = self.child_total_value / np.maximum(  # noqa: N806
@@ -159,10 +165,12 @@ class MbagMCTSNode(Node):
         child_priors,
         goal_logits: Optional[np.ndarray] = None,
         other_agent_action_dist: Optional[np.ndarray] = None,
+        model_state_out: List[np.ndarray] = [],
         add_dirichlet_noise=False,
     ) -> None:
         super().expand(child_priors)
 
+        self.model_state_out = model_state_out
         self.goal_logits = goal_logits
         self.other_agent_action_dist = other_agent_action_dist
 
@@ -239,6 +247,7 @@ class MbagMCTSNode(Node):
                 info=info,
                 obs=obs,
                 mcts=self.mcts,
+                model_state_in=self.model_state_out,
             )
         return self.children[all_actions]
 
@@ -294,7 +303,10 @@ class MbagMCTS(MCTS):
                 value = 0
             else:
                 self.model.eval()
-                child_priors, value = self.model.compute_priors_and_value(leaf.obs)
+                child_priors, value, state_out = self.model.compute_priors_and_value(
+                    leaf.obs,
+                    leaf.model_state_in,
+                )
 
                 if not self.use_critic:
                     value = 0
@@ -312,6 +324,7 @@ class MbagMCTS(MCTS):
                     goal_logits=goal_logits,
                     other_agent_action_dist=other_agent_action_dist,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
+                    model_state_out=state_out,
                 )
 
             leaf.backup(value)
@@ -411,6 +424,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     ):
         assert self.mcts.model == self.model
 
+        model_state_len = sum(k[:8] == "state_in" for k in input_dict.keys())
+        state_out = [
+            np.empty_like(input_dict[f"state_in_{state_index}"])
+            for state_index in range(model_state_len)
+        ]
+
         player_index = int(input_dict[SampleBatch.AGENT_INDEX])
         self.env.set_player_index(player_index)
 
@@ -418,8 +437,13 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             actions = []
             expected_rewards: List[float] = []
             expected_own_rewards: List[float] = []
-            for i, episode in enumerate(episodes):
+            episode: Episode
+            for episode_index, episode in enumerate(episodes):
                 env_state = episode.user_data["state"]
+                model_state = [
+                    input_dict[f"state_in_{state_index}"][episode_index]
+                    for state_index in range(model_state_len)
+                ]
                 # verify if env has been wrapped for ranked rewards
                 if self.env.__class__.__name__ == "RankedRewardsEnvWrapper":
                     # r2 env state contains also the rewards buffer state
@@ -434,12 +458,13 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                     info=None,
                     action=None,
                     parent=MbagRootParentNode(env=self.env),
+                    model_state_in=model_state,
                     mcts=self.mcts,
                 )
 
                 # run monte carlo simulations to compute the actions
                 # and record the tree
-                mcts_policy, action, tree_node = self.mcts.compute_action(tree_node)
+                mcts_policy, action, action_node = self.mcts.compute_action(tree_node)
                 # record action
                 actions.append(action)
 
@@ -449,15 +474,18 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 else:
                     episode.user_data[MCTS_POLICIES].append(mcts_policy)
 
-                expected_rewards.append(tree_node.reward)
-                if tree_node.info is not None:
-                    expected_own_rewards.append(tree_node.info["own_reward"])
+                expected_rewards.append(action_node.reward)
+                if action_node.info is not None:
+                    expected_own_rewards.append(action_node.info["own_reward"])
                 else:
                     expected_own_rewards.append(np.nan)
 
+                for state_index, state in enumerate(tree_node.model_state_out):
+                    state_out[state_index][episode_index] = state
+
             return (
                 np.array(actions),
-                [],
+                state_out,
                 {
                     **self.extra_action_out(
                         input_dict,
@@ -527,23 +555,42 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         assert isinstance(model, MbagTorchModel)
 
         # Forward pass in model.
-        model_out = model(train_batch, [], [1])
-        logits, _ = model_out
+        logits, state = model(train_batch)
         values = model.value_function()
         logits, values = torch.squeeze(logits), torch.squeeze(values)
         dist = dist_class(logits, model=model)
         assert isinstance(dist, TorchCategorical)
 
+        # RNN case: Mask away 0-padded chunks at end of time axis.
+        if state:
+            B = len(train_batch[SampleBatch.SEQ_LENS])  # noqa: N806
+            max_seq_len = logits.shape[0] // B
+            mask = sequence_mask(
+                train_batch[SampleBatch.SEQ_LENS],
+                max_seq_len,
+                time_major=model.is_time_major(),
+            )
+            mask = torch.reshape(mask, [-1])
+            num_valid = torch.sum(mask)
+
+            def reduce_mean_valid(t):
+                return torch.sum(t[mask]) / num_valid
+
+        # non-RNN case: No masking.
+        else:
+            mask = None
+            reduce_mean_valid = torch.mean
+
         # Compute actor and critic losses.
         dist.logp
-        policy_loss = torch.mean(
+        policy_loss = reduce_mean_valid(
             -torch.sum(train_batch[MCTS_POLICIES] * dist.dist.logits, dim=-1)
         )
-        value_loss = torch.mean(
+        value_loss = reduce_mean_valid(
             (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
         )
 
-        entropy = dist.entropy().mean()
+        entropy = reduce_mean_valid(dist.entropy())
 
         # Compute goal prediction loss.
         goal_logits = model.goal_function()
@@ -554,8 +601,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         )
         goal = world_obs[:, GOAL_BLOCKS].long()
         ce = nn.CrossEntropyLoss(reduction="none")
-        goal_ce = ce(goal_logits, goal)
-        goal_loss = goal_ce.mean()
+        goal_ce: torch.Tensor = ce(goal_logits, goal)
+        goal_loss = reduce_mean_valid(goal_ce.flatten(start_dim=1).mean(dim=1))
 
         unplaced_blocks = (goal != MinecraftBlocks.AIR) & (
             world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR
@@ -580,9 +627,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 train_batch[OTHER_AGENT_ACTION_DIST_INPUTS],
                 model=model,
             )
-            other_agent_action_predictor_loss = actual_other_agent_action_dist.kl(
-                predicted_other_agent_action_dist
-            ).mean()
+            other_agent_action_predictor_loss = reduce_mean_valid(
+                actual_other_agent_action_dist.kl(predicted_other_agent_action_dist)
+            )
 
             model.tower_stats[
                 "other_agent_action_predictor_loss"

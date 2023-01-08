@@ -10,12 +10,15 @@ import numpy as np
 
 from ..environment.blocks import MinecraftBlocks
 from ..environment.types import (
+    CURRENT_BLOCKS,
+    GOAL_BLOCKS,
     BlockLocation,
     MbagAction,
     MbagActionTuple,
     MbagActionType,
     MbagObs,
 )
+from .action_distributions import MbagActionDistribution
 from .mbag_agent import MbagAgent
 
 
@@ -206,6 +209,72 @@ class PriorityQueueAgent(MbagAgent):
         self.block_frontier = list(map(tuple, state[0][1]))
 
 
+class LowestBlockAgent(MbagAgent):
+    """
+    Builds by first breaking, then placing blocks, with the lowest possible block
+    chosen first, and ties randomly broken.
+    """
+
+    def __init__(self, agent_config, env_config):
+        super().__init__(agent_config, env_config)
+
+        if not (
+            self.env_config["abilities"]["inf_blocks"]
+            and self.env_config["abilities"]["teleportation"]
+        ):
+            raise ValueError("LowestBlockAgent cannot move or collect resources")
+
+    def get_action(self, obs: MbagObs) -> MbagActionTuple:
+        world_obs, inventory_obs, timestep = obs
+        current_blocks: np.ndarray = world_obs[CURRENT_BLOCKS]
+        goal_blocks: np.ndarray = world_obs[GOAL_BLOCKS]
+
+        action_mask = MbagActionDistribution.get_mask(
+            self.env_config,
+            (world_obs[None], inventory_obs[None], timestep[None]),
+        )[0]
+
+        action_type: MbagActionType = MbagAction.NOOP
+
+        # First, look at all blocks that need to be broken.
+        need_to_be_broken = current_blocks != goal_blocks
+        can_be_broken = (
+            need_to_be_broken & action_mask[MbagActionDistribution.BREAK_BLOCK]
+        )
+        if np.any(can_be_broken):
+            possible_x, possible_y, possible_z = np.nonzero(can_be_broken)
+            action_type = MbagAction.BREAK_BLOCK
+        else:
+            # Next, look at all blocks that need to be placed.
+            needs_to_be_placed = (current_blocks == MinecraftBlocks.AIR) & (
+                goal_blocks != MinecraftBlocks.AIR
+            )
+            # All blocks should have the same place mask, so just use dirt.
+            dirt = MinecraftBlocks.NAME2ID["dirt"]
+            can_be_placed = (
+                needs_to_be_placed
+                & action_mask[MbagActionDistribution.PLACE_BLOCK][dirt]
+            )
+            if np.any(can_be_placed):
+                possible_x, possible_y, possible_z = np.nonzero(can_be_placed)
+                action_type = MbagAction.PLACE_BLOCK
+
+        if action_type == MbagAction.NOOP:
+            return action_type, 0, 0
+        else:
+            min_y = np.min(possible_y)
+            location_index = random.choice(np.nonzero(possible_y == min_y)[0])
+            block_location: BlockLocation = (
+                possible_x[location_index],
+                possible_y[location_index],
+                possible_z[location_index],
+            )
+            block_location_id = int(
+                np.ravel_multi_index(block_location, self.env_config["world_size"])
+            )
+            return action_type, block_location_id, int(goal_blocks[block_location])
+
+
 class MirrorBuildingAgent(MbagAgent):
     """
     Build by mirroring the other agent along the x-axis.
@@ -293,5 +362,6 @@ class MirrorBuildingAgent(MbagAgent):
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
     "priority_queue": PriorityQueueAgent,
+    "lowest_block": LowestBlockAgent,
     "mirror_builder": MirrorBuildingAgent,
 }

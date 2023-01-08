@@ -5,7 +5,7 @@ from .filters import DensityFilter, MinSizeFilter, SingleConnectedComponentFilte
 from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
 from .grabcraft import GrabcraftGoalGenerator
-from .simple import BasicGoalGenerator, RandomGoalGenerator
+from .simple import BasicGoalGenerator, RandomGoalGenerator, SimpleOverhangGoalGenerator
 from .transforms import (
     AddGrassTransform,
     CropTransform,
@@ -17,6 +17,7 @@ from .transforms import (
 ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "basic": BasicGoalGenerator,
     "random": RandomGoalGenerator,
+    "simple_overhang": SimpleOverhangGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
 }

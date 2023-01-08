@@ -7,6 +7,7 @@ from numpy.testing import assert_array_equal
 from mbag.agents.heuristic_agents import (
     ALL_HEURISTIC_AGENTS,
     LayerBuilderAgent,
+    LowestBlockAgent,
     MirrorBuildingAgent,
     PriorityQueueAgent,
 )
@@ -16,7 +17,7 @@ from mbag.environment.goals.simple import (
     BasicGoalGenerator,
     SimpleOverhangGoalGenerator,
 )
-from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.environment.types import MbagAction, MbagObs
 from mbag.evaluation.evaluator import MbagEvaluator
 
@@ -134,15 +135,6 @@ def test_pq_agent_grabcraft():
         )
         episode_info = evaluator.rollout()
         last_obs, _, _ = episode_info.last_obs[0]
-        if not np.all(last_obs[0] == last_obs[2]):
-            for layer in range(12):
-                if not np.all(last_obs[0, :, layer] == last_obs[2, :, layer]):
-                    print(f"Mismatch in layer {layer}")
-                    print("Current blocks:")
-                    print(last_obs[0, :, layer])
-                    print("Goal blocks:")
-                    print(last_obs[2, :, layer])
-                    break
         assert_array_equal(
             last_obs[0], last_obs[2], "Agent should finish building house."
         )
@@ -172,54 +164,104 @@ def test_malmo_pq():
     assert episode_info.cumulative_reward == 13
 
 
+def test_lowest_block_agent():
+    for num_players in [1, 2]:
+        for goal_generator in ["basic", "random", "simple_overhang", "grabcraft"]:
+            print(goal_generator)
+            if goal_generator != "grabcraft":
+                transforms = []
+            else:
+                transforms = [
+                    {
+                        "transform": "crop",
+                        "config": {"tethered_to_ground": True},
+                        "density_threshold": 0.5,
+                    },
+                    {"transform": "single_cc_filter"},
+                    {"transform": "randomly_place"},
+                    {"transform": "add_grass"},
+                ]
+            evaluator = MbagEvaluator(
+                {
+                    "world_size": (6, 6, 6),
+                    "num_players": num_players,
+                    "horizon": 100,
+                    "goal_generator": TransformedGoalGenerator,
+                    "goal_generator_config": {
+                        "goal_generator": goal_generator,
+                        "goal_generator_config": {},
+                        "transforms": transforms,
+                    },
+                    "players": [{}] * num_players,
+                    "malmo": {
+                        "use_malmo": False,
+                        "use_spectator": False,
+                        "video_dir": None,
+                    },
+                },
+                [
+                    (LowestBlockAgent, {}),
+                ]
+                * num_players,
+            )
+            episode_info = evaluator.rollout()
+            last_obs, _, _ = episode_info.last_obs[0]
+            assert_array_equal(
+                last_obs[0], last_obs[2], "Agent should finish building house."
+            )
+
+
 def test_rllib_heuristic_agents():
     from ray.rllib.algorithms.pg import PG
     from ray.rllib.rollout import rollout
 
     from mbag.rllib.policies import MbagAgentPolicy
 
-    env_config: MbagConfigDict = {
-        "world_size": (8, 8, 8),
-        "num_players": 1,
-        "horizon": 100,
-        "goal_generator": BasicGoalGenerator,
-        "goal_generator_config": {},
-        "malmo": {
-            "use_malmo": False,
-            "use_spectator": False,
-            "video_dir": None,
-        },
-    }
+    env_config: MbagConfigDict = MbagEnv.get_config(
+        {
+            "world_size": (8, 8, 8),
+            "num_players": 1,
+            "horizon": 100,
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        }
+    )
 
     for heuristic_agent_id, heuristic_agent_cls in ALL_HEURISTIC_AGENTS.items():
         logger.info(f"Testing {heuristic_agent_id} agent...")
         heuristic_agent = heuristic_agent_cls({}, env_config)
-        trainer = PG(
-            {
-                "env": "MBAG-v1",
-                "env_config": env_config,
-                "multiagent": {
-                    "policies": {
-                        "pq": (
-                            MbagAgentPolicy,
-                            None,
-                            None,
-                            {"mbag_agent": heuristic_agent},
-                        )
+        for env_id in ["MBAG-v1", "MBAGFlatActions-v1"]:
+            trainer = PG(
+                {
+                    "env": env_id,
+                    "env_config": env_config,
+                    "multiagent": {
+                        "policies": {
+                            "pq": (
+                                MbagAgentPolicy,
+                                None,
+                                None,
+                                {"mbag_agent": heuristic_agent},
+                            )
+                        },
+                        "policy_mapping_fn": lambda agent_id: "pq",
+                        "policies_to_train": [],
                     },
-                    "policy_mapping_fn": lambda agent_id: "pq",
-                    "policies_to_train": [],
-                },
-                "framework": "torch",
-            }
-        )
+                    "framework": "torch",
+                }
+            )
 
-        rollout(
-            trainer,
-            None,
-            num_steps=0,
-            num_episodes=2,
-        )
+            rollout(
+                trainer,
+                None,
+                num_steps=0,
+                num_episodes=2,
+            )
 
 
 def test_mirror_placed_blocks():
