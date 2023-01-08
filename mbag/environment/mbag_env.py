@@ -263,7 +263,7 @@ class MbagEnv(object):
     """The maximum number of blocks a player can carry in a stack."""
 
     def __init__(self, config: MbagConfigDict):
-        self.config = self.get_config(copy.deepcopy(config))
+        self.config = self.get_config(config)
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
@@ -318,9 +318,11 @@ class MbagEnv(object):
                 "environment does not yet support human and non-human players at the same time"
             )
 
-    def get_config(self, partial_config: MbagConfigDict) -> MbagConfigDict:
+    @staticmethod
+    def get_config(partial_config: MbagConfigDict) -> MbagConfigDict:
         """Get a fully populated config dict by adding defaults where necessary."""
 
+        partial_config = copy.deepcopy(partial_config)
         config = copy.deepcopy(DEFAULT_CONFIG)
         config.update(partial_config)
         if isinstance(config["world_size"], list):

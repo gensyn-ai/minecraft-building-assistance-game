@@ -17,7 +17,7 @@ from mbag.environment.goals.simple import (
     BasicGoalGenerator,
     SimpleOverhangGoalGenerator,
 )
-from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.environment.types import MbagAction, MbagObs
 from mbag.evaluation.evaluator import MbagEvaluator
 
@@ -217,18 +217,20 @@ def test_rllib_heuristic_agents():
 
     from mbag.rllib.policies import MbagAgentPolicy
 
-    env_config: MbagConfigDict = {
-        "world_size": (8, 8, 8),
-        "num_players": 1,
-        "horizon": 100,
-        "goal_generator": BasicGoalGenerator,
-        "goal_generator_config": {},
-        "malmo": {
-            "use_malmo": False,
-            "use_spectator": False,
-            "video_dir": None,
-        },
-    }
+    env_config: MbagConfigDict = MbagEnv.get_config(
+        {
+            "world_size": (8, 8, 8),
+            "num_players": 1,
+            "horizon": 100,
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        }
+    )
 
     for heuristic_agent_id, heuristic_agent_cls in ALL_HEURISTIC_AGENTS.items():
         logger.info(f"Testing {heuristic_agent_id} agent...")
