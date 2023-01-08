@@ -20,10 +20,11 @@ to install all other dependencies.
 
 The project uses various tools to maintain code quality. To install them all, run
 
-    pip install flake8 black mypy pytest
+    pip install --upgrade -r requirements_dev.txt
 
 Then, you can run the following commands:
  * `black mbag tests`: automatic formatting with [Black](https://black.readthedocs.io/en/stable/).
+ * `isort mbag tests`: automatic import sorting with [isort](https://pycqa.github.io/isort/index.html).
  * `flake8 mbag tests`: linting with [Flake8](https://flake8.pycqa.org/en/latest/).
  * `mypy mbag tests`: type checking with [MyPy](http://mypy-lang.org/).
     * *Note:* due to this [bug](https://github.com/ray-project/ray/issues/14431), on Linux you may have to run `touch /path/to/site-packages/ray/py.typed`, replacing `/path/to/site-packages` depending on where python is installed, to make type checking work.

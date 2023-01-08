@@ -1,19 +1,21 @@
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple, Union, cast
+
 import numpy as np
 from scipy import ndimage
 
 if TYPE_CHECKING:
     import torch
 
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import CURRENT_PLAYER, MbagConfigDict
 from mbag.environment.types import (
-    MbagAction,
-    MbagActionType,
-    MbagObs,
     CURRENT_BLOCKS,
     PLAYER_LOCATIONS,
+    MbagAction,
+    MbagActionTuple,
+    MbagActionType,
+    MbagObs,
 )
-from mbag.environment.blocks import MinecraftBlocks
 
 
 class MbagActionDistribution(object):
@@ -132,6 +134,43 @@ class MbagActionDistribution(object):
                 mapping_parts.append(mapping_part)
 
         return cast(np.ndarray, np.concatenate(mapping_parts, axis=0))
+
+    @staticmethod
+    def get_flat_action(
+        config: MbagConfigDict,
+        action: MbagActionTuple,
+    ) -> int:
+        """
+        Get the flattened ID of an action.
+        """
+
+        action_type, block_location, block_id = action
+        if action_type not in MbagAction.BLOCK_ID_ACTION_TYPES:
+            block_id = 0
+        if action_type not in MbagAction.BLOCK_LOCATION_ACTION_TYPES:
+            block_location = 0
+
+        flat_id = 0
+
+        valid_action_types = MbagActionDistribution.get_valid_action_types(config)
+        for other_action_type in valid_action_types:
+            num_block_ids = (
+                MinecraftBlocks.NUM_BLOCKS
+                if other_action_type in MbagAction.BLOCK_ID_ACTION_TYPES
+                else 1
+            )
+            width, height, depth = config["world_size"]
+            num_block_location_indices = (
+                width * height * depth
+                if other_action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES
+                else 1
+            )
+            if other_action_type < action_type:
+                flat_id += num_block_ids * num_block_location_indices
+            elif other_action_type == action_type:
+                flat_id += block_id * num_block_location_indices + block_location
+
+        return flat_id
 
     @staticmethod
     def to_flat(
@@ -256,6 +295,9 @@ class MbagActionDistribution(object):
         mask[:, MbagActionDistribution.PLACE_BLOCK][
             np.repeat(invalid_place[:, None], MinecraftBlocks.NUM_BLOCKS, axis=1)
         ] = False
+
+        # TODO: add check for breaking blocks that are totally surrounded by other
+        # blocks?
 
         # Next, we can only give blocks to locations with players in them
         mask[:, MbagActionDistribution.GIVE_BLOCK] &= (

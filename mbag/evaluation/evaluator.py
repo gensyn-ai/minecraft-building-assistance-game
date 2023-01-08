@@ -2,9 +2,8 @@ from dataclasses import dataclass
 from typing import Any, List, Tuple, Type
 
 from mbag.agents.mbag_agent import MbagAgent
-from mbag.environment.mbag_env import MbagEnv, MbagConfigDict
-from mbag.environment.types import MbagObs, MbagInfoDict
-
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
+from mbag.environment.types import MbagInfoDict, MbagObs
 
 MbagAgentConfig = Tuple[Type[MbagAgent], Any]
 """
@@ -40,6 +39,7 @@ class MbagEvaluator(object):
         force_get_set_state=False,
     ):
         self.env = MbagEnv(env_config)
+        env_config = self.env.config
         self.agents = [
             agent_class(agent_config, env_config)
             for agent_class, agent_config in agent_configs

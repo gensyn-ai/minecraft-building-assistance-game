@@ -1,11 +1,11 @@
 import pytest
 
-from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent
 from mbag.environment.goals.simple import (
     RandomGoalGenerator,
     SimpleOverhangGoalGenerator,
 )
+from mbag.evaluation.evaluator import MbagEvaluator
 
 
 def test_random_goal_generator():

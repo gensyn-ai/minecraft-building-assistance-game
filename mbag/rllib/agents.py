@@ -1,7 +1,8 @@
 from typing import List, cast
-from typing_extensions import TypedDict
+
 import numpy as np
 from ray.rllib.policy import Policy
+from typing_extensions import TypedDict
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.mbag_env import MbagConfigDict

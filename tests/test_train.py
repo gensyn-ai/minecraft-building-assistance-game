@@ -1,8 +1,10 @@
 import glob
 import os
-import pytest
-from mbag.rllib.train import ex
 import tempfile
+
+import pytest
+
+from mbag.rllib.train import ex
 
 # This is done to satisfy mypy
 dummy_run: str = ""
@@ -48,6 +50,21 @@ def test_single_agent(default_config):
         config_updates={
             **default_config,
             "num_training_iters": 10,
+        }
+    ).result
+
+    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_lstm(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "use_per_location_lstm": True,
+            "max_seq_len": 5,
+            "sgd_minibatch_size": 20,
+            "vf_share_layers": True,
         }
     ).result
 
@@ -186,6 +203,33 @@ def test_alpha_zero_assistant(default_config):
             "policies_to_train": ["ppo_1"],
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
+        }
+    ).result
+    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
+    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_lstm_alpha_zero_assistant(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "checkpoint_to_load_policies": dummy_run,
+            "load_policies_mapping": {"ppo": "ppo_0"},
+            "policies_to_train": ["ppo_1"],
+            "model": "transformer_alpha_zero",
+            "hidden_size": 64,
+            "use_per_location_lstm": True,
+            "max_seq_len": 5,
+            "sgd_minibatch_size": 20,
+            "vf_share_layers": True,
         }
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10

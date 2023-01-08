@@ -1,35 +1,47 @@
 import copy
-import torch
-import numpy as np
 import logging
-from torch import nn
-from typing import Dict, List, Optional, Tuple, Type, Union, cast, Any
+from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
-from ray.rllib.policy.torch_policy import TorchPolicy
-from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
-from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
+import numpy as np
+import torch
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero
+from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
 from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
-from ray.rllib.evaluation.postprocessing import discount_cumsum, Postprocessing
-from ray.rllib.models.torch.torch_action_dist import TorchCategorical
-from ray.rllib.models import ModelCatalog, ModelV2, ActionDistribution
-from ray.tune.registry import _global_registry, ENV_CREATOR, register_trainable
 from ray.rllib.evaluation import SampleBatch
-from ray.rllib.utils.typing import TensorType, AgentID
-from ray.rllib.utils.torch_utils import explained_variance
-from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.evaluation.episode import Episode
+from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
+from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
+from ray.rllib.models import ActionDistribution, ModelCatalog, ModelV2
 from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.models.torch.torch_action_dist import TorchCategorical
+from ray.rllib.policy.sample_batch import concat_samples
+from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
+from ray.rllib.policy.torch_policy import TorchPolicy
+from ray.rllib.utils.metrics import (
+    NUM_AGENT_STEPS_SAMPLED,
+    NUM_ENV_STEPS_SAMPLED,
+    SYNCH_WORKER_WEIGHTS_TIMER,
+)
+from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
+from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
+from ray.rllib.utils.typing import AgentID, ResultDict, TensorType
+from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
+from torch import nn
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import (
+    CURRENT_BLOCKS,
     GOAL_BLOCKS,
-    MbagActionTuple,
     MbagAction,
+    MbagActionTuple,
 )
-from .rllib_env import unwrap_mbag_env
-from .planning import MbagEnvModel, MbagEnvModelInfoDict
-from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 
+from .planning import MbagEnvModel, MbagEnvModelInfoDict
+from .rllib_env import unwrap_mbag_env
+from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
@@ -55,6 +67,8 @@ class MbagMCTSNode(Node):
     goal_logits: Optional[np.ndarray]
     other_agent_action_dist: Optional[np.ndarray]
     other_reward: float
+    model_state_in: List[np.ndarray]
+    model_state_out: List[np.ndarray]
 
     def __init__(
         self,
@@ -65,6 +79,7 @@ class MbagMCTSNode(Node):
         reward,
         state,
         mcts,
+        model_state_in,
         parent=None,
     ):
         super().__init__(action, obs, done, reward, state, mcts, parent)
@@ -81,8 +96,12 @@ class MbagMCTSNode(Node):
         self.goal_logits = None
         self.other_agent_action_dist = None
 
+        self.model_state_in = model_state_in
+
     def child_Q(self):  # noqa: N802
-        Q = self.child_total_value / self.child_number_visits  # noqa: N806
+        Q = self.child_total_value / np.maximum(  # noqa: N806
+            self.child_number_visits, 1
+        )
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
@@ -99,7 +118,7 @@ class MbagMCTSNode(Node):
         number_visits = np.bincount(
             self.action_mapping[:, 0], weights=self.child_number_visits
         )
-        Q = total_value / number_visits  # noqa: N806
+        Q = total_value / np.maximum(number_visits, 1)  # noqa: N806
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
@@ -146,10 +165,12 @@ class MbagMCTSNode(Node):
         child_priors,
         goal_logits: Optional[np.ndarray] = None,
         other_agent_action_dist: Optional[np.ndarray] = None,
+        model_state_out: List[np.ndarray] = [],
         add_dirichlet_noise=False,
     ) -> None:
         super().expand(child_priors)
 
+        self.model_state_out = model_state_out
         self.goal_logits = goal_logits
         self.other_agent_action_dist = other_agent_action_dist
 
@@ -226,6 +247,7 @@ class MbagMCTSNode(Node):
                 info=info,
                 obs=obs,
                 mcts=self.mcts,
+                model_state_in=self.model_state_out,
             )
         return self.children[all_actions]
 
@@ -254,10 +276,25 @@ class MbagMCTSNode(Node):
 
 
 class MbagMCTS(MCTS):
+    _temperature_schedule: Optional[Schedule]
+
     def __init__(self, model, mcts_param, gamma: float, use_critic=True):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
+
+        self._temperature_schedule = None
+        if mcts_param["temperature_schedule"] is not None:
+            self._temperature_schedule = PiecewiseSchedule(
+                mcts_param["temperature_schedule"],
+                outside_value=mcts_param["temperature_schedule"][-1][-1],
+                framework=None,
+            )
+            self.temperature = self._temperature_schedule.value(0)
+
+    def update_temperature(self, global_timestep: int):
+        if self._temperature_schedule is not None:
+            self.temperature = self._temperature_schedule.value(global_timestep)
 
     def compute_action(self, node: MbagMCTSNode):
         for _ in range(self.num_sims):
@@ -266,7 +303,11 @@ class MbagMCTS(MCTS):
                 value = 0
             else:
                 self.model.eval()
-                child_priors, value = self.model.compute_priors_and_value(leaf.obs)
+                child_priors, value, state_out = self.model.compute_priors_and_value(
+                    leaf.obs,
+                    leaf.model_state_in,
+                )
+
                 if not self.use_critic:
                     value = 0
 
@@ -283,6 +324,7 @@ class MbagMCTS(MCTS):
                     goal_logits=goal_logits,
                     other_agent_action_dist=other_agent_action_dist,
                     add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
+                    model_state_out=state_out,
                 )
 
             leaf.backup(value)
@@ -382,13 +424,26 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     ):
         assert self.mcts.model == self.model
 
+        model_state_len = sum(k[:8] == "state_in" for k in input_dict.keys())
+        state_out = [
+            np.empty_like(input_dict[f"state_in_{state_index}"])
+            for state_index in range(model_state_len)
+        ]
+
         player_index = int(input_dict[SampleBatch.AGENT_INDEX])
         self.env.set_player_index(player_index)
 
         with torch.no_grad():
             actions = []
-            for i, episode in enumerate(episodes):
+            expected_rewards: List[float] = []
+            expected_own_rewards: List[float] = []
+            episode: Episode
+            for episode_index, episode in enumerate(episodes):
                 env_state = episode.user_data["state"]
+                model_state = [
+                    input_dict[f"state_in_{state_index}"][episode_index]
+                    for state_index in range(model_state_len)
+                ]
                 # verify if env has been wrapped for ranked rewards
                 if self.env.__class__.__name__ == "RankedRewardsEnvWrapper":
                     # r2 env state contains also the rewards buffer state
@@ -403,30 +458,44 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                     info=None,
                     action=None,
                     parent=MbagRootParentNode(env=self.env),
+                    model_state_in=model_state,
                     mcts=self.mcts,
                 )
 
                 # run monte carlo simulations to compute the actions
                 # and record the tree
-                mcts_policy, action, tree_node = self.mcts.compute_action(tree_node)
+                mcts_policy, action, action_node = self.mcts.compute_action(tree_node)
                 # record action
                 actions.append(action)
 
-                # store mcts policies vectors and current tree root node
+                # Store MCTS policies vectors and other info.
                 if episode.length == 0:
                     episode.user_data[MCTS_POLICIES] = [mcts_policy]
                 else:
                     episode.user_data[MCTS_POLICIES].append(mcts_policy)
 
+                expected_rewards.append(action_node.reward)
+                if action_node.info is not None:
+                    expected_own_rewards.append(action_node.info["own_reward"])
+                else:
+                    expected_own_rewards.append(np.nan)
+
+                for state_index, state in enumerate(tree_node.model_state_out):
+                    state_out[state_index][episode_index] = state
+
             return (
                 np.array(actions),
-                [],
-                self.extra_action_out(
-                    input_dict,
-                    kwargs.get("state_batches", []),
-                    self.model,
-                    cast(Any, None),
-                ),
+                state_out,
+                {
+                    **self.extra_action_out(
+                        input_dict,
+                        kwargs.get("state_batches", []),
+                        self.model,
+                        cast(Any, None),
+                    ),
+                    "expected_reward": np.array(expected_rewards),
+                    "expected_own_reward": np.array(expected_own_rewards),
+                },
             )
 
     def postprocess_trajectory(
@@ -486,23 +555,42 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         assert isinstance(model, MbagTorchModel)
 
         # Forward pass in model.
-        model_out = model(train_batch, [], [1])
-        logits, _ = model_out
+        logits, state = model(train_batch)
         values = model.value_function()
         logits, values = torch.squeeze(logits), torch.squeeze(values)
         dist = dist_class(logits, model=model)
         assert isinstance(dist, TorchCategorical)
 
+        # RNN case: Mask away 0-padded chunks at end of time axis.
+        if state:
+            B = len(train_batch[SampleBatch.SEQ_LENS])  # noqa: N806
+            max_seq_len = logits.shape[0] // B
+            mask = sequence_mask(
+                train_batch[SampleBatch.SEQ_LENS],
+                max_seq_len,
+                time_major=model.is_time_major(),
+            )
+            mask = torch.reshape(mask, [-1])
+            num_valid = torch.sum(mask)
+
+            def reduce_mean_valid(t):
+                return torch.sum(t[mask]) / num_valid
+
+        # non-RNN case: No masking.
+        else:
+            mask = None
+            reduce_mean_valid = torch.mean
+
         # Compute actor and critic losses.
         dist.logp
-        policy_loss = torch.mean(
+        policy_loss = reduce_mean_valid(
             -torch.sum(train_batch[MCTS_POLICIES] * dist.dist.logits, dim=-1)
         )
-        value_loss = torch.mean(
+        value_loss = reduce_mean_valid(
             (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
         )
 
-        entropy = dist.entropy().mean()
+        entropy = reduce_mean_valid(dist.entropy())
 
         # Compute goal prediction loss.
         goal_logits = model.goal_function()
@@ -512,8 +600,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             tensorlib=torch,
         )
         goal = world_obs[:, GOAL_BLOCKS].long()
-        ce = nn.CrossEntropyLoss()
-        goal_loss = ce(goal_logits, goal)
+        ce = nn.CrossEntropyLoss(reduction="none")
+        goal_ce: torch.Tensor = ce(goal_logits, goal)
+        goal_loss = reduce_mean_valid(goal_ce.flatten(start_dim=1).mean(dim=1))
+
+        unplaced_blocks = (goal != MinecraftBlocks.AIR) & (
+            world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR
+        )
+        unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
         # Compute total loss.
         total_loss = (
@@ -533,9 +627,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 train_batch[OTHER_AGENT_ACTION_DIST_INPUTS],
                 model=model,
             )
-            other_agent_action_predictor_loss = actual_other_agent_action_dist.kl(
-                predicted_other_agent_action_dist
-            ).mean()
+            other_agent_action_predictor_loss = reduce_mean_valid(
+                actual_other_agent_action_dist.kl(predicted_other_agent_action_dist)
+            )
 
             model.tower_stats[
                 "other_agent_action_predictor_loss"
@@ -553,6 +647,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             train_batch[Postprocessing.VALUE_TARGETS], values
         )
         model.tower_stats["goal_loss"] = goal_loss
+        model.tower_stats["unplaced_blocks_goal_loss"] = unplaced_blocks_goal_loss
         model.tower_stats["entropy"] = entropy
 
         return total_loss
@@ -560,6 +655,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
         grad_info: Dict[str, TensorType] = {
             "entropy_coeff": self.entropy_coeff,
+            "mcts/temperature": self.mcts.temperature,
         }
         for metric in [
             "total_loss",
@@ -567,6 +663,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             "vf_loss",
             "vf_explained_var",
             "goal_loss",
+            "unplaced_blocks_goal_loss",
             "entropy",
             "other_agent_action_predictor_loss",
         ]:
@@ -584,6 +681,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             self.entropy_coeff = self._entropy_coeff_schedule.value(
                 global_vars["timestep"]
             )
+        self.mcts.update_temperature(global_timestep=global_vars["timestep"])
 
 
 class MbagAlphaZeroTrainer(AlphaZero):
@@ -600,6 +698,7 @@ class MbagAlphaZeroTrainer(AlphaZero):
     def get_default_config(cls):
         config = {
             **AlphaZero.get_default_config(),
+            "sample_batch_size": 1000,
             "vf_loss_coeff": 1.0,
             "other_agent_action_predictor_loss_coeff": 1.0,
             "goal_loss_coeff": 1.0,
@@ -607,12 +706,69 @@ class MbagAlphaZeroTrainer(AlphaZero):
             "entropy_coeff_schedule": 0,
             "use_critic": True,
             "use_replay_buffer": True,
+            "num_steps_sampled_before_learning_starts": 0,
         }
         del config["vf_share_layers"]
+        cast(dict, config["mcts_config"])["temperature_schedule"] = None
         return config
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy
+
+    def training_step(self) -> ResultDict:
+        assert self.workers is not None
+
+        # Sample n MultiAgentBatches from n workers.
+        new_sample_batches = synchronous_parallel_sample(
+            worker_set=self.workers,
+            concat=False,
+            max_env_steps=self.config["sample_batch_size"],
+        )
+
+        new_sample_batch = concat_samples(new_sample_batches)
+        # Update sampling step counters.
+        self._counters[NUM_ENV_STEPS_SAMPLED] += new_sample_batch.env_steps()
+        self._counters[NUM_AGENT_STEPS_SAMPLED] += new_sample_batch.agent_steps()
+        # Store new samples in the replay buffer.
+        if self.local_replay_buffer is not None:
+            self.local_replay_buffer.add(new_sample_batch)
+
+        if self.local_replay_buffer is not None:
+            cur_ts = self._counters[
+                NUM_AGENT_STEPS_SAMPLED
+                if self._by_agent_steps
+                else NUM_ENV_STEPS_SAMPLED
+            ]
+
+            if cur_ts > self.config["num_steps_sampled_before_learning_starts"]:
+                train_batch = self.local_replay_buffer.sample(
+                    self.config["train_batch_size"]
+                )
+            else:
+                train_batch = None
+        else:
+            train_batch = new_sample_batch
+
+        # Learn on the training batch.
+        # Use simple optimizer (only for multi-agent or tf-eager; all other
+        # cases should use the multi-GPU optimizer, even if only using 1 GPU)
+        train_results = {}
+        if train_batch is not None:
+            if self.config.get("simple_optimizer") is True:
+                train_results = train_one_step(self, train_batch)
+            else:
+                train_results = multi_gpu_train_one_step(self, train_batch)
+
+        # Update weights and global_vars - after learning on the local worker - on all
+        # remote workers.
+        global_vars = {
+            "timestep": self._counters[NUM_ENV_STEPS_SAMPLED],
+        }
+        with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
+            self.workers.sync_weights(global_vars=global_vars)
+
+        # Return all collected metrics for the iteration.
+        return train_results
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZeroTrainer)

@@ -4,45 +4,29 @@ for predicting the next action given past actions.
 """
 
 import logging
-import numpy as np
-from ray.rllib.models.torch.attention_net import AttentionWrapper
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.algorithms import Algorithm
-from ray.tune.registry import register_trainable
-import torch
-from typing import Collection, Dict, List, Type, Union, Callable, cast, Any
+from typing import Any, Callable, Collection, Dict, List, Type, Union, cast
 
+import numpy as np
+import torch
+from ray.rllib.algorithms import Algorithm
+from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
+from ray.rllib.models.torch.attention_net import AttentionWrapper
+from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
+from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
-from ray.rllib.utils.typing import (
-    PolicyID,
-    TrainerConfigDict,
-    TensorType,
-    ResultDict,
-)
-from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
-from ray.rllib.policy.torch_mixins import (
-    LearningRateSchedule,
-    EntropyCoeffSchedule,
-)
-from ray.rllib.policy.torch_policy_v2 import (
-    TorchPolicyV2,
-)
-from ray.rllib.utils.torch_utils import (
-    apply_grad_clipping,
-    sequence_mask,
-)
-from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.execution.train_ops import (
-    train_one_step,
-    multi_gpu_train_one_step,
-)
-from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule, LearningRateSchedule
+from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
 from ray.rllib.utils.metrics import (
     NUM_AGENT_STEPS_SAMPLED,
     NUM_ENV_STEPS_SAMPLED,
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
+from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.utils.torch_utils import apply_grad_clipping, sequence_mask
+from ray.rllib.utils.typing import PolicyID, ResultDict, TensorType, TrainerConfigDict
+from ray.tune.registry import register_trainable
 
 from .training_utils import load_policies_from_checkpoint
 

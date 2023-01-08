@@ -1,24 +1,23 @@
 from typing import Dict, Type
 
+from .craftassist import CraftAssistGoalGenerator
+from .filters import DensityFilter, MinSizeFilter, SingleConnectedComponentFilter
 from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
-from .grabcraft import (
-    GrabcraftGoalGenerator,
-)
-from .simple import BasicGoalGenerator, RandomGoalGenerator
-from .craftassist import CraftAssistGoalGenerator
-from .filters import SingleConnectedComponentFilter, DensityFilter, MinSizeFilter
+from .grabcraft import GrabcraftGoalGenerator
+from .simple import BasicGoalGenerator, RandomGoalGenerator, SimpleOverhangGoalGenerator
 from .transforms import (
-    RandomlyPlaceTransform,
     AddGrassTransform,
     CropTransform,
-    UniformBlockTypeTransform,
     MirrorTransform,
+    RandomlyPlaceTransform,
+    UniformBlockTypeTransform,
 )
 
 ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "basic": BasicGoalGenerator,
     "random": RandomGoalGenerator,
+    "simple_overhang": SimpleOverhangGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
 }

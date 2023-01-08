@@ -1,22 +1,23 @@
-from typing import List, Optional, Tuple, cast, Any
+from typing import Any, List, Optional, Tuple, cast
+
 import gym
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
-from torch import nn
-from torch.distributions import Categorical
-import numpy as np
-
-from ray.rllib.utils.typing import ModelConfigDict, TensorType
+from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.torch_action_dist import (
+    ActionDistribution,
     TorchCategorical,
     TorchDistributionWrapper,
-    ActionDistribution,
 )
-from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.utils.typing import ModelConfigDict, TensorType
+from torch import nn
+from torch.distributions import Categorical
 
-from mbag.environment.types import MbagAction, WorldSize
 from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import MbagAction, WorldSize
+
 from .torch_models import MbagModel
 
 

@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Any, Mapping
+
 import numpy as np
 
-from ..types import WorldSize
 from ..blocks import MinecraftBlocks
-
+from ..types import WorldSize
 
 GoalGeneratorConfig = Mapping[str, Any]
 

@@ -1,12 +1,13 @@
 import glob
-import os
 import json
-import random
 import logging
+import os
+import random
 import sys
-from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
-from typing_extensions import TypedDict, Literal
+from typing import Dict, List, Optional, Tuple
+
+from typing_extensions import Literal, TypedDict
 
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize

@@ -2,24 +2,42 @@
 Code to interface with Project Malmo.
 """
 
+import json
+import logging
+import os
 import shutil
+import sys
 import tarfile
 import tempfile
-from typing import List, Optional, TypedDict, cast, Tuple
-import MalmoPython
-import logging
 import time
-import os
-import sys
 import uuid
-import json
-import numpy as np
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
-from .types import BlockLocation
+import MalmoPython
+import numpy as np
+from typing_extensions import Literal
+
 from .blocks import MinecraftBlocks
-from .mbag_env import MbagConfigDict
+from .types import BlockLocation
+
+if TYPE_CHECKING:
+    from .mbag_env import MbagConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+class MalmoEvent(TypedDict, total=False):
+    command: str
+    pressed: bool
+
+
+class MalmoRayObservation(TypedDict):
+    hitType: Literal["block", "entity", "item"]  # noqa: N815
+    x: float
+    y: float
+    z: float
+    inRange: bool  # noqa: N815
 
 
 class MalmoObservationDict(TypedDict, total=False):
@@ -28,6 +46,8 @@ class MalmoObservationDict(TypedDict, total=False):
     XPos: float
     YPos: float
     ZPos: float
+    events: List[MalmoEvent]
+    LineOfSight: MalmoRayObservation
 
 
 class MalmoClient(object):
@@ -42,14 +62,14 @@ class MalmoClient(object):
         self.client_pool_size = 0
         self.record_fname = None
 
-    def get_player_name(self, player_index: int, env_config: MbagConfigDict) -> str:
+    def get_player_name(self, player_index: int, env_config: "MbagConfigDict") -> str:
         player_name = env_config["players"][player_index].get("player_name")
         if player_name is None:
             player_name = f"player_{player_index}"
         # Player names cannot be longer than 16 character in Minecraft.
         return player_name[:16]
 
-    def _get_agent_section_xml(self, player_index: int, env_config: MbagConfigDict):
+    def _get_agent_section_xml(self, player_index: int, env_config: "MbagConfigDict"):
         width, height, depth = env_config["world_size"]
 
         inventory_item_tags: List[str] = []
@@ -64,7 +84,6 @@ class MalmoClient(object):
         inventory_items_xml = "\n".join(inventory_item_tags)
 
         if env_config["players"][player_index]["is_human"]:
-            # TODO: modify config for human player
             return f"""
             <AgentSection mode="Creative">
                 <Name>{self.get_player_name(player_index, env_config)}</Name>
@@ -87,6 +106,13 @@ class MalmoClient(object):
                     </ObservationFromGrid>
                     <ObservationFromFullInventory />
                     <ObservationFromFullStats />
+
+                    <ObservationFromChat />
+                    <ObservationFromRecentCommands />
+                    <ObservationFromRay />
+
+                    <ObservationFromHuman />
+                    <ObservationFromSystem />
                     <AbsoluteMovementCommands />
                     <DiscreteMovementCommands>
                         <ModifierList type="deny-list">
@@ -145,14 +171,14 @@ class MalmoClient(object):
             </AgentSection>
             """
 
-    def _get_spectator_position(self, env_config: MbagConfigDict) -> BlockLocation:
+    def _get_spectator_position(self, env_config: "MbagConfigDict") -> BlockLocation:
         width, height, depth = env_config["world_size"]
         x = width
         y = height // 2 + 1
         z = -width
         return x, y, z
 
-    def _get_spectator_agent_section_xml(self, env_config: MbagConfigDict) -> str:
+    def _get_spectator_agent_section_xml(self, env_config: "MbagConfigDict") -> str:
         width, height, depth = env_config["world_size"]
         x, y, z = self._get_spectator_position(env_config)
         pitch = np.rad2deg(np.arctan((y - height / 2) / (depth / 2 - z)))
@@ -172,7 +198,7 @@ class MalmoClient(object):
         """
 
     def _get_spectator_platform_drawing_decorator_xml(
-        self, env_config: MbagConfigDict
+        self, env_config: "MbagConfigDict"
     ) -> str:
         if env_config["malmo"]["use_spectator"]:
             x, y, z = self._get_spectator_position(env_config)
@@ -242,7 +268,7 @@ class MalmoClient(object):
 
     def _get_mission_spec_xml(
         self,
-        env_config: MbagConfigDict,
+        env_config: "MbagConfigDict",
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
         force_reset: bool = True,
@@ -396,19 +422,19 @@ class MalmoClient(object):
             logger.error("timed out while waiting for mission to start")
             raise RuntimeError("timed out while waiting for mission to start")
 
-    def _get_num_agents(self, env_config: MbagConfigDict):
+    def _get_num_agents(self, env_config: "MbagConfigDict"):
         num_agents = env_config["num_players"]
         if env_config["malmo"]["use_spectator"]:
             num_agents += 1
         return num_agents
 
-    def _get_spectator_agent_index(self, env_config: MbagConfigDict) -> Optional[int]:
+    def _get_spectator_agent_index(self, env_config: "MbagConfigDict") -> Optional[int]:
         if env_config["malmo"]["use_spectator"]:
             return env_config["num_players"]
         else:
             return None
 
-    def _generate_record_fname(self, env_config: MbagConfigDict):
+    def _generate_record_fname(self, env_config: "MbagConfigDict"):
         video_dir = env_config["malmo"]["video_dir"]
         assert video_dir is not None
         video_index = 0
@@ -420,7 +446,7 @@ class MalmoClient(object):
 
     def start_mission(
         self,
-        env_config: MbagConfigDict,
+        env_config: "MbagConfigDict",
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
     ):
@@ -431,6 +457,9 @@ class MalmoClient(object):
         self.agent_hosts = []
         for player_index in range(self._get_num_agents(env_config)):
             agent_host = MalmoPython.AgentHost()
+            agent_host.setObservationsPolicy(
+                MalmoPython.ObservationsPolicy.KEEP_ALL_OBSERVATIONS
+            )
             self.agent_hosts.append(agent_host)
             mission_spec_xml = self._get_mission_spec_xml(
                 env_config, current_blocks, goal_blocks, force_reset=player_index == 0
@@ -460,18 +489,29 @@ class MalmoClient(object):
         logger.debug(f"player {player_index} command: {command}")
         self.agent_hosts[player_index].sendCommand(command)
 
-    def get_observation(self, player_index: int) -> Optional[MalmoObservationDict]:
+    def get_observations(
+        self, player_index: int
+    ) -> List[Tuple[datetime, MalmoObservationDict]]:
         agent_host = self.agent_hosts[player_index]
         world_state = agent_host.getWorldState()
         if not world_state.is_mission_running:
-            return None
-        elif (
-            world_state.is_mission_running
-            and world_state.number_of_observations_since_last_state > 0
-        ):
-            return cast(
-                MalmoObservationDict, json.loads(world_state.observations[-1].text)
-            )
+            return []
+        else:
+            observation_tuples: List[Tuple[datetime, MalmoObservationDict]] = []
+            for observation in world_state.observations:
+                observation_tuples.append(
+                    (
+                        observation.timestamp,
+                        json.loads(observation.text),
+                    )
+                )
+            return observation_tuples
+
+    def get_observation(self, player_index: int) -> Optional[MalmoObservationDict]:
+        observations = self.get_observations(player_index)
+        if len(observations) > 0:
+            timestamp, observation = observations[0]
+            return observation
         else:
             return None
 
