@@ -1,10 +1,11 @@
-import tempfile
 import os
+import tempfile
+
 import pytest
 
-from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import LayerBuilderAgent, NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.evaluation.evaluator import MbagEvaluator
 
 
 @pytest.mark.uses_malmo

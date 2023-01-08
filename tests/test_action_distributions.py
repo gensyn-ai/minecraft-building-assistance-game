@@ -1,12 +1,13 @@
+import copy
+
 import numpy as np
 import pytest
-import copy
 import torch
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
-from mbag.environment.types import MbagAction, CURRENT_BLOCKS, PLAYER_LOCATIONS
+from mbag.environment.types import CURRENT_BLOCKS, PLAYER_LOCATIONS, MbagAction
 
 
 def test_mapping():

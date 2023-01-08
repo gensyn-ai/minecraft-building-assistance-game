@@ -1,6 +1,6 @@
 from typing import Dict, Optional, cast
-import numpy as np
 
+import numpy as np
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZeroDefaultCallbacks
 from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.evaluation.episode import Episode

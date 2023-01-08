@@ -1,5 +1,6 @@
-import numpy as np
 import itertools
+
+import numpy as np
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals import RandomGoalGenerator

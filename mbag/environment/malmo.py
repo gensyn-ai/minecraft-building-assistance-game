@@ -2,23 +2,24 @@
 Code to interface with Project Malmo.
 """
 
-from datetime import datetime
+import json
+import logging
+import os
 import shutil
+import sys
 import tarfile
 import tempfile
-from typing import List, Optional, Tuple, TypedDict, TYPE_CHECKING
-from typing_extensions import Literal
-import MalmoPython
-import logging
 import time
-import os
-import sys
 import uuid
-import json
-import numpy as np
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
-from .types import BlockLocation
+import MalmoPython
+import numpy as np
+from typing_extensions import Literal
+
 from .blocks import MinecraftBlocks
+from .types import BlockLocation
 
 if TYPE_CHECKING:
     from .mbag_env import MbagConfigDict

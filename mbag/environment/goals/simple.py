@@ -1,11 +1,12 @@
-from typing import List, Set, TypedDict
-from ..types import WorldSize
-from ..blocks import MinecraftBlocks
-from .goal_generator import GoalGenerator
-
-import numpy as np
-import cc3d
 import random
+from typing import List, Set, TypedDict
+
+import cc3d
+import numpy as np
+
+from ..blocks import MinecraftBlocks
+from ..types import WorldSize
+from .goal_generator import GoalGenerator
 
 
 class BasicGoalGenerator(GoalGenerator):

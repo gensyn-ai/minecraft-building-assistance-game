@@ -1,11 +1,10 @@
-import pytest
 import logging
 
-from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import (
-    NoopAgent,
-)
+import pytest
+
+from mbag.agents.heuristic_agents import NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
 

@@ -8,3 +8,6 @@ exclude = ''
 timeout = 10
 testpaths = ["tests"]
 markers = ["uses_rllib"]
+
+[tool.isort]
+profile = "black"

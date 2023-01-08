@@ -1,4 +1,5 @@
 from typing import List
+
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import MbagAction, WorldLocation
 

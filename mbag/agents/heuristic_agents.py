@@ -2,19 +2,20 @@
 A collection of agents following simple heuristics.
 """
 
-from typing import Dict, List, Tuple, Type
-import numpy as np
-import random
 import heapq
+import random
+from typing import Dict, List, Tuple, Type
 
+import numpy as np
+
+from ..environment.blocks import MinecraftBlocks
 from ..environment.types import (
     BlockLocation,
+    MbagAction,
     MbagActionTuple,
     MbagActionType,
     MbagObs,
-    MbagAction,
 )
-from ..environment.blocks import MinecraftBlocks
 from .mbag_agent import MbagAgent
 
 

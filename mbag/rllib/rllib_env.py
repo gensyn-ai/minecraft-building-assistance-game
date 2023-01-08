@@ -2,11 +2,11 @@
 RLLib-compatible MBAG environment.
 """
 
-from typing import Union, cast, Tuple, Optional, List
-from gym import spaces
+from typing import List, Optional, Tuple, Union, cast
 
+from gym import spaces
 from ray.rllib.env import MultiAgentEnv
-from ray.rllib.utils.typing import MultiAgentDict, AgentID
+from ray.rllib.utils.typing import AgentID, MultiAgentDict
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution

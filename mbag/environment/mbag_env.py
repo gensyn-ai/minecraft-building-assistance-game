@@ -1,52 +1,53 @@
 from __future__ import annotations
+
+import copy
+import logging
+import random
+import time
 from typing import (
+    TYPE_CHECKING,
     Dict,
     List,
     Optional,
+    Sequence,
     Tuple,
     Type,
     Union,
-    Sequence,
     cast,
-    TYPE_CHECKING,
 )
-from typing_extensions import Literal, TypedDict
+
 import numpy as np
 from gym import spaces
-import time
-import copy
-import random
-import logging
-
+from typing_extensions import Literal, TypedDict
 
 from .blocks import MinecraftBlocks
-from .types import (
-    BlockLocation,
-    MbagActionType,
-    MbagInventory,
-    MbagWorldObsArray,
-    WorldLocation,
-    MbagAction,
-    MbagActionTuple,
-    MbagInfoDict,
-    MbagObs,
-    WorldSize,
-    FacingDirection,
-    MbagInventoryObs,
-    num_world_obs_channels,
-    CURRENT_BLOCKS,
-    CURRENT_BLOCK_STATES,
-    GOAL_BLOCKS,
-    GOAL_BLOCK_STATES,
-    LAST_INTERACTED,
-)
 from .goals import (
     ALL_GOAL_GENERATORS,
     GoalGenerator,
-    TransformedGoalGenerator,
     GoalGeneratorConfig,
+    TransformedGoalGenerator,
 )
 from .human_actions import HumanActionDetector
+from .types import (
+    CURRENT_BLOCK_STATES,
+    CURRENT_BLOCKS,
+    GOAL_BLOCK_STATES,
+    GOAL_BLOCKS,
+    LAST_INTERACTED,
+    BlockLocation,
+    FacingDirection,
+    MbagAction,
+    MbagActionTuple,
+    MbagActionType,
+    MbagInfoDict,
+    MbagInventory,
+    MbagInventoryObs,
+    MbagObs,
+    MbagWorldObsArray,
+    WorldLocation,
+    WorldSize,
+    num_world_obs_channels,
+)
 
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict

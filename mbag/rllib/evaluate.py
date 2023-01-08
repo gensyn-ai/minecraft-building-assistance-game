@@ -1,23 +1,24 @@
 import json
-from logging import Logger
 import os
-from typing import List, Optional
-import torch
-import numpy as np
+import pickle
 import random
 from datetime import datetime
-import ray
-import tqdm
-import pickle
-from ray.rllib.utils.typing import PolicyID
-from ray.rllib.agents import Trainer
-from sacred import Experiment
-from sacred import SETTINGS
+from logging import Logger
+from typing import List, Optional
 
-from .training_utils import load_trainer
-from .agents import RllibMbagAgent, RllibMbagAgentConfigDict
-from mbag.evaluation.evaluator import EpisodeInfo, MbagEvaluator
+import numpy as np
+import ray
+import torch
+import tqdm
+from ray.rllib.agents import Trainer
+from ray.rllib.utils.typing import PolicyID
+from sacred import SETTINGS, Experiment
+
 from mbag.environment.mbag_env import MbagConfigDict
+from mbag.evaluation.evaluator import EpisodeInfo, MbagEvaluator
+
+from .agents import RllibMbagAgent, RllibMbagAgentConfigDict
+from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 

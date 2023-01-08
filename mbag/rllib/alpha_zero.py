@@ -1,50 +1,47 @@
 import copy
-import torch
-import numpy as np
 import logging
-from torch import nn
-from typing import Dict, List, Optional, Tuple, Type, Union, cast, Any
+from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
-from ray.rllib.policy.torch_policy import TorchPolicy
-from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
-from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
+import numpy as np
+import torch
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero
+from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
 from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
-from ray.rllib.evaluation.postprocessing import discount_cumsum, Postprocessing
-from ray.rllib.models.torch.torch_action_dist import TorchCategorical
-from ray.rllib.models import ModelCatalog, ModelV2, ActionDistribution
-from ray.tune.registry import _global_registry, ENV_CREATOR, register_trainable
 from ray.rllib.evaluation import SampleBatch
-from ray.rllib.utils.typing import TensorType, AgentID, ResultDict
-from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
-from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.models.modelv2 import restore_original_dimensions
-from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
-from ray.rllib.execution.train_ops import (
-    multi_gpu_train_one_step,
-    train_one_step,
-)
 from ray.rllib.evaluation.episode import Episode
+from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
+from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
+from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
+from ray.rllib.models import ActionDistribution, ModelCatalog, ModelV2
+from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.policy.sample_batch import concat_samples
+from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
+from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.utils.metrics import (
     NUM_AGENT_STEPS_SAMPLED,
     NUM_ENV_STEPS_SAMPLED,
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
+from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
+from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
+from ray.rllib.utils.typing import AgentID, ResultDict, TensorType
+from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
+from torch import nn
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import (
     CURRENT_BLOCKS,
     GOAL_BLOCKS,
-    MbagActionTuple,
     MbagAction,
+    MbagActionTuple,
 )
-from mbag.environment.blocks import MinecraftBlocks
-from .rllib_env import unwrap_mbag_env
-from .planning import MbagEnvModel, MbagEnvModelInfoDict
-from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 
+from .planning import MbagEnvModel, MbagEnvModelInfoDict
+from .rllib_env import unwrap_mbag_env
+from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
