@@ -272,7 +272,7 @@ class LowestBlockAgent(MbagAgent):
             block_location_id = int(
                 np.ravel_multi_index(block_location, self.env_config["world_size"])
             )
-            return action_type, block_location_id, goal_blocks[block_location]
+            return action_type, block_location_id, int(goal_blocks[block_location])
 
 
 class MirrorBuildingAgent(MbagAgent):

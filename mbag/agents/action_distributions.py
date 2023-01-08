@@ -12,6 +12,7 @@ from mbag.environment.types import (
     CURRENT_BLOCKS,
     PLAYER_LOCATIONS,
     MbagAction,
+    MbagActionTuple,
     MbagActionType,
     MbagObs,
 )
@@ -133,6 +134,43 @@ class MbagActionDistribution(object):
                 mapping_parts.append(mapping_part)
 
         return cast(np.ndarray, np.concatenate(mapping_parts, axis=0))
+
+    @staticmethod
+    def get_flat_action(
+        config: MbagConfigDict,
+        action: MbagActionTuple,
+    ) -> int:
+        """
+        Get the flattened ID of an action.
+        """
+
+        action_type, block_location, block_id = action
+        if action_type not in MbagAction.BLOCK_ID_ACTION_TYPES:
+            block_id = 0
+        if action_type not in MbagAction.BLOCK_LOCATION_ACTION_TYPES:
+            block_location = 0
+
+        flat_id = 0
+
+        valid_action_types = MbagActionDistribution.get_valid_action_types(config)
+        for other_action_type in valid_action_types:
+            num_block_ids = (
+                MinecraftBlocks.NUM_BLOCKS
+                if other_action_type in MbagAction.BLOCK_ID_ACTION_TYPES
+                else 1
+            )
+            width, height, depth = config["world_size"]
+            num_block_location_indices = (
+                width * height * depth
+                if other_action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES
+                else 1
+            )
+            if other_action_type < action_type:
+                flat_id += num_block_ids * num_block_location_indices
+            elif other_action_type == action_type:
+                flat_id += block_id * num_block_location_indices + block_location
+
+        return flat_id
 
     @staticmethod
     def to_flat(

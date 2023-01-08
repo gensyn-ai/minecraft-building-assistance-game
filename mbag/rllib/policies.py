@@ -1,9 +1,10 @@
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
 import gym
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
+from gym import spaces
 from ray.rllib.agents.ppo import PPOTorchPolicy, PPOTrainer
 from ray.rllib.models.action_dist import ActionDistribution
 from ray.rllib.models.modelv2 import restore_original_dimensions
@@ -39,6 +40,7 @@ class MbagAgentPolicy(Policy):
         super().__init__(observation_space, action_space, config)
         self.agent = config["mbag_agent"]
         self.exploration = self._create_exploration()
+        self.flat_actions = isinstance(self.action_space, spaces.Discrete)
 
     def get_initial_state(self) -> List[TensorType]:
         self.agent.reset()
@@ -84,15 +86,26 @@ class MbagAgentPolicy(Policy):
             actions.append(action)
             new_states.append(self.agent.get_state())
 
-        action_arrays = tuple(
-            np.array([action[action_part] for action in actions])
-            for action_part in range(3)
-        )
+        action_array: Any
+        if self.flat_actions:
+            action_array = np.array(
+                [
+                    MbagActionDistribution.get_flat_action(
+                        self.config["env_config"], action
+                    )
+                    for action in actions
+                ]
+            )
+        else:
+            action_array = tuple(
+                np.array([action[action_part] for action in actions])
+                for action_part in range(3)
+            )
         state_arrays = [
             np.array([new_state[state_part] for new_state in new_states])
             for state_part in range(len(state_batches))
         ]
-        return action_arrays, state_arrays, {}
+        return action_array, state_arrays, {}
 
     def learn_on_batch(self, samples):
         pass

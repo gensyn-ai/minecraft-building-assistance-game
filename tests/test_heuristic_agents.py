@@ -235,32 +235,33 @@ def test_rllib_heuristic_agents():
     for heuristic_agent_id, heuristic_agent_cls in ALL_HEURISTIC_AGENTS.items():
         logger.info(f"Testing {heuristic_agent_id} agent...")
         heuristic_agent = heuristic_agent_cls({}, env_config)
-        trainer = PG(
-            {
-                "env": "MBAG-v1",
-                "env_config": env_config,
-                "multiagent": {
-                    "policies": {
-                        "pq": (
-                            MbagAgentPolicy,
-                            None,
-                            None,
-                            {"mbag_agent": heuristic_agent},
-                        )
+        for env_id in ["MBAG-v1", "MBAGFlatActions-v1"]:
+            trainer = PG(
+                {
+                    "env": env_id,
+                    "env_config": env_config,
+                    "multiagent": {
+                        "policies": {
+                            "pq": (
+                                MbagAgentPolicy,
+                                None,
+                                None,
+                                {"mbag_agent": heuristic_agent},
+                            )
+                        },
+                        "policy_mapping_fn": lambda agent_id: "pq",
+                        "policies_to_train": [],
                     },
-                    "policy_mapping_fn": lambda agent_id: "pq",
-                    "policies_to_train": [],
-                },
-                "framework": "torch",
-            }
-        )
+                    "framework": "torch",
+                }
+            )
 
-        rollout(
-            trainer,
-            None,
-            num_steps=0,
-            num_episodes=2,
-        )
+            rollout(
+                trainer,
+                None,
+                num_steps=0,
+                num_episodes=2,
+            )
 
 
 def test_mirror_placed_blocks():
