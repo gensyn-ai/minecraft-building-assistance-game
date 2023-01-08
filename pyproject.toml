@@ -11,3 +11,4 @@ markers = ["uses_rllib"]
 
 [tool.isort]
 profile = "black"
+known_first_party = ["mbag"]
