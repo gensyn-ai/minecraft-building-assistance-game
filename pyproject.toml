@@ -8,3 +8,8 @@ exclude = ''
 timeout = 10
 testpaths = ["tests"]
 markers = ["uses_rllib"]
+
+[tool.isort]
+profile = "black"
+known_first_party = ["mbag"]
+known_third_party = ["ray", "torch"]

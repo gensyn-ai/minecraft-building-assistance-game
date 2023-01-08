@@ -1,6 +1,7 @@
-import random
 import copy
+import random
 from typing import cast
+
 import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution

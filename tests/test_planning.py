@@ -1,5 +1,6 @@
-import numpy as np
 import copy
+
+import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks

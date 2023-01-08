@@ -2,14 +2,15 @@
 Various GoalTransforms which alter a goal.
 """
 
-from typing import Tuple, TypedDict, cast
-from typing_extensions import Literal
-import random
-import numpy as np
 import logging
+import random
+from typing import Tuple, TypedDict, cast
 
-from ..types import WorldSize
+import numpy as np
+from typing_extensions import Literal
+
 from ..blocks import MinecraftBlocks
+from ..types import WorldSize
 from .goal_transform import GoalTransform
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,8 @@ class CropTransform(GoalTransform):
             # Generate a goal with effectively no size limits so we can crop it down.
             goal = self.goal_generator.generate_goal((100, 100, 100))
             struct_density = goal.density()
+            if struct_density == 0:
+                continue
 
             crop_size = (
                 min(size[0], goal.size[0]),
@@ -146,6 +149,8 @@ class CropTransform(GoalTransform):
                     continue
 
                 return crop
+
+            logger.info("CropTransform was unable to find a valid crop")
 
 
 class SeamCarvingTransformConfig(TypedDict):

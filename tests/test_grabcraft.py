@@ -1,12 +1,12 @@
 import pytest
 
+from mbag.agents.heuristic_agents import NoopAgent, PriorityQueueAgent
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
-from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import PriorityQueueAgent, NoopAgent
 from mbag.environment.goals.grabcraft import (
-    ScaledDownGrabcraftGoalGenerator,
     GrabcraftGoalGenerator,
+    ScaledDownGrabcraftGoalGenerator,
 )
+from mbag.evaluation.evaluator import MbagEvaluator
 
 
 def test_goal_generator():

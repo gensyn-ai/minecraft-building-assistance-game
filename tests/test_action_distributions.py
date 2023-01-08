@@ -1,12 +1,19 @@
+import copy
+from typing import cast
+
 import numpy as np
 import pytest
-import copy
 import torch
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
-from mbag.environment.types import MbagAction, CURRENT_BLOCKS, PLAYER_LOCATIONS
+from mbag.environment.types import (
+    CURRENT_BLOCKS,
+    PLAYER_LOCATIONS,
+    MbagAction,
+    MbagActionTuple,
+)
 
 
 def test_mapping():
@@ -69,6 +76,23 @@ def test_mapping():
         0,
         0,
     ]
+
+
+def test_get_flat_action():
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config["world_size"] = (5, 5, 5)
+    config["abilities"] = {
+        "teleportation": False,
+        "flying": True,
+        "inf_blocks": False,
+    }
+    mapping = MbagActionDistribution.get_action_mapping(config)
+    for flat_action_id, action in enumerate(mapping):
+        action_tuple = cast(MbagActionTuple, tuple(action))
+        assert (
+            MbagActionDistribution.get_flat_action(config, action_tuple)
+            == flat_action_id
+        )
 
 
 def test_mask():

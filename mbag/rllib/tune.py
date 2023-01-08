@@ -3,9 +3,8 @@ import os
 import ray
 from ray import tune
 from ray.tune.schedulers.async_hyperband import ASHAScheduler
-
-from sacred import Experiment
 from sacred import SETTINGS as SACRED_SETTINGS
+from sacred import Experiment
 
 from .train import make_mbag_sacred_config
 

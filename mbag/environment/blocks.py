@@ -1,9 +1,9 @@
+from random import Random
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 
-import numpy as np
 import cc3d
+import numpy as np
 from numpy.typing import NDArray
-from random import Random
 from skimage.util import view_as_blocks  # type: ignore
 
 from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize

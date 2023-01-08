@@ -1,17 +1,19 @@
+import json
 import os
-from typing import List, Optional
-import gym
-import torch
 from datetime import datetime
+from typing import List, Optional
+
+import gym
 import ray
+import torch
+from ray.rllib.agents import Trainer
+from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.utils.typing import PolicyID
-from ray.rllib.agents import Trainer
-from sacred import Experiment
-from sacred import SETTINGS
+from ray.tune.utils.util import SafeFallbackEncoder
+from sacred import SETTINGS, Experiment
 
 from .training_utils import load_trainer
 
@@ -93,7 +95,11 @@ def main(
         config_updates["multiagent"]["policy_mapping_fn"] = policy_mapping_fn
         config_updates["env_config"]["num_players"] = len(policy_ids)
 
-    config_updates["env_config"]["malmo"]["player_names"] = player_names
+    if player_names is not None:
+        assert "players" not in config_updates["env_config"]
+        config_updates["env_config"]["players"] = [
+            {"player_name": player_name} for player_name in player_names
+        ]
 
     if record_video:
         config_updates["env_config"]["malmo"].update(
@@ -127,5 +133,10 @@ def main(
     eval_result = trainer.evaluate()["evaluation"]
     saver.end_rollout()
     trainer.stop()
+
+    result_fname = os.path.join(out_dir, "result.json")
+    _log.info(f"saving results to {result_fname}")
+    with open(result_fname, "w") as result_file:
+        json.dump(eval_result, result_file, cls=SafeFallbackEncoder)
 
     return eval_result

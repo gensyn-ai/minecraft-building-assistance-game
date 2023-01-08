@@ -1,8 +1,8 @@
-from typing import TypedDict, List
+from typing import List, TypedDict
 
-from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize
+from .goal_generator import GoalGenerator, GoalGeneratorConfig
 
 
 class GoalTransform(GoalGenerator):

@@ -1,13 +1,14 @@
-import pytest
 import logging
 
-from mbag.evaluation.evaluator import MbagEvaluator
+import pytest
+
 from mbag.agents.hardcoded_agents import (
-    HardcodedResourceAgent,
     HardcodedInventoryDonator,
+    HardcodedResourceAgent,
 )
 from mbag.agents.heuristic_agents import NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
 
