@@ -10,6 +10,7 @@ from ray.rllib.models.action_dist import ActionDistribution
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.typing import TensorStructType, TensorType, TrainerConfigDict
 from ray.tune.registry import register_trainable
@@ -42,6 +43,8 @@ class MbagAgentPolicy(Policy):
         self.exploration = self._create_exploration()
         self.flat_actions = isinstance(self.action_space, spaces.Discrete)
 
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
+
     def get_initial_state(self) -> List[TensorType]:
         self.agent.reset()
         return self.agent.get_state()
@@ -69,6 +72,7 @@ class MbagAgentPolicy(Policy):
         )
 
         actions: List[MbagActionTuple] = []
+        action_dist_inputs: List[np.ndarray] = []
         new_states: List[List[np.ndarray]] = []
 
         assert state_batches is not None
@@ -82,7 +86,15 @@ class MbagAgentPolicy(Policy):
             else [[] for _ in range(len(obs_batch))],
         ):
             self.agent.set_state(list(prev_state))
-            action = self.agent.get_action(obs)
+            try:
+                action, action_dist = self.agent.get_action_with_distribution(obs)
+                if self.flat_actions:
+                    action_dist = MbagActionDistribution.to_flat(
+                        self.config["env_config"], action_dist[None]
+                    )[0]
+                action_dist_inputs.append(np.log(action_dist))
+            except NotImplementedError:
+                action = self.agent.get_action(obs)
             actions.append(action)
             new_states.append(self.agent.get_state())
 
@@ -105,7 +117,12 @@ class MbagAgentPolicy(Policy):
             np.array([new_state[state_part] for new_state in new_states])
             for state_part in range(len(state_batches))
         ]
-        return action_array, state_arrays, {}
+        extra_fetches = {}
+        if action_dist_inputs:
+            extra_fetches[SampleBatch.ACTION_DIST_INPUTS] = np.stack(
+                action_dist_inputs, axis=0
+            )
+        return action_array, state_arrays, extra_fetches
 
     def learn_on_batch(self, samples):
         pass
