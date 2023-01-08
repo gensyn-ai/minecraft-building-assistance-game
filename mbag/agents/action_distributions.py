@@ -1,19 +1,20 @@
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple, Union, cast
+
 import numpy as np
 from scipy import ndimage
 
 if TYPE_CHECKING:
     import torch
 
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import CURRENT_PLAYER, MbagConfigDict
 from mbag.environment.types import (
+    CURRENT_BLOCKS,
+    PLAYER_LOCATIONS,
     MbagAction,
     MbagActionType,
     MbagObs,
-    CURRENT_BLOCKS,
-    PLAYER_LOCATIONS,
 )
-from mbag.environment.blocks import MinecraftBlocks
 
 
 class MbagActionDistribution(object):

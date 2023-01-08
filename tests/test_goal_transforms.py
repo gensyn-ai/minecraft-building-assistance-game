@@ -1,5 +1,6 @@
-import numpy as np
 import random
+
+import numpy as np
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals.filters import DensityFilter, SingleConnectedComponentFilter

@@ -1,8 +1,9 @@
-from typing import List, Tuple, cast, TYPE_CHECKING
-from typing_extensions import Literal, TypedDict
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Tuple, cast
+
 import numpy as np
 from numpy.typing import NDArray
-from datetime import datetime
+from typing_extensions import Literal, TypedDict
 
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict

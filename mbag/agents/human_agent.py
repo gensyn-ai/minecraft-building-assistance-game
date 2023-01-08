@@ -1,13 +1,9 @@
-from typing import List, Optional
-import numpy as np
 import logging
+from typing import List, Optional
 
-from ..environment.types import (
-    MbagAction,
-    MbagInfoDict,
-    MbagObs,
-    MbagActionTuple,
-)
+import numpy as np
+
+from ..environment.types import MbagAction, MbagActionTuple, MbagInfoDict, MbagObs
 from .mbag_agent import MbagAgent
 
 logger = logging.getLogger(__name__)

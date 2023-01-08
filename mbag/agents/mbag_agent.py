@@ -1,16 +1,18 @@
 from abc import ABC
 from typing import Any, List, cast
-from mbag.environment.blocks import MinecraftBlocks
+
 import numpy as np
 
+from mbag.environment.blocks import MinecraftBlocks
+
+from ..environment.mbag_env import MbagConfigDict
 from ..environment.types import (
     MbagAction,
+    MbagActionTuple,
     MbagActionType,
     MbagInfoDict,
     MbagObs,
-    MbagActionTuple,
 )
-from ..environment.mbag_env import MbagConfigDict
 
 
 class MbagAgent(ABC):

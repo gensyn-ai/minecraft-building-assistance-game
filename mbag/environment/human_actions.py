@@ -1,18 +1,19 @@
-from typing import List, Optional, TYPE_CHECKING, Tuple, Dict, Sequence, cast
 import logging
-import numpy as np
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, cast
 
+import numpy as np
+
+from .blocks import MinecraftBlocks
 from .types import (
     BlockLocation,
-    WorldLocation,
-    MbagInventory,
-    MbagActionTuple,
     MbagAction,
+    MbagActionTuple,
     MbagActionType,
+    MbagInventory,
+    WorldLocation,
 )
-from .blocks import MinecraftBlocks
 
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict

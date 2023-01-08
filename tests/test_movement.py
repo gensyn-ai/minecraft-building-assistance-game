@@ -1,13 +1,9 @@
 import pytest
 
-from mbag.evaluation.evaluator import MbagEvaluator
-from mbag.agents.heuristic_agents import (
-    LayerBuilderAgent,
-    MovementAgent,
-    NoopAgent,
-)
 from mbag.agents.hardcoded_agents import HardcodedBuilderAgent
+from mbag.agents.heuristic_agents import LayerBuilderAgent, MovementAgent, NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.evaluation.evaluator import MbagEvaluator
 
 
 def test_movement():

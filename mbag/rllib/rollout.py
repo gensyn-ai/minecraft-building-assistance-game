@@ -1,19 +1,19 @@
-import os
 import json
-from typing import List, Optional
-import gym
-import torch
+import os
 from datetime import datetime
+from typing import List, Optional
+
+import gym
 import ray
+import torch
+from ray.rllib.agents import Trainer
+from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.utils.typing import PolicyID
-from ray.rllib.agents import Trainer
 from ray.tune.utils.util import SafeFallbackEncoder
-from sacred import Experiment
-from sacred import SETTINGS
+from sacred import SETTINGS, Experiment
 
 from .training_utils import load_trainer
 

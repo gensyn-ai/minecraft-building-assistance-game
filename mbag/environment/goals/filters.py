@@ -2,13 +2,12 @@
 Various GoalTransforms which filter the possible goals.
 """
 
-from typing import TypedDict
 import logging
+from typing import TypedDict
 
-from ..types import WorldSize
 from ..blocks import MinecraftBlocks
+from ..types import WorldSize
 from .goal_transform import GoalTransform
-
 
 logger = logging.getLogger(__name__)
 

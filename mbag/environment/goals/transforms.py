@@ -2,14 +2,15 @@
 Various GoalTransforms which alter a goal.
 """
 
-from typing import Tuple, TypedDict, cast
-from typing_extensions import Literal
-import random
-import numpy as np
 import logging
+import random
+from typing import Tuple, TypedDict, cast
 
-from ..types import WorldSize
+import numpy as np
+from typing_extensions import Literal
+
 from ..blocks import MinecraftBlocks
+from ..types import WorldSize
 from .goal_transform import GoalTransform
 
 logger = logging.getLogger(__name__)

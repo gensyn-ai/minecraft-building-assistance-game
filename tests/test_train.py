@@ -1,8 +1,10 @@
 import glob
 import os
-import pytest
-from mbag.rllib.train import ex
 import tempfile
+
+import pytest
+
+from mbag.rllib.train import ex
 
 # This is done to satisfy mypy
 dummy_run: str = ""

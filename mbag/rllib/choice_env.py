@@ -1,7 +1,8 @@
 from ray.tune.registry import register_env
 
-from .rllib_env import MbagMultiAgentEnv
 from mbag.agents.action_distributions import MbagActionDistribution
+
+from .rllib_env import MbagMultiAgentEnv
 
 
 class ChoiceRewardWrapper(MbagMultiAgentEnv):

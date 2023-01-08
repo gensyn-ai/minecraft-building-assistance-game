@@ -1,11 +1,12 @@
 import glob
-import os
-import json
-import random
-import logging
-import numpy as np
 import itertools
+import json
+import logging
+import os
+import random
 from typing import Dict, List, Optional, Tuple
+
+import numpy as np
 from typing_extensions import TypedDict
 
 from ..blocks import MinecraftBlocks

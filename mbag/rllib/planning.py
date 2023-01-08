@@ -1,9 +1,10 @@
 from typing import Dict, List, Optional, Sequence, TypedDict, Union
+
 import gym
 import numpy as np
 from gym import spaces
-from ray.tune.registry import register_env
 from ray.rllib.utils.typing import AgentID
+from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
@@ -17,6 +18,7 @@ from mbag.environment.types import (
     MbagInfoDict,
     MbagObs,
 )
+
 from .rllib_env import (
     FlatActionSpaceWrapper,
     MbagMultiAgentEnv,

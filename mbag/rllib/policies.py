@@ -1,24 +1,24 @@
-from typing import Dict, List, Tuple, Type, cast, Optional, Union, Sequence
-import gym
-import torch
-from torch import nn
-import numpy as np
-import torch.nn.functional as F  # noqa: N812
+from typing import Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
+import gym
+import numpy as np
+import torch
+import torch.nn.functional as F  # noqa: N812
+from ray.rllib.agents.ppo import PPOTorchPolicy, PPOTrainer
+from ray.rllib.models.action_dist import ActionDistribution
+from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.utils.typing import TensorType, TrainerConfigDict, TensorStructType
-from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.agents.ppo import PPOTrainer, PPOTorchPolicy
+from ray.rllib.utils.typing import TensorStructType, TensorType, TrainerConfigDict
 from ray.tune.registry import register_trainable
-from ray.rllib.models.action_dist import ActionDistribution
+from torch import nn
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction, MbagActionTuple, MbagObs
 from mbag.agents.mbag_agent import MbagAgent
-from mbag.environment.types import GOAL_BLOCKS
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import GOAL_BLOCKS, MbagAction, MbagActionTuple, MbagObs
+
 from .torch_action_distributions import MbagAutoregressiveActionDistribution
 from .torch_models import MbagTorchModel
 

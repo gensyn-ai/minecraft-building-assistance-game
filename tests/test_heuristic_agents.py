@@ -1,23 +1,24 @@
-import pytest
-import numpy as np
 import logging
+
+import numpy as np
+import pytest
 from numpy.testing import assert_array_equal
 
-from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction, MbagObs
-from mbag.environment.goals.goal_transform import TransformedGoalGenerator
-from mbag.environment.mbag_env import MbagConfigDict
-from mbag.evaluation.evaluator import MbagEvaluator
 from mbag.agents.heuristic_agents import (
-    LayerBuilderAgent,
-    PriorityQueueAgent,
-    MirrorBuildingAgent,
     ALL_HEURISTIC_AGENTS,
+    LayerBuilderAgent,
+    MirrorBuildingAgent,
+    PriorityQueueAgent,
 )
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.goals.simple import (
     BasicGoalGenerator,
     SimpleOverhangGoalGenerator,
 )
+from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.types import MbagAction, MbagObs
+from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,7 @@ def test_malmo_pq():
 def test_rllib_heuristic_agents():
     from ray.rllib.algorithms.pg import PG
     from ray.rllib.rollout import rollout
+
     from mbag.rllib.policies import MbagAgentPolicy
 
     env_config: MbagConfigDict = {

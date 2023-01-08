@@ -1,25 +1,25 @@
-from typing import Any, Callable, Dict, List, Optional, Type, Union
-from typing_extensions import Literal
-from logging import Logger
-import os
-import torch
 import faulthandler
+import os
 import signal
+from logging import Logger
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import ray
-from ray.rllib.utils.typing import (
-    MultiAgentPolicyConfigDict,
-    TrainerConfigDict,
-)
-from ray.tune.registry import _global_registry, ENV_CREATOR
+import torch
 from ray.rllib.env import MultiAgentEnv
-from ray.rllib.policy.policy import PolicySpec
-from ray.tune.registry import get_trainable_cls
 from ray.rllib.evaluation import Episode, RolloutWorker
 from ray.rllib.policy import TorchPolicy
+from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
 from ray.rllib.utils.replay_buffers import StorageUnit
+from ray.rllib.utils.typing import MultiAgentPolicyConfigDict, TrainerConfigDict
+from ray.tune.registry import ENV_CREATOR, _global_registry, get_trainable_cls
+from sacred import SETTINGS as SACRED_SETTINGS
+from sacred import Experiment
+from sacred.config.custom_containers import DogmaticDict
+from typing_extensions import Literal
 
+from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
@@ -27,27 +27,23 @@ from mbag.environment.goals.goal_transform import (
 )
 from mbag.environment.goals.transforms import CropTransformConfig
 from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
-from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
+
+from .callbacks import MbagCallbacks
+from .distillation_prediction import (
+    DistillationPrediction,
+    DistillationPredictionPolicy,
+)
+from .policies import MbagAgentPolicy, MbagPPOTorchPolicy
 from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
     MbagTransformerModelConfig,
 )
-from .callbacks import MbagCallbacks
 from .training_utils import (
     build_logger_creator,
     load_policies_from_checkpoint,
     load_trainer_config,
 )
-from .distillation_prediction import (
-    DistillationPredictionPolicy,
-    DistillationPrediction,
-)
-from .policies import MbagAgentPolicy, MbagPPOTorchPolicy
-
-from sacred import Experiment
-from sacred.config.custom_containers import DogmaticDict
-from sacred import SETTINGS as SACRED_SETTINGS
 
 ex = Experiment("train_mbag")
 SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
