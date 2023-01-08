@@ -258,6 +258,9 @@ class MbagActionDistribution(object):
             np.repeat(invalid_place[:, None], MinecraftBlocks.NUM_BLOCKS, axis=1)
         ] = False
 
+        # TODO: add check for breaking blocks that are totally surrounded by other
+        # blocks?
+
         # Next, we can only give blocks to locations with players in them
         mask[:, MbagActionDistribution.GIVE_BLOCK] &= (
             world_obs[:, None, PLAYER_LOCATIONS] > 0
