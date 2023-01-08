@@ -6,9 +6,6 @@ import pytest
 
 from mbag.rllib.train import ex
 
-# This is done to satisfy mypy
-dummy_run: str = ""
-
 
 @pytest.fixture(scope="session")
 def default_config():
@@ -29,19 +26,18 @@ def default_config():
     }
 
 
-# This runs once before the tests run.
-@pytest.fixture(scope="session", autouse=True)
-def setup(default_config):
+@pytest.fixture(scope="session")
+def dummy_ppo_checkpoint_fname(default_config):
     # Execute short dummy run and return the file where the checkpoint is stored.
     checkpoint_dir = tempfile.mkdtemp()
     ex.run(config_updates={**default_config, "log_dir": checkpoint_dir})
 
-    global dummy_run
-    dummy_run = glob.glob(
+    checkpoint_fname = glob.glob(
         checkpoint_dir
         + "/MbagPPO/self_play/6x6x6/random/*/checkpoint_000002/checkpoint-2"
     )[0]
-    assert os.path.exists(dummy_run)
+    assert os.path.exists(checkpoint_fname)
+    return checkpoint_fname
 
 
 @pytest.mark.uses_rllib
@@ -103,7 +99,7 @@ def test_transformer(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_cross_play(default_config):
+def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
@@ -112,7 +108,7 @@ def test_cross_play(default_config):
             "mask_goal": True,
             "use_extra_features": False,
             "own_reward_prop": 1,
-            "checkpoint_to_load_policies": dummy_run,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_1"],
         }
@@ -122,11 +118,11 @@ def test_cross_play(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_policy_retrieval(default_config):
+def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
-            "checkpoint_path": dummy_run,
+            "checkpoint_path": dummy_ppo_checkpoint_fname,
         }
     ).result
 
@@ -134,11 +130,11 @@ def test_policy_retrieval(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_distillation(default_config):
+def test_distillation(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
-            "checkpoint_to_load_policies": dummy_run,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
             "run": "distillation_prediction",
         }
     ).result
@@ -157,11 +153,11 @@ def test_distillation(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_train_together(default_config):
+def test_train_together(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
-            "checkpoint_to_load_policies": dummy_run,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
             "multiagent_mode": "cross_play",
             "num_players": 2,
             "load_policies_mapping": {"ppo": "ppo_0"},
@@ -187,7 +183,7 @@ def test_alpha_zero(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_alpha_zero_assistant(default_config):
+def test_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
@@ -198,7 +194,7 @@ def test_alpha_zero_assistant(default_config):
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
-            "checkpoint_to_load_policies": dummy_run,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_1"],
             "model": "transformer_alpha_zero",
@@ -210,7 +206,7 @@ def test_alpha_zero_assistant(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_lstm_alpha_zero_assistant(default_config):
+def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
@@ -221,7 +217,7 @@ def test_lstm_alpha_zero_assistant(default_config):
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
-            "checkpoint_to_load_policies": dummy_run,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
             "load_policies_mapping": {"ppo": "ppo_0"},
             "policies_to_train": ["ppo_1"],
             "model": "transformer_alpha_zero",
@@ -234,3 +230,25 @@ def test_lstm_alpha_zero_assistant(default_config):
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
     assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "policies_to_train": ["ppo_0"],
+            "model": "transformer_alpha_zero",
+            "hidden_size": 64,
+            "heuristic": "lowest_block",
+        }
+    ).result
+    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
+    assert result["custom_metrics"]["lowest_block/place_block_accuracy_mean"] == 1

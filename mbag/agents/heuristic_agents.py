@@ -23,9 +23,11 @@ from .mbag_agent import MbagAgent
 
 
 class NoopAgent(MbagAgent):
-    def get_action_type_distribution(self, obs: MbagObs) -> np.ndarray:
-        action_dist = np.zeros(MbagAction.NUM_ACTION_TYPES)
-        action_dist[MbagAction.NOOP] = 1
+    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
+        action_dist = np.zeros(
+            (MbagActionDistribution.NUM_CHANNELS,) + self.env_config["world_size"]
+        )
+        action_dist[0, 0, 0, 0] = 1
         return action_dist
 
 
@@ -34,15 +36,16 @@ class MovementAgent(MbagAgent):
     Moves around randomly
     """
 
-    def get_action_type_distribution(self, obs: MbagObs) -> np.ndarray:
-        action_dist = np.zeros(MbagAction.NUM_ACTION_TYPES)
-        action_dist[MbagAction.MOVE_POS_X] = 1 / 6
-        action_dist[MbagAction.MOVE_NEG_X] = 1 / 6
-        action_dist[MbagAction.MOVE_POS_Y] = 1 / 6
-        action_dist[MbagAction.MOVE_NEG_Y] = 1 / 6
-        action_dist[MbagAction.MOVE_POS_Z] = 1 / 6
-        action_dist[MbagAction.MOVE_NEG_Z] = 1 / 6
-
+    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
+        action_dist = np.zeros(
+            (MbagActionDistribution.NUM_CHANNELS,) + self.env_config["world_size"]
+        )
+        action_dist[MbagActionDistribution.MOVE_POS_X, 0, 0, 0] = 1 / 6
+        action_dist[MbagActionDistribution.MOVE_NEG_X, 0, 0, 0] = 1 / 6
+        action_dist[MbagActionDistribution.MOVE_POS_Y, 0, 0, 0] = 1 / 6
+        action_dist[MbagActionDistribution.MOVE_NEG_Y, 0, 0, 0] = 1 / 6
+        action_dist[MbagActionDistribution.MOVE_POS_Z, 0, 0, 0] = 1 / 6
+        action_dist[MbagActionDistribution.MOVE_NEG_Z, 0, 0, 0] = 1 / 6
         return action_dist
 
 
@@ -224,8 +227,9 @@ class LowestBlockAgent(MbagAgent):
         ):
             raise ValueError("LowestBlockAgent cannot move or collect resources")
 
-    def get_action(self, obs: MbagObs) -> MbagActionTuple:
+    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
         world_obs, inventory_obs, timestep = obs
+        world_obs = world_obs.astype(int)
         current_blocks: np.ndarray = world_obs[CURRENT_BLOCKS]
         goal_blocks: np.ndarray = world_obs[GOAL_BLOCKS]
 
@@ -233,6 +237,9 @@ class LowestBlockAgent(MbagAgent):
             self.env_config,
             (world_obs[None], inventory_obs[None], timestep[None]),
         )[0]
+        action_dist = np.zeros(
+            (MbagActionDistribution.NUM_CHANNELS,) + self.env_config["world_size"]
+        )
 
         action_type: MbagActionType = MbagAction.NOOP
 
@@ -260,19 +267,39 @@ class LowestBlockAgent(MbagAgent):
                 action_type = MbagAction.PLACE_BLOCK
 
         if action_type == MbagAction.NOOP:
-            return action_type, 0, 0
+            action_dist[0, 0, 0, 0] = 1
         else:
             min_y = np.min(possible_y)
-            location_index = random.choice(np.nonzero(possible_y == min_y)[0])
-            block_location: BlockLocation = (
-                possible_x[location_index],
-                possible_y[location_index],
-                possible_z[location_index],
-            )
-            block_location_id = int(
-                np.ravel_multi_index(block_location, self.env_config["world_size"])
-            )
-            return action_type, block_location_id, int(goal_blocks[block_location])
+            in_min_layer = possible_y == min_y
+            possible_x = possible_x[in_min_layer]
+            possible_y = possible_y[in_min_layer]
+            possible_z = possible_z[in_min_layer]
+
+            goal_blocks_at_possible_locations = goal_blocks[
+                possible_x,
+                possible_y,
+                possible_z,
+            ]
+
+            if action_type == MbagAction.BREAK_BLOCK:
+                action_dist[MbagActionDistribution.BREAK_BLOCK][
+                    possible_x,
+                    possible_y,
+                    possible_z,
+                ] = 1
+            elif action_type == MbagAction.PLACE_BLOCK:
+                action_dist[MbagActionDistribution.PLACE_BLOCK][
+                    goal_blocks_at_possible_locations,
+                    possible_x,
+                    possible_y,
+                    possible_z,
+                ] = 1
+            else:
+                assert False
+
+            action_dist /= action_dist.sum()
+
+        return action_dist
 
 
 class MirrorBuildingAgent(MbagAgent):

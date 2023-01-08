@@ -623,8 +623,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 cast(Any, model.predict_other_agent_action()),
                 model=model,
             )
+            other_agent_action_dist_inputs = train_batch[OTHER_AGENT_ACTION_DIST_INPUTS]
+            # Get rid of -inf action dist inputs to avoid numeric issues with
+            # KL divergence.
+            other_agent_action_dist_inputs[
+                other_agent_action_dist_inputs == -np.inf
+            ] = -1e4
             actual_other_agent_action_dist = dist_class(
-                train_batch[OTHER_AGENT_ACTION_DIST_INPUTS],
+                other_agent_action_dist_inputs,
                 model=model,
             )
             other_agent_action_predictor_loss = reduce_mean_valid(
