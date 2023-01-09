@@ -58,11 +58,11 @@ class HumanAgent(MbagAgent):
         set_state with the return value of this method.
         """
 
-        return [self.actions_queue]
+        return [np.array(self.actions_queue)]
 
     def set_state(self, state: List[np.ndarray]) -> None:
         """
         Restore the agent's state to what it was when get_state was called.
         """
 
-        self.actions_queue = state[0]
+        self.actions_queue = [(i, j, k) for i, j, k in state[0]]

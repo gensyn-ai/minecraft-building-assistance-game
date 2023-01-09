@@ -48,8 +48,8 @@ class MbagEvaluator(object):
             for agent_class, agent_config in agent_configs
         ]
         self.force_get_set_state = force_get_set_state
-        self.previous_infos = [{} for _ in self.agents]
-        self.episodes = []
+        self.previous_infos: List[MbagInfoDict] = [{} for _ in self.agents]
+        self.episodes: List[EpisodeInfo] = []
 
     def rollout(self) -> EpisodeInfo:
         """
