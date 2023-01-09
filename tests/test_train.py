@@ -252,3 +252,27 @@ def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
     ).result
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
     assert result["custom_metrics"]["lowest_block/place_block_accuracy_mean"] == 1
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_fname):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagAlphaZero",
+            "goal_generator": "random",
+            "use_replay_buffer": False,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
+            "load_policies_mapping": {"ppo": "ppo_0"},
+            "policies_to_train": ["ppo_1"],
+            "model": "transformer_alpha_zero",
+            "hidden_size": 64,
+            "pretrain": True,
+        }
+    ).result
+    assert result["custom_metrics"]["ppo_0/num_place_block_mean"] == 0
+    assert result["custom_metrics"]["ppo_0/num_break_block_mean"] == 0
