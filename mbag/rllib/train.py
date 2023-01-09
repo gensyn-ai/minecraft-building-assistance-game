@@ -192,6 +192,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         use_critic = True
         other_agent_action_predictor_loss_coeff = 1.0
         simple_optimizer = False
+        pretrain = False
 
         # MCTS
         puct_coefficient = 1.0
@@ -464,6 +465,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                         "capacity": replay_buffer_size,
                         "storage_unit": StorageUnit.FRAGMENTS,
                     },
+                    "pretrain": pretrain,
                 }
             )
 

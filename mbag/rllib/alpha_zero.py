@@ -429,6 +429,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             np.empty_like(input_dict[f"state_in_{state_index}"])
             for state_index in range(model_state_len)
         ]
+        if self.config["pretrain"]:
+            for state_out_part in state_out:
+                state_out_part[:] = 0
 
         player_index = int(input_dict[SampleBatch.AGENT_INDEX])
         self.env.set_player_index(player_index)
@@ -438,7 +441,20 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             expected_rewards: List[float] = []
             expected_own_rewards: List[float] = []
             episode: Episode
+
             for episode_index, episode in enumerate(episodes):
+                if episode.length == 0:
+                    episode.user_data[MCTS_POLICIES] = []
+
+                if self.config["pretrain"]:
+                    actions.append(0)
+                    expected_rewards.append(0)
+                    expected_own_rewards.append(0)
+                    mcts_policy = np.zeros((self.action_space.n,))
+                    mcts_policy[0] = 1
+                    episode.user_data[MCTS_POLICIES].append(mcts_policy)
+                    continue
+
                 env_state = episode.user_data["state"]
                 model_state = [
                     input_dict[f"state_in_{state_index}"][episode_index]
@@ -469,11 +485,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 actions.append(action)
 
                 # Store MCTS policies vectors and other info.
-                if episode.length == 0:
-                    episode.user_data[MCTS_POLICIES] = [mcts_policy]
-                else:
-                    episode.user_data[MCTS_POLICIES].append(mcts_policy)
-
+                episode.user_data[MCTS_POLICIES].append(mcts_policy)
                 expected_rewards.append(action_node.reward)
                 if action_node.info is not None:
                     expected_own_rewards.append(action_node.info["own_reward"])
@@ -582,7 +594,6 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             reduce_mean_valid = torch.mean
 
         # Compute actor and critic losses.
-        dist.logp
         policy_loss = reduce_mean_valid(
             -torch.sum(train_batch[MCTS_POLICIES] * dist.dist.logits, dim=-1)
         )
@@ -610,9 +621,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
         # Compute total loss.
-        total_loss = (
-            policy_loss
-            + self.config["vf_loss_coeff"] * value_loss
+        total_loss = 0
+        if not self.config["pretrain"]:
+            total_loss = total_loss + policy_loss
+        total_loss = total_loss + (
+            self.config["vf_loss_coeff"] * value_loss
             + self.config["goal_loss_coeff"] * goal_loss
             - self.entropy_coeff * entropy
         )
@@ -713,6 +726,9 @@ class MbagAlphaZeroTrainer(AlphaZero):
             "use_critic": True,
             "use_replay_buffer": True,
             "num_steps_sampled_before_learning_starts": 0,
+            # If pretrain=True, then this will just pretrain the AlphaZero predictors
+            # for goal, other agent action, etc. and take only NOOP actions.
+            "pretrain": False,
         }
         del config["vf_share_layers"]
         cast(dict, config["mcts_config"])["temperature_schedule"] = None
