@@ -22,6 +22,7 @@ def cartesian_product(*arrays):
 
 
 MAX_PLAYER_REACH = 4.5
+PLAYER_EDGE = 0.3
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
@@ -122,6 +123,56 @@ class MinecraftBlocks(object):
             & (locations[:, 2] < self.size[2]),
         )
 
+    def generate_block_edges(self, player_location: WorldLocation) -> np.ndarray:
+        player_x, player_y, player_z = [int(i) for i in player_location]
+
+        # Make blocks array with two layers of air above to make calculations easier.
+        blocks = np.concatenate(
+            [self.blocks, np.zeros((self.size[0], 2, self.size[2]), np.uint8)], axis=1
+        )
+
+        x_bound = [PLAYER_EDGE, 1 - PLAYER_EDGE]
+        z_bound = [PLAYER_EDGE, 1 - PLAYER_EDGE]
+
+        if (
+            player_x > 0
+            and blocks[(player_x - 1, player_y, player_z)] == MinecraftBlocks.AIR
+            and blocks[(player_x - 1, player_y + 1, player_z)]
+        ):
+            x_bound[0] = 0
+
+        if (
+            player_x < self.size[0] - 1
+            and blocks[(player_x + 1, player_y, player_z)] == MinecraftBlocks.AIR
+            and blocks[(player_x + 1, player_y + 1, player_z)]
+        ):
+            x_bound[1] = 0.999
+
+        if (
+            player_x > 0
+            and blocks[(player_x, player_y, player_z - 1)] == MinecraftBlocks.AIR
+            and blocks[(player_x, player_y + 1, player_z - 1)]
+        ):
+            z_bound[0] = 0
+
+        if (
+            player_x < self.size[0] - 1
+            and blocks[(player_x, player_y, player_z + 1)] == MinecraftBlocks.AIR
+            and blocks[(player_x, player_y + 1, player_z + 1)]
+        ):
+            z_bound[1] = 0.999
+
+        player_locations = np.array(
+            [
+                player_location,
+                (player_x + x_bound[0], player_location[1], player_z + z_bound[0]),
+                (player_x + x_bound[0], player_location[1], player_z + z_bound[1]),
+                (player_x + x_bound[1], player_location[1], player_z + z_bound[0]),
+                (player_x + x_bound[1], player_location[1], player_z + z_bound[1]),
+            ]
+        )
+        return player_locations
+
     def try_break_place(
         self,
         action_type: MbagActionType,
@@ -193,7 +244,7 @@ class MinecraftBlocks(object):
 
         player_locations: NDArray[np.float_]
         if player_location is not None:
-            player_locations = np.array([player_location])
+            player_locations = self.generate_block_edges(player_location)
         else:
             player_deltas = cartesian_product(
                 np.linspace(-4, 4, 9),
