@@ -4,9 +4,10 @@ Various GoalTransforms which alter a goal.
 
 import logging
 import random
-from typing import Tuple, TypedDict, cast
+from typing import Tuple, TypedDict, cast, Optional
 
 import numpy as np
+import math
 from typing_extensions import Literal
 
 from ..blocks import MinecraftBlocks
@@ -151,6 +152,66 @@ class CropTransform(GoalTransform):
                 return crop
 
             logger.info("CropTransform was unable to find a valid crop")
+
+
+class AreaSampleTranform(GoalTransform):
+    def generate_goal(self, size: WorldSize, *, retries: int = 20) -> MinecraftBlocks:
+        structure: Optional[MinecraftBlocks] = None
+
+        while structure is None:
+            structure = self.goal_generator.generate_goal((100, 100, 100))
+
+        return self.scale_down_structure(structure, size)
+
+    def scale_down_structure(
+        self, structure: Optional[MinecraftBlocks], size: WorldSize
+    ) -> MinecraftBlocks:
+        assert structure is not None, "Must pass in a valid structure to scale down"
+
+        structure_size = structure.size
+        while (
+            structure_size[0] > size[0]
+            or structure_size[1] > size[1]
+            or structure_size[2] > size[2]
+        ):
+            scaled_down_structure = MinecraftBlocks(
+                (
+                    int(math.ceil(structure_size[0] / 2)),
+                    int(math.ceil(structure_size[1] / 2)),
+                    int(math.ceil(structure_size[2] / 2)),
+                )
+            )
+
+            chunk_size = (2, 2, 2)
+            print(chunk_size)
+
+            idx = [
+                (i, j, k)
+                for i in range(scaled_down_structure.size[0])
+                for j in range(scaled_down_structure.size[1])
+                for k in range(scaled_down_structure.size[2])
+            ]
+
+            for i, chunk in enumerate(structure.get_chunks(chunk_size)):
+                index = idx[i]
+                scaled_down_structure.blocks[index] = self._most_common_block(chunk)
+
+            structure = scaled_down_structure
+            structure_size = structure.size
+
+        return structure
+
+    def _most_common_block(self, array: np.ndarray):
+        mask = (array != 0) & (array != -1)
+        if np.sum(mask) < array.size / 2:
+            return 0
+
+        flat_arr = array.flatten()
+        filtered_arr = flat_arr[(flat_arr != -1) & (flat_arr != 0)]
+        counts = np.bincount(filtered_arr)
+        ties = np.where(counts == counts[np.argmax(counts)])[0]
+
+        return max(ties)
 
 
 class SeamCarvingTransformConfig(TypedDict):

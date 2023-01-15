@@ -8,6 +8,7 @@ from mbag.environment.goals.simple import RandomGoalGenerator, SetGoalGenerator
 from mbag.environment.goals.transforms import (
     AddGrassTransform,
     CropTransform,
+    AreaSampleTranform,
     MirrorTransform,
     RandomlyPlaceTransform,
     UniformBlockTypeTransform,
@@ -116,6 +117,22 @@ def test_crop():
     assert goal.size == (3, 3, 3)
     assert np.all(goal.blocks[:1, :, :] == cobblestone)
     assert np.all(goal.blocks[1:, :, :] == MinecraftBlocks.AIR)
+
+
+def test_area_sampling():
+    cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
+    big_goal = MinecraftBlocks((10, 10, 10))
+    big_goal.blocks[:, 0, :] = cobblestone
+
+    transform = AreaSampleTranform(
+        {},
+        SetGoalGenerator({"goals": [big_goal]}),
+    )
+    goal = transform.generate_goal((5, 5, 5))
+    print(goal.blocks)
+    assert goal.size == (5, 5, 5)
+    assert np.all(goal.blocks[:, 0, :] == cobblestone)
+    assert np.all(goal.blocks[:, 1:, :] == MinecraftBlocks.AIR)
 
 
 def test_uniform_block_type():

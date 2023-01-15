@@ -12,6 +12,7 @@ from .transforms import (
     MirrorTransform,
     RandomlyPlaceTransform,
     UniformBlockTypeTransform,
+    AreaSampleTranform,
 )
 
 ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
@@ -31,6 +32,7 @@ ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
     "crop": CropTransform,
     "uniform_block_type": UniformBlockTypeTransform,
     "mirror": MirrorTransform,
+    "area_sample": AreaSampleTranform,
 }
 
 __all__ = [

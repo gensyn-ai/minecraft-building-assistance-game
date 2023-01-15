@@ -534,9 +534,7 @@ class MbagEnv(object):
             goal_size = (world_size[0] - 3, world_size[1] - 1, world_size[2] - 2)
             self.palette_x = world_size[0] - 1
 
-        print("yo")
         small_goal = self.goal_generator.generate_goal(goal_size)
-        print(small_goal, "FUCK")
 
         goal = self.current_blocks.copy()
 

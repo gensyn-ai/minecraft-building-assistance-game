@@ -1,14 +1,12 @@
 import glob
 import json
 import logging
-import math
 import os
 import random
 import sys
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 from typing_extensions import Literal, TypedDict
 
 from ..blocks import MinecraftBlocks
@@ -236,61 +234,3 @@ class GrabcraftGoalGenerator(GoalGenerator):
         logger.info(f"chose structure {structure_id} ({metadata['title']})")
 
         return structure
-
-
-class ScaledDownGrabcraftGoalGenerator(GrabcraftGoalGenerator):
-    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
-        structure: Optional[MinecraftBlocks] = None
-
-        while structure is None:
-            structure_id = random.choice(list(self.structure_metadata.keys()))
-            structure = self._get_structure(structure_id)
-
-        return self.scale_down_structure(structure, size)
-
-    def scale_down_structure(
-        self, structure: Optional[MinecraftBlocks], size: WorldSize
-    ) -> MinecraftBlocks:
-        assert structure is not None, "Must pass in a valid structure to scale down"
-
-        structure_size = structure.size
-        scale_factor = max(
-            math.ceil(structure_size[0] / size[0]),
-            math.ceil(structure_size[1] / size[1]),
-            math.ceil(structure_size[2] / size[2]),
-        )
-        scaled_down_structure = MinecraftBlocks(
-            (
-                int(math.ceil(structure_size[0] / scale_factor)),
-                int(math.ceil(structure_size[1] / scale_factor)),
-                int(math.ceil(structure_size[2] / scale_factor)),
-            )
-        )
-
-        chunk_size = (scale_factor, scale_factor, scale_factor)
-        print(chunk_size)
-
-        idx = [
-            (i, j, k)
-            for i in range(scaled_down_structure.size[0])
-            for j in range(scaled_down_structure.size[1])
-            for k in range(scaled_down_structure.size[2])
-        ]
-
-        for i, chunk in enumerate(structure.get_chunks(chunk_size)):
-            index = idx[i]
-            scaled_down_structure.blocks[index] = self._most_common_block(chunk)
-
-        return scaled_down_structure
-
-    def _most_common_block(self, array: np.ndarray):
-        mask = (array != 0) & (array != -1)
-        if np.sum(mask) < array.size / 2:
-            return 0
-
-        flat_arr = array.flatten()
-        filtered_arr = flat_arr[(flat_arr != -1) & (flat_arr != 0)]
-        counts = np.bincount(filtered_arr)
-        ties = np.where(counts == counts[np.argmax(counts)])[0]
-
-        return max(ties)
