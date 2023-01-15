@@ -3,11 +3,11 @@ Various GoalTransforms which alter a goal.
 """
 
 import logging
+import math
 import random
-from typing import Tuple, TypedDict, cast, Optional
+from typing import Optional, Tuple, TypedDict, cast
 
 import numpy as np
-import math
 from typing_extensions import Literal
 
 from ..blocks import MinecraftBlocks

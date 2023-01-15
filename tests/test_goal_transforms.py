@@ -7,8 +7,8 @@ from mbag.environment.goals.filters import DensityFilter, SingleConnectedCompone
 from mbag.environment.goals.simple import RandomGoalGenerator, SetGoalGenerator
 from mbag.environment.goals.transforms import (
     AddGrassTransform,
-    CropTransform,
     AreaSampleTranform,
+    CropTransform,
     MirrorTransform,
     RandomlyPlaceTransform,
     UniformBlockTypeTransform,

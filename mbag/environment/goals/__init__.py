@@ -8,11 +8,11 @@ from .grabcraft import GrabcraftGoalGenerator
 from .simple import BasicGoalGenerator, RandomGoalGenerator, SimpleOverhangGoalGenerator
 from .transforms import (
     AddGrassTransform,
+    AreaSampleTranform,
     CropTransform,
     MirrorTransform,
     RandomlyPlaceTransform,
     UniformBlockTypeTransform,
-    AreaSampleTranform,
 )
 
 ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
