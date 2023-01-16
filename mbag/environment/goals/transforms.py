@@ -154,12 +154,31 @@ class CropTransform(GoalTransform):
             logger.info("CropTransform was unable to find a valid crop")
 
 
+class AreaSampleTransformConfig(TypedDict):
+    max_scaling_factor: float
+
+
 class AreaSampleTranform(GoalTransform):
+    default_config: AreaSampleTransformConfig = {"max_scaling_factor": 2.0}
+    config: AreaSampleTransformConfig
+
     def generate_goal(self, size: WorldSize, *, retries: int = 20) -> MinecraftBlocks:
         structure: Optional[MinecraftBlocks] = None
 
         while structure is None:
             structure = self.goal_generator.generate_goal((100, 100, 100))
+            max_scale_down_size = (
+                structure.size[0] / self.config["max_scaling_factor"],
+                structure.size[1] / self.config["max_scaling_factor"],
+                structure.size[2] / self.config["max_scaling_factor"],
+            )
+
+            if (
+                max_scale_down_size[0] > size[0]
+                or max_scale_down_size[1] > size[1]
+                or max_scale_down_size[2] > size[2]
+            ):
+                structure = None
 
         return self.scale_down_structure(structure, size)
 
@@ -202,8 +221,9 @@ class AreaSampleTranform(GoalTransform):
         return structure
 
     def _most_common_block(self, array: np.ndarray):
+        print(array)
         mask = (array != 0) & (array != -1)
-        if np.sum(mask) < array.size / 2:
+        if np.sum(mask) < array[(array != -1)].size / 2:
             return 0
 
         flat_arr = array.flatten()

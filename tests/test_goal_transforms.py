@@ -121,7 +121,7 @@ def test_crop():
 
 def test_area_sampling():
     cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
-    big_goal = MinecraftBlocks((10, 10, 10))
+    big_goal = MinecraftBlocks((7, 7, 7))
     big_goal.blocks[:, 0, :] = cobblestone
 
     transform = AreaSampleTranform(
@@ -130,7 +130,7 @@ def test_area_sampling():
     )
     goal = transform.generate_goal((5, 5, 5))
     print(goal.blocks)
-    assert goal.size == (5, 5, 5)
+    assert goal.size == (4, 4, 4)
     assert np.all(goal.blocks[:, 0, :] == cobblestone)
     assert np.all(goal.blocks[:, 1:, :] == MinecraftBlocks.AIR)
 
