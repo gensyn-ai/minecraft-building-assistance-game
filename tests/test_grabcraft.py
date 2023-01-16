@@ -91,7 +91,7 @@ def test_area_sampling_filter():
                 "transforms": [
                     {
                         "transform": "area_sample",
-                        "config": {"max_scaling_factor": 2.2, "interpolate": True},
+                        "config": {"max_scaling_factor": 2, "interpolate": False},
                     },
                 ],
             },
