@@ -267,7 +267,7 @@ class AreaSampleTranform(GoalTransform):
         scaled_down_structure_outline = np.around(
             ndimage.zoom(masked_struct, scale_factor)
         )
-        block_fill_func = lambda coords: self._most_common_block(
+        block_fill_func = lambda coords: self._most_common_block(  # noqa: E731
             self._get_upscaled_chunk(coords, scale_factor, structure), ignore_air=True
         )
         v_block_fill_func = np.vectorize(lambda x, y, z: block_fill_func((x, y, z)))
