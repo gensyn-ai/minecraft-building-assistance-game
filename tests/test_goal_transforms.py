@@ -130,7 +130,7 @@ def test_area_sampling():
     )
     goal = transform.generate_goal((5, 5, 5))
     print(goal.blocks)
-    assert goal.size == (4, 4, 4)
+    assert goal.size == (5, 5, 5)
     assert np.all(goal.blocks[:, 0, :] == cobblestone)
     assert np.all(goal.blocks[:, 1:, :] == MinecraftBlocks.AIR)
 

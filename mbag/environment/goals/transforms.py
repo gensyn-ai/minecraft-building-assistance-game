@@ -8,6 +8,7 @@ import random
 from typing import Optional, Tuple, TypedDict, cast
 
 import numpy as np
+from scipy import ndimage
 from typing_extensions import Literal
 
 from ..blocks import MinecraftBlocks
@@ -156,10 +157,14 @@ class CropTransform(GoalTransform):
 
 class AreaSampleTransformConfig(TypedDict):
     max_scaling_factor: float
+    interpolate: bool
 
 
 class AreaSampleTranform(GoalTransform):
-    default_config: AreaSampleTransformConfig = {"max_scaling_factor": 2.0}
+    default_config: AreaSampleTransformConfig = {
+        "max_scaling_factor": 4.0,
+        "interpolate": True,
+    }
     config: AreaSampleTransformConfig
 
     def generate_goal(self, size: WorldSize, *, retries: int = 20) -> MinecraftBlocks:
@@ -188,21 +193,38 @@ class AreaSampleTranform(GoalTransform):
         assert structure is not None, "Must pass in a valid structure to scale down"
 
         structure_size = structure.size
+        print(structure_size)
         while (
             structure_size[0] > size[0]
             or structure_size[1] > size[1]
             or structure_size[2] > size[2]
         ):
+            if (
+                self._get_scale_factor(structure.blocks, size) > 0.5
+                and self.config["interpolate"]
+            ):
+                print(f"Scaling By: {1/self._get_scale_factor(structure.blocks, size)}")
+                scaled_down_structure_blocks = self._interpolate_structure(
+                    structure.blocks, size
+                )
+                structure = MinecraftBlocks(size)
+                structure.blocks[
+                    : scaled_down_structure_blocks.shape[0],
+                    : scaled_down_structure_blocks.shape[1],
+                    : scaled_down_structure_blocks.shape[2],
+                ] = scaled_down_structure_blocks
+                break
+
             scaled_down_structure = MinecraftBlocks(
                 (
-                    int(math.ceil(structure_size[0] / 2)),
-                    int(math.ceil(structure_size[1] / 2)),
-                    int(math.ceil(structure_size[2] / 2)),
+                    int(math.ceil(0.5 * structure_size[0])),
+                    int(math.ceil(0.5 * structure_size[1])),
+                    int(math.ceil(0.5 * structure_size[2])),
                 )
             )
 
             chunk_size = (2, 2, 2)
-            print(chunk_size)
+            print("Scaling By: 2")
 
             idx = [
                 (i, j, k)
@@ -220,18 +242,72 @@ class AreaSampleTranform(GoalTransform):
 
         return structure
 
-    def _most_common_block(self, array: np.ndarray):
-        print(array)
+    def _most_common_block(self, array: np.ndarray, ignore_air=False) -> int:
         mask = (array != 0) & (array != -1)
-        if np.sum(mask) < array[(array != -1)].size / 2:
+        if np.sum(mask) < array[(array != -1)].size / 2 and not ignore_air:
             return 0
 
         flat_arr = array.flatten()
         filtered_arr = flat_arr[(flat_arr != -1) & (flat_arr != 0)]
         counts = np.bincount(filtered_arr)
-        ties = np.where(counts == counts[np.argmax(counts)])[0]
 
-        return max(ties)
+        try:
+            ties = np.where(counts == counts[np.argmax(counts)])[0]
+        except Exception:
+            return 0
+
+        return int(max(ties))
+
+    def _interpolate_structure(
+        self, structure: np.ndarray, size: WorldSize
+    ) -> np.ndarray:
+        masked_struct = np.where(structure != 0, 1, structure)
+        scale_factor = self._get_scale_factor(structure, size)
+
+        scaled_down_structure_outline = np.around(
+            ndimage.zoom(masked_struct, scale_factor)
+        )
+        block_fill_func = lambda coords: self._most_common_block(
+            self._get_upscaled_chunk(coords, scale_factor, structure), ignore_air=True
+        )
+        v_block_fill_func = np.vectorize(lambda x, y, z: block_fill_func((x, y, z)))
+        x, y, z = np.indices(scaled_down_structure_outline.shape)
+
+        return np.where(  # type: ignore
+            scaled_down_structure_outline != 0,
+            v_block_fill_func(x, y, z),
+            scaled_down_structure_outline,
+        )
+
+    def _get_scale_factor(self, structure: np.ndarray, size: WorldSize):
+        return min(
+            size[0] / structure.shape[0],
+            size[1] / structure.shape[1],
+            size[2] / structure.shape[2],
+        )
+
+    def _get_upscaled_chunk(
+        self, coords: Tuple[int, int, int], downsize: float, large_structure: np.ndarray
+    ) -> np.ndarray:
+        upsize = 1 / downsize
+        upsized_coords = (
+            math.floor(coords[0] * upsize),
+            math.floor(coords[1] * upsize),
+            math.floor(coords[2] * upsize),
+        )
+
+        upsized_chunk = large_structure[
+            upsized_coords[0] : upsized_coords[0] + 2,
+            upsized_coords[1] : upsized_coords[1] + 2,
+            upsized_coords[2] : upsized_coords[2] + 2,
+        ]
+
+        full_block = np.full((2, 2, 2), -1)
+        full_block[
+            : upsized_chunk.shape[0], : upsized_chunk.shape[1], : upsized_chunk.shape[2]
+        ] = upsized_chunk
+
+        return full_block
 
 
 class SeamCarvingTransformConfig(TypedDict):

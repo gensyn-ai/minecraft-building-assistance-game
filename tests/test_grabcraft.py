@@ -78,7 +78,7 @@ def test_goal_generator_in_malmo():
 def test_area_sampling_filter():
     evaluator = MbagEvaluator(
         {
-            "world_size": (12, 12, 12),
+            "world_size": (10, 10, 10),
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": TransformedGoalGenerator,
@@ -89,7 +89,10 @@ def test_area_sampling_filter():
                     "subset": "train",
                 },
                 "transforms": [
-                    {"transform": "area_sample"},
+                    {
+                        "transform": "area_sample",
+                        "config": {"max_scaling_factor": 2.2, "interpolate": True},
+                    },
                 ],
             },
             "malmo": {
