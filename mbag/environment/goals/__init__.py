@@ -5,13 +5,19 @@ from .filters import DensityFilter, MinSizeFilter, SingleConnectedComponentFilte
 from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
 from .grabcraft import GrabcraftGoalGenerator
-from .simple import BasicGoalGenerator, RandomGoalGenerator, SimpleOverhangGoalGenerator
+from .simple import (
+    BasicGoalGenerator,
+    FromMinecraftBlocksGoalGenerator,
+    RandomGoalGenerator,
+    SimpleOverhangGoalGenerator,
+)
 from .transforms import (
     AddGrassTransform,
-    AreaSampleTranform,
+    AreaSampleTransform,
     CropTransform,
     MirrorTransform,
     RandomlyPlaceTransform,
+    SeamCarvingTransform,
     UniformBlockTypeTransform,
 )
 
@@ -21,6 +27,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "simple_overhang": SimpleOverhangGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
+    "from_minecraft_blocks": FromMinecraftBlocksGoalGenerator,
 }
 
 ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
@@ -32,7 +39,8 @@ ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
     "crop": CropTransform,
     "uniform_block_type": UniformBlockTypeTransform,
     "mirror": MirrorTransform,
-    "area_sample": AreaSampleTranform,
+    "area_sample": AreaSampleTransform,
+    "seam_carve": SeamCarvingTransform,
 }
 
 __all__ = [

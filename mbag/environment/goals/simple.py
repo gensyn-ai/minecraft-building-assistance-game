@@ -84,3 +84,24 @@ class SimpleOverhangGoalGenerator(GoalGenerator):
         goal.blocks[-1:, -3, size[2] // 2] = MinecraftBlocks.NAME2ID["cobblestone"]
 
         return goal
+
+
+class FromMinecraftBlocksGeneratorConfig(TypedDict):
+    structure: MinecraftBlocks
+
+
+class FromMinecraftBlocksGoalGenerator(GoalGenerator):
+    default_config: FromMinecraftBlocksGeneratorConfig = {
+        "structure": MinecraftBlocks((1, 1, 1))
+    }
+    config: FromMinecraftBlocksGeneratorConfig
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        while True:
+            structure = self.config["structure"]
+            if (
+                structure.size[0] <= size[0]
+                and structure.size[1] <= size[1]
+                and structure.size[2] <= size[2]
+            ):
+                return structure

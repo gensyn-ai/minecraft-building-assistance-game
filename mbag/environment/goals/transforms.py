@@ -158,17 +158,20 @@ class CropTransform(GoalTransform):
 class AreaSampleTransformConfig(TypedDict):
     max_scaling_factor: float
     interpolate: bool
+    size: WorldSize
 
 
-class AreaSampleTranform(GoalTransform):
+class AreaSampleTransform(GoalTransform):
     default_config: AreaSampleTransformConfig = {
         "max_scaling_factor": 4.0,
         "interpolate": True,
+        "size": (15, 15, 15),
     }
     config: AreaSampleTransformConfig
 
     def generate_goal(self, size: WorldSize, *, retries: int = 20) -> MinecraftBlocks:
         structure: Optional[MinecraftBlocks] = None
+        size = self.config["size"]
 
         while structure is None:
             structure = self.goal_generator.generate_goal((100, 100, 100))

@@ -7,7 +7,7 @@ from mbag.environment.goals.filters import DensityFilter, SingleConnectedCompone
 from mbag.environment.goals.simple import RandomGoalGenerator, SetGoalGenerator
 from mbag.environment.goals.transforms import (
     AddGrassTransform,
-    AreaSampleTranform,
+    AreaSampleTransform,
     CropTransform,
     MirrorTransform,
     RandomlyPlaceTransform,
@@ -124,7 +124,7 @@ def test_area_sampling():
     big_goal = MinecraftBlocks((7, 7, 7))
     big_goal.blocks[:, 0, :] = cobblestone
 
-    transform = AreaSampleTranform(
+    transform = AreaSampleTransform(
         {},
         SetGoalGenerator({"goals": [big_goal]}),
     )

@@ -76,6 +76,24 @@ def test_goal_generator_in_malmo():
 
 @pytest.mark.uses_malmo
 def test_area_sampling_filter():
+    area_sampling_generator = TransformedGoalGenerator(
+        {
+            "goal_generator": "grabcraft",
+            "goal_generator_config": {
+                "data_dir": "data/grabcraft",
+                "subset": "train",
+            },
+            "transforms": [
+                {
+                    "transform": "area_sample",
+                    "config": {"max_scaling_factor": 3, "interpolate": True},
+                }
+            ],
+        }
+    )
+
+    structure = area_sampling_generator.generate_goal((15, 15, 15))
+
     evaluator = MbagEvaluator(
         {
             "world_size": (10, 10, 10),
@@ -83,16 +101,13 @@ def test_area_sampling_filter():
             "horizon": 1000,
             "goal_generator": TransformedGoalGenerator,
             "goal_generator_config": {
-                "goal_generator": "grabcraft",
-                "goal_generator_config": {
-                    "data_dir": "data/grabcraft",
-                    "subset": "train",
-                },
+                "goal_generator": "from_minecraft_blocks",
+                "goal_generator_config": {"structure": structure},
                 "transforms": [
                     {
-                        "transform": "area_sample",
-                        "config": {"max_scaling_factor": 2, "interpolate": False},
-                    },
+                        "transform": "seam_carve",
+                        "config": {},
+                    }
                 ],
             },
             "malmo": {
