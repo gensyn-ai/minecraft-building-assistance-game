@@ -101,8 +101,8 @@ def test_area_sampling_filter():
             "horizon": 1000,
             "goal_generator": TransformedGoalGenerator,
             "goal_generator_config": {
-                "goal_generator": "from_minecraft_blocks",
-                "goal_generator_config": {"structure": structure},
+                "goal_generator": "set_goal",
+                "goal_generator_config": {"goals": [structure]},
                 "transforms": [
                     {
                         "transform": "seam_carve",

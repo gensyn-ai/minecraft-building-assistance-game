@@ -7,8 +7,8 @@ from .goal_transform import GoalTransform, TransformedGoalGenerator
 from .grabcraft import GrabcraftGoalGenerator
 from .simple import (
     BasicGoalGenerator,
-    FromMinecraftBlocksGoalGenerator,
     RandomGoalGenerator,
+    SetGoalGenerator,
     SimpleOverhangGoalGenerator,
 )
 from .transforms import (
@@ -27,7 +27,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "simple_overhang": SimpleOverhangGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
-    "from_minecraft_blocks": FromMinecraftBlocksGoalGenerator,
+    "set_goal": SetGoalGenerator,
 }
 
 ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
