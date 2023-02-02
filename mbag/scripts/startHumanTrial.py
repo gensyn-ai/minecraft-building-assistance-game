@@ -1,7 +1,7 @@
 import subprocess
 import sys, getopt
 import logging
-
+from sacred import Experiment
 from mbag.agents.heuristic_agents import NoopAgent
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
@@ -11,57 +11,21 @@ logger = logging.getLogger(__name__)
 
 READY_STATE = "CLIENT enter state: WAITING_FOR_MOD_READY"
 
+ex = Experiment()
 
-def main(argv):
-    try:
-        ops, args = getopt.getopt(argv, "m:d:a", ["minecraft=", "data=", "assistant="])
-    except getopt.GetoptError:
-        print(
-            "startHumanTrial.py -m <minecraft file> -d <data file> -a <True for assistant, False for builder>"
-        )
-        sys.exit(2)
 
+@ex.config
+def make_human_action_config():
     minecraftPath = (
         "/Users/timg/Documents/GitHub/MalmoPlatform/Minecraft/launchClient.sh"
     )
-    dataPath = "./human_data"
+    dataPath = "./data/human"
     assistant = False
-    trialBegan = False
-
-    for opt, arg in ops:
-        if opt in ("-m", "--minecraft"):
-            minecraftPath = arg
-        elif opt in ("-d", "--data"):
-            dataPath = arg
-        elif opt in ("-d", "--data"):
-            assistant = arg
-
-    print(minecraftPath)
-    print(dataPath)
-
-    process = subprocess.Popen(
-        minecraftPath, stdout=subprocess.PIPE, universal_newlines=True
-    )
-
-    while True:
-        output = process.stdout.readline()
-
-        data = output.strip()
-        print("Minecraft Client Log:", data)
-        if READY_STATE in data and not trialBegan:
-            launchHumanTrial()
-            trialBegan = True
-
-        return_code = process.poll()
-        if return_code is not None:
-            print("RETURN CODE", return_code)
-            # Process has finished, read rest of the output
-            for output in process.stdout.readlines():
-                print(output.strip())
-            break
+    horizon = 50
 
 
-def launchHumanTrial():
+@ex.capture
+def launchHumanTrial(horizon):
     evaluator = MbagEvaluator(
         {
             "world_size": (5, 6, 5),
@@ -86,8 +50,33 @@ def launchHumanTrial():
         ],
     )
     episode_info = evaluator.rollout()
-    print(episode_info)
+    logger.warning(episode_info)
 
 
-if __name__ == "__main__":
-    main(sys.argv[1:])
+@ex.automain
+def main(minecraftPath, dataPath, assistant):
+    trialBegan = False
+
+    print(minecraftPath)
+    print(dataPath)
+
+    process = subprocess.Popen(
+        minecraftPath, stdout=subprocess.PIPE, universal_newlines=True
+    )
+
+    while True:
+        output = process.stdout.readline()
+
+        data = output.strip()
+        logger.info("Minecraft Client Log:", data)
+        if READY_STATE in data and not trialBegan:
+            launchHumanTrial()
+            trialBegan = True
+
+        return_code = process.poll()
+        if return_code is not None:
+            print("RETURN CODE", return_code)
+            # Process has finished, read rest of the output
+            for output in process.stdout.readlines():
+                print(output.strip())
+            break
