@@ -1,9 +1,12 @@
 from dataclasses import dataclass
 from typing import Any, List, Tuple, Type
+import logging
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.environment.types import MbagInfoDict, MbagObs
+
+logger = logging.getLogger(__name__)
 
 MbagAgentConfig = Tuple[Type[MbagAgent], Any]
 """
@@ -26,6 +29,14 @@ class EpisodeInfo:
             "cumulative_reward": self.cumulative_reward,
             "length": self.length,
             "last_infos": self.last_infos,
+        }
+
+    def toJSON(self) -> dict:
+        return {
+            "cumulative_reward": self.cumulative_reward,
+            "length": self.length,
+            "info_history": self.info_history,
+            # "obs_history": self.obs_history,
         }
 
 
@@ -55,51 +66,57 @@ class MbagEvaluator(object):
         """
         Run a single episode, returning the cumulative reward.
         """
-
-        for agent in self.agents:
-            agent.reset()
-        all_obs = self.env.reset()
-        done = False
-        timestep = 0
-        if self.force_get_set_state:
-            agent_states = [agent.get_state() for agent in self.agents]
-
-        # should the initial setting be included?
-        reward_history = [0.0]
-        obs_history = [all_obs]
-        info_history = [self.previous_infos]
-
-        while not done:
-            if self.force_get_set_state:
-                for agent, state in zip(self.agents, agent_states):
-                    agent.reset()
-                    agent.set_state(state)
-            all_actions = [
-                agent.get_action_with_info(obs, info)
-                for agent, obs, info in zip(self.agents, all_obs, self.previous_infos)
-            ]
-            all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)
-            done = all_done[0]
-            reward_history.append(all_rewards[0])
-            obs_history.append(all_obs)
-            info_history.append(all_infos)
-            timestep += 1
-
+        try:
+            for agent in self.agents:
+                agent.reset()
+            all_obs = self.env.reset()
+            done = False
+            timestep = 0
             if self.force_get_set_state:
                 agent_states = [agent.get_state() for agent in self.agents]
-            self.previous_infos = all_infos
 
-        episode_info = EpisodeInfo(
-            reward_history=reward_history,
-            cumulative_reward=sum(reward_history),
-            length=timestep,
-            last_obs=all_obs,
-            last_infos=all_infos,
-            obs_history=obs_history,
-            info_history=info_history,
-        )
-        self.episodes.append(episode_info)
-        return episode_info
+            # should the initial setting be included?
+            reward_history = [0.0]
+            obs_history = [all_obs]
+            info_history = [self.previous_infos]
+
+            while not done:
+                if self.force_get_set_state:
+                    for agent, state in zip(self.agents, agent_states):
+                        agent.reset()
+                        agent.set_state(state)
+                all_actions = [
+                    agent.get_action_with_info(obs, info)
+                    for agent, obs, info in zip(
+                        self.agents, all_obs, self.previous_infos
+                    )
+                ]
+                all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)
+                done = all_done[0]
+                reward_history.append(all_rewards[0])
+                obs_history.append(all_obs)
+                info_history.append(all_infos)
+                timestep += 1
+
+                if self.force_get_set_state:
+                    agent_states = [agent.get_state() for agent in self.agents]
+                self.previous_infos = all_infos
+
+            episode_info = EpisodeInfo(
+                reward_history=reward_history,
+                cumulative_reward=sum(reward_history),
+                length=timestep,
+                last_obs=all_obs,
+                last_infos=all_infos,
+                obs_history=obs_history,
+                info_history=info_history,
+            )
+            self.episodes.append(episode_info)
+            return episode_info
+        except Exception as exception:
+            logger.error(exception)
+            return episode_info
+            # raise exception
 
     def log_episodes(self):
         print(self.episodes)
