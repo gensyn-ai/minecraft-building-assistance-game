@@ -444,12 +444,16 @@ class MbagEnv(object):
                     "tp " + " ".join(map(str, self.player_locations[player_index])),
                 )
 
+                player_name = self.malmo_client.get_player_name(
+                    player_index, self.config
+                )
+
                 # Give items to players.
                 for item in self.config["players"][player_index]["give_items"]:
                     self.malmo_client.send_command(
                         player_index,
                         "chat /give {} {} {}".format(
-                            self.config["players"][player_index]["player_name"],
+                            player_name,
                             item["id"],
                             item["count"],
                         ),
