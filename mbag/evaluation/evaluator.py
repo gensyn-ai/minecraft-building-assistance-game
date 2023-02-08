@@ -1,10 +1,10 @@
-from dataclasses import dataclass
-from typing import Any, List, Tuple, Type
 import logging
+from dataclasses import dataclass
+from typing import Any, List, Optional, Tuple, Type
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.environment.types import MbagInfoDict, MbagObs
+from mbag.environment.types import MbagActionTuple, MbagInfoDict, MbagObs
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class MbagEvaluator(object):
         agent_configs: List[MbagAgentConfig],
         *,
         force_get_set_state=False,
+        return_on_exception=False,
     ):
         self.env = MbagEnv(env_config)
         env_config = self.env.config
@@ -59,8 +60,7 @@ class MbagEvaluator(object):
             for agent_class, agent_config in agent_configs
         ]
         self.force_get_set_state = force_get_set_state
-        self.previous_infos: List[MbagInfoDict] = [{} for _ in self.agents]
-        self.episodes: List[EpisodeInfo] = []
+        self.return_on_exception = return_on_exception
 
     def rollout(self) -> EpisodeInfo:
         """
@@ -70,6 +70,7 @@ class MbagEvaluator(object):
             for agent in self.agents:
                 agent.reset()
             all_obs = self.env.reset()
+            previous_infos: Optional[List[MbagInfoDict]] = None
             done = False
             timestep = 0
             if self.force_get_set_state:
@@ -78,19 +79,23 @@ class MbagEvaluator(object):
             # should the initial setting be included?
             reward_history = [0.0]
             obs_history = [all_obs]
-            info_history = [self.previous_infos]
+            info_history: List[List[MbagInfoDict]] = []
 
             while not done:
                 if self.force_get_set_state:
                     for agent, state in zip(self.agents, agent_states):
                         agent.reset()
                         agent.set_state(state)
-                all_actions = [
-                    agent.get_action_with_info(obs, info)
-                    for agent, obs, info in zip(
-                        self.agents, all_obs, self.previous_infos
-                    )
-                ]
+
+                all_actions: List[MbagActionTuple] = []
+                for agent_index, agent in enumerate(self.agents):
+                    previous_info: Optional[MbagInfoDict] = None
+                    if previous_infos is not None:
+                        previous_info = previous_infos[agent_index]
+                    obs = all_obs[agent_index]
+                    action = agent.get_action_with_info(obs, previous_info)
+                    all_actions.append(action)
+
                 all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)
                 done = all_done[0]
                 reward_history.append(all_rewards[0])
@@ -111,12 +116,10 @@ class MbagEvaluator(object):
                 obs_history=obs_history,
                 info_history=info_history,
             )
-            self.episodes.append(episode_info)
             return episode_info
         except Exception as exception:
-            logger.error(exception)
-            return episode_info
-            # raise exception
-
-    def log_episodes(self):
-        print(self.episodes)
+            if self.return_on_exception:
+                logger.error(exception)
+                return episode_info
+            else:
+                raise exception

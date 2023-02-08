@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Any, List, cast
+from typing import Any, List, Optional, cast
 
 import numpy as np
 
@@ -68,10 +68,12 @@ class MbagAgent(ABC):
         uniform_dist /= uniform_dist.sum()
         return uniform_dist
 
-    def get_action_with_info(self, obs: MbagObs, info: MbagInfoDict) -> MbagActionTuple:
+    def get_action_with_info(
+        self, obs: MbagObs, info: Optional[MbagInfoDict]
+    ) -> MbagActionTuple:
         """
-        Allows for the info dict to be passed in getting an action
-        If not overridden, ignores the info dict and calls get_action
+        Allows for the info dict to be passed in getting an action.
+        If not overridden, ignores the info dict and calls get_action.
         """
         return self.get_action(obs)
 

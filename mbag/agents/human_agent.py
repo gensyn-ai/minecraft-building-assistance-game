@@ -25,20 +25,25 @@ class HumanAgent(MbagAgent):
         self.actions_queue = []
         self.last_action = None
 
-    def get_action_with_info(self, obs: MbagObs, info: MbagInfoDict) -> MbagActionTuple:
+    def get_action_with_info(
+        self, obs: MbagObs, info: Optional[MbagInfoDict]
+    ) -> MbagActionTuple:
         """
         This should return an action ID to take in the environment. Either this or the
         get_action_*_distribution methods should be overridden.
         """
 
-        if self.last_action is not None:
-            if info["action"].to_tuple() != self.last_action.to_tuple():
-                logger.error(
-                    f"human action did not succeed: expected action "
-                    f"{self.last_action} but env reported {info['action']}"
-                )
+        if info is None:
+            assert self.last_action is None
+        else:
+            if self.last_action is not None:
+                if info["action"].to_tuple() != self.last_action.to_tuple():
+                    logger.error(
+                        f"human action did not succeed: expected action "
+                        f"{self.last_action} but env reported {info['action']}"
+                    )
 
-        self.actions_queue.extend(info.get("human_actions", []))
+            self.actions_queue.extend(info.get("human_actions", []))
 
         action_tuple: MbagActionTuple = MbagAction.NOOP, 0, 0
         if len(self.actions_queue) > 0:
