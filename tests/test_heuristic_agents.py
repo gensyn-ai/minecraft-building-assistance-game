@@ -211,6 +211,7 @@ def test_lowest_block_agent():
             )
 
 
+@pytest.mark.timeout(30)
 def test_rllib_heuristic_agents():
     from ray.rllib.algorithms.pg import PG
     from ray.rllib.rollout import rollout

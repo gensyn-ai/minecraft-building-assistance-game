@@ -1,3 +1,5 @@
+import os
+import shutil
 from random import Random
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 
@@ -470,3 +472,112 @@ class MinecraftBlocks(object):
         blocks = MinecraftBlocks(size)
         np.transpose(blocks.blocks, (1, 2, 0)).flat[:] = block_ids  # type: ignore
         return blocks
+
+    def to_obj(self) -> str:
+        vertex_lines: List[str] = []
+        face_lines: List[str] = []
+
+        block_textures = {
+            MinecraftBlocks.NAME2ID["dirt"]: "dirt",
+            MinecraftBlocks.NAME2ID["cobblestone"]: "cobblestone",
+            MinecraftBlocks.NAME2ID["glass"]: "glass",
+            MinecraftBlocks.NAME2ID["log"]: "log_oak",
+            MinecraftBlocks.NAME2ID["planks"]: "planks_oak",
+            MinecraftBlocks.NAME2ID["stone"]: "stone",
+            MinecraftBlocks.NAME2ID["stonebrick"]: "stonebrick",
+            MinecraftBlocks.NAME2ID["wool"]: "wool_colored_white",
+        }
+        # Based on https://gist.github.com/noonat/1131091
+        cube_vertices = [
+            (0, 0, 1),
+            (1, 0, 1),
+            (0, 1, 1),
+            (1, 1, 1),
+            (0, 1, 0),
+            (1, 1, 0),
+            (0, 0, 0),
+            (1, 0, 0),
+        ]
+        cube_faces = [
+            # Back
+            ((1, 1, 1), (2, 2, 1), (3, 3, 1)),
+            ((3, 3, 1), (2, 2, 1), (4, 4, 1)),
+            # Top
+            ((3, 1, 2), (4, 2, 2), (5, 3, 2)),
+            ((5, 3, 2), (4, 2, 2), (6, 4, 2)),
+            # Front
+            ((5, 4, 3), (6, 3, 3), (7, 2, 3)),
+            ((7, 2, 3), (6, 3, 3), (8, 1, 3)),
+            # Bottom
+            ((7, 1, 4), (8, 2, 4), (1, 3, 4)),
+            ((1, 3, 4), (8, 2, 4), (2, 4, 4)),
+            # Right
+            ((2, 1, 5), (8, 2, 5), (4, 3, 5)),
+            ((4, 3, 5), (8, 2, 5), (6, 4, 5)),
+            # Left
+            ((7, 1, 6), (1, 2, 6), (5, 3, 6)),
+            ((5, 3, 6), (1, 2, 6), (3, 4, 6)),
+        ]
+
+        width, height, depth = self.size
+        for x in range(width):
+            for y in range(height):
+                for z in range(depth):
+                    block_id = self.blocks[x, y, z]
+                    if block_id == MinecraftBlocks.AIR:
+                        continue
+                    vertex_offset = len(vertex_lines)
+                    for vx, vy, vz in cube_vertices:
+                        vertex_lines.append(f"v {vx + x} {vy + y} {vz + z}")
+                    for face_id, base_face in enumerate(cube_faces):
+                        texture_name = block_textures[block_id]
+                        if block_id == MinecraftBlocks.NAME2ID["log"] and face_id in [
+                            2,
+                            3,
+                            6,
+                            7,
+                        ]:
+                            texture_name = "log_oak_top"
+                        face_lines.append(f"usemtl {texture_name}")
+                        face = "f"
+                        for vi, ti, ni in base_face:
+                            face += f" {vertex_offset + vi}/{ti}/{ni}"
+                        face_lines.append(face)
+
+        vertex_section = "\n".join(vertex_lines)
+        face_section = "\n".join(face_lines)
+        return f"""
+mtllib textures.mtl
+{vertex_section}
+vt 0.000000 0.000000
+vt 1.000000 0.000000
+vt 0.000000 1.000000
+vt 1.000000 1.000000
+vn 0.000000 0.000000 1.000000
+vn 0.000000 1.000000 0.000000
+vn 0.000000 0.000000 -1.000000
+vn 0.000000 -1.000000 0.000000
+vn 1.000000 0.000000 0.000000
+vn -1.000000 0.000000 0.000000
+{face_section}
+"""
+
+    def save_as_obj(self, obj_fname: str):
+        obj_dir = os.path.dirname(obj_fname)
+        data_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "data",
+        )
+        if not os.path.exists(os.path.join(obj_dir, "textures.mtl")):
+            shutil.copyfile(
+                os.path.join(data_dir, "obj", "textures.mtl"),
+                os.path.join(obj_dir, "textures.mtl"),
+            )
+        if not os.path.exists(os.path.join(obj_dir, "textures")):
+            shutil.copytree(
+                os.path.join(data_dir, "obj", "textures"),
+                os.path.join(obj_dir, "textures"),
+            )
+
+        with open(obj_fname, "w") as obj_file:
+            obj_file.write(self.to_obj())
