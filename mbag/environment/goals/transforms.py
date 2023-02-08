@@ -313,6 +313,7 @@ class AreaSampleTransform(GoalTransform):
 class SeamCarvingTransformConfig(TypedDict):
     position_coefficient: float
     density_coefficient: float
+    max_original_size: WorldSize
 
 
 class SeamCarvingTransform(GoalTransform):
@@ -324,6 +325,7 @@ class SeamCarvingTransform(GoalTransform):
     default_config: SeamCarvingTransformConfig = {
         "position_coefficient": 1,
         "density_coefficient": 1,
+        "max_original_size": (100, 100, 100),
     }
     config: SeamCarvingTransformConfig
 
@@ -385,7 +387,7 @@ class SeamCarvingTransform(GoalTransform):
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         # Generate a goal with effectively no size limits so we can slice it down.
-        goal = self.goal_generator.generate_goal((100, 100, 100))
+        goal = self.goal_generator.generate_goal(self.config["max_original_size"])
         original_positions = self._get_relative_positions(goal.size)
 
         while True:
