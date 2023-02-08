@@ -67,6 +67,12 @@ class MalmoConfigDict(TypedDict, total=False):
     Adds in a spectator player to observe the game from a 3rd person point of view.
     """
 
+    restrict_players: bool
+    """
+    Places a group of barrier blocks around players that prevents them from leaving
+    the test world
+    """
+
     video_dir: Optional[str]
     """
     Optional directory to record video from the game into.
@@ -132,6 +138,18 @@ class AbilitiesConfigDict(TypedDict):
     """
 
 
+class Item(TypedDict):
+    id: str
+    """
+    String id of a Minecraft item.
+    """
+
+    count: int
+    """
+    The number of this item to place in the player inventory
+    """
+
+
 class MbagPlayerConfigDict(TypedDict, total=False):
     player_name: Optional[str]
     """A player name that will be displayed in Minecraft if connected via Malmo."""
@@ -155,6 +173,11 @@ class MbagPlayerConfigDict(TypedDict, total=False):
     """
     Optional per-player reward configuration. Any unpopulated keys are overridden by
     values from the overall rewards config dict.
+    """
+
+    give_items: List[Item]
+    """
+    A list of items to give to the player at the beginning of the game.
     """
 
 
@@ -191,6 +214,7 @@ DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
     "is_human": False,
     "timestep_skip": 1,
     "rewards": {},
+    "give_items": [],
 }
 
 
@@ -210,6 +234,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "malmo": {
         "use_malmo": False,
         "use_spectator": False,
+        "restrict_players": False,
         "video_dir": None,
     },
     "rewards": {
@@ -369,6 +394,7 @@ class MbagEnv(object):
 
     def reset(self) -> List[MbagObs]:
         """Reset Minecraft environment and return player observations for each player."""
+
         self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
@@ -405,8 +431,9 @@ class MbagEnv(object):
             )
             time.sleep(1)  # Wait a second for the environment to load.
 
-            # Make all players fly.
+            # Pre-episode setup in Malmo.
             for player_index in range(self.config["num_players"]):
+                # Make players fly.
                 for _ in range(2):
                     self.malmo_client.send_command(player_index, "jump 1")
                     time.sleep(0.1)
@@ -416,6 +443,21 @@ class MbagEnv(object):
                     player_index,
                     "tp " + " ".join(map(str, self.player_locations[player_index])),
                 )
+
+                # Give items to players.
+                for item in self.config["players"][player_index]["give_items"]:
+                    self.malmo_client.send_command(
+                        player_index,
+                        "chat /give {} {} {}".format(
+                            self.config["players"][player_index]["player_name"],
+                            item["id"],
+                            item["count"],
+                        ),
+                    )
+
+            # Convert players to survival mode.
+            if not self.config["abilities"]["inf_blocks"]:
+                self.malmo_client.send_command(0, "chat /gamemode 0")
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -527,6 +569,7 @@ class MbagEnv(object):
         if self.config["malmo"]["use_malmo"]:
             width, height, depth = self.config["world_size"]
             goal_palette_x = self.palette_x + width + 1
+
             self.malmo_client.send_command(
                 0,
                 f"chat /clone {goal_palette_x} 0 0 "
@@ -993,7 +1036,6 @@ class MbagEnv(object):
 
     def _collides_with_players(self, proposed_block, player_id: int) -> bool:
         for i in range(len(self.player_locations)):
-
             if i == player_id:
                 continue
 

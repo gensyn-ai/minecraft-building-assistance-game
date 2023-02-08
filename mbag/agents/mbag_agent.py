@@ -1,18 +1,11 @@
 from abc import ABC
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional, Tuple, cast
 
 import numpy as np
 
-from mbag.environment.blocks import MinecraftBlocks
-
-from ..environment.mbag_env import MbagConfigDict
-from ..environment.types import (
-    MbagAction,
-    MbagActionTuple,
-    MbagActionType,
-    MbagInfoDict,
-    MbagObs,
-)
+from ..environment.mbag_env import MbagConfigDict, MbagEnv
+from ..environment.types import MbagActionTuple, MbagInfoDict, MbagObs
+from .action_distributions import MbagActionDistribution
 
 
 class MbagAgent(ABC):
@@ -25,7 +18,8 @@ class MbagAgent(ABC):
 
     def __init__(self, agent_config: Any, env_config: MbagConfigDict):
         self.agent_config = agent_config
-        self.env_config = env_config
+        self.env_config = MbagEnv.get_config(env_config)
+        self.action_mapping = MbagActionDistribution.get_action_mapping(self.env_config)
 
     def reset(self) -> None:
         """
@@ -35,38 +29,31 @@ class MbagAgent(ABC):
 
         pass
 
-    def get_action_type_distribution(self, obs: MbagObs) -> np.ndarray:
+    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
         """
-        This should return a distribution over action types that sums to 1.
-        """
-
-        uniform_dist = np.ones(MbagAction.NUM_ACTION_TYPES)
-        uniform_dist /= uniform_dist.sum()
-        return uniform_dist
-
-    def get_block_id_distribution(
-        self, obs: MbagObs, action_type: MbagActionType
-    ) -> np.ndarray:
-        """
-        This should return a distribution over block IDs that sums to 1 given the
-        observation and a sampled action type.
+        This should return a distribution over actions of shape
+        (NUM_CHANNELS, width, height, depth). See MbagActionDistribution for details.
         """
 
-        uniform_dist = np.ones(MinecraftBlocks.NUM_PLACEABLE_BLOCKS)
-        uniform_dist /= uniform_dist.sum()
-        return uniform_dist
+        raise NotImplementedError()
 
-    def get_block_location_distribution(
-        self, obs: MbagObs, action_type: MbagActionType, block_id: int
-    ) -> np.ndarray:
+    def get_action_with_distribution(
+        self, obs: MbagObs
+    ) -> Tuple[MbagActionTuple, np.ndarray]:
         """
-        This should return a distribution over block locations (3d float array) that
-        sums to 1 given the observation, a sampled action type, and a block ID.
+        Calculates the action distribution for this observation with
+        get_action_distribution, then
         """
 
-        uniform_dist = np.ones(self.env_config["world_size"])
-        uniform_dist /= uniform_dist.sum()
-        return uniform_dist
+        action_distribution = self.get_action_distribution(obs)
+        flat_action_distribution = MbagActionDistribution.to_flat(
+            self.env_config, action_distribution[None]
+        )[0]
+        flat_action = np.argmax(np.random.multinomial(1, flat_action_distribution))
+        action_tuple: MbagActionTuple = cast(
+            MbagActionTuple, tuple(self.action_mapping[flat_action])
+        )
+        return action_tuple, action_distribution
 
     def get_action_with_info(
         self, obs: MbagObs, info: Optional[MbagInfoDict]
@@ -80,35 +67,11 @@ class MbagAgent(ABC):
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         """
         This should return an action ID to take in the environment. Either this or the
-        get_action_*_distribution methods should be overridden.
+        get_action_distribution method should be overridden.
         """
 
-        action_type_dist = self.get_action_type_distribution(obs)
-        action_type: MbagActionType = cast(
-            MbagActionType, int(np.random.multinomial(1, action_type_dist).argmax())
-        )
-
-        if (
-            action_type in MbagAction.BLOCK_ID_ACTION_TYPES
-            or action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES
-        ):
-            block_id_dist = self.get_block_id_distribution(obs, action_type)
-            block_id = int(np.random.multinomial(1, block_id_dist).argmax())
-
-            if action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES:
-                block_location_dist = self.get_block_location_distribution(
-                    obs, action_type, block_id
-                )
-                block_location = int(
-                    np.random.multinomial(1, block_location_dist.flat).argmax()
-                )
-            else:
-                block_location = 0
-        else:
-            block_id = 0
-            block_location = 0
-
-        return action_type, block_location, block_id
+        action, _ = self.get_action_with_distribution(obs)
+        return action
 
     def get_state(self) -> List[np.ndarray]:
         """

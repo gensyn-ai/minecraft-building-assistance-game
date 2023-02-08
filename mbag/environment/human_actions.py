@@ -379,7 +379,6 @@ class HumanActionDetector(object):
                 range(self.env_config["num_players"])
             )
             for other_player_index in players_to_iterate:
-
                 player_picked_blocks = min(
                     self.human_blocks_on_ground[other_player_index][picked_block_id],
                     picked_block_quantity,
