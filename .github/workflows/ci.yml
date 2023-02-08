@@ -27,7 +27,7 @@ jobs:
             ${{ runner.os }}-pip-
       - name: Install pip requirements
         run: |
-          pip install --upgrade pip setuptools wheel
+          pip install --upgrade pip 'setuptools<65.5.0' wheel
           pip install -r requirements.txt
           pip install --upgrade -r requirements_dev.txt
 
