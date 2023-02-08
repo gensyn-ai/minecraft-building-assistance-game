@@ -405,7 +405,7 @@ class MbagEnv(object):
         self.last_interacted[:] = NO_INTERACTION
 
         self.goal_blocks = self._generate_goal()
-        print(self.goal_blocks.blocks)
+
         self.player_locations = [
             (
                 (i % self.config["world_size"][0]) + 0.5,
