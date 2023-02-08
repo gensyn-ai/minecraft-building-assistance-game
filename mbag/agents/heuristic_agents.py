@@ -141,7 +141,6 @@ class PriorityQueueAgent(MbagAgent):
             action_type = MbagAction.NOOP
             return action_type, 0, 0
         else:
-
             # Pop the lowest block location off of the priority queue
             layer, location = heapq.heappop(self.block_frontier)
 
@@ -345,12 +344,8 @@ class MirrorBuildingAgent(MbagAgent):
         mirror = blocks.copy()
 
         for x in range(mirror.shape[0] // 2):
-            left_slice = mirror[
-                x,
-            ]
-            right_slice = mirror[
-                -1 - x,
-            ]
+            left_slice = mirror[x,]
+            right_slice = mirror[-1 - x,]
             # First, wherever there's air on the right side, we replace it with whatever is on the left side
             right_slice[right_slice == MinecraftBlocks.AIR] = left_slice[
                 right_slice == MinecraftBlocks.AIR
@@ -367,9 +362,7 @@ class MirrorBuildingAgent(MbagAgent):
         return np.transpose((a1 != a2).nonzero())
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
-        blocks = obs[0][
-            0,
-        ]
+        blocks = obs[0][0,]
 
         blocks_mirrored = self._mirror_placed_blocks(blocks)
         differences = self._diff_indices(blocks, blocks_mirrored)
