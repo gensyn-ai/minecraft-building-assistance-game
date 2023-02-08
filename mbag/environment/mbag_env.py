@@ -1036,7 +1036,6 @@ class MbagEnv(object):
 
     def _collides_with_players(self, proposed_block, player_id: int) -> bool:
         for i in range(len(self.player_locations)):
-
             if i == player_id:
                 continue
 
