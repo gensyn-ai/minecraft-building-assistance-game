@@ -13,10 +13,6 @@ logger = logging.getLogger(__name__)
 @pytest.mark.uses_malmo
 @pytest.mark.timeout(3600)
 def test_human_in_malmo():
-    """
-    Make sure the inventory agent can place blocks
-    """
-
     evaluator = MbagEvaluator(
         {
             "world_size": (5, 6, 5),
@@ -28,12 +24,9 @@ def test_human_in_malmo():
                 "use_malmo": True,
                 "use_spectator": False,
                 "video_dir": None,
+                "restrict_players": True,
             },
-            "players": [
-                {
-                    "is_human": True,
-                }
-            ],
+            "players": [{"is_human": True, "give_items": [("diamond_pickaxe", 1)]}],
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
@@ -47,10 +40,6 @@ def test_human_in_malmo():
 @pytest.mark.uses_malmo
 @pytest.mark.timeout(3600)
 def test_two_humans_in_malmo():
-    """
-    Make sure the inventory agent can place blocks
-    """
-
     evaluator = MbagEvaluator(
         {
             "world_size": (5, 6, 5),
@@ -62,6 +51,7 @@ def test_two_humans_in_malmo():
                 "use_malmo": True,
                 "use_spectator": False,
                 "video_dir": None,
+                "restrict_players": True,
             },
             "players": [
                 {"is_human": True},
