@@ -463,7 +463,8 @@ class MalmoClient(object):
             self.ssh_processes.append(ssh_process)
 
     def _cleanup_ssh_processes(self):
-        for ssh_process in self.ssh_processes:
+        while len(self.ssh_processes) > 0:
+            ssh_process = self.ssh_processes.pop()
             ssh_process.terminate()
             if ssh_process.poll() is None:
                 time.sleep(1)
@@ -571,7 +572,7 @@ class MalmoClient(object):
                 assert minecraft_server_port is not None
                 self._open_ssh_tunnels(player_ssh_args, [("-R", minecraft_server_port)])
                 # Give some time for SSH to start.
-                time.sleep(2)
+                time.sleep(5)
 
             self._safe_start_mission(
                 agent_host,
@@ -640,6 +641,8 @@ class MalmoClient(object):
         self.agent_hosts = []
 
         self._save_specatator_video()
+
+        self._cleanup_ssh_processes()
 
     def _save_specatator_video(self):
         if self.record_fname is None:
