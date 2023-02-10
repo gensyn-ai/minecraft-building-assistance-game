@@ -1,4 +1,5 @@
 import logging
+import traceback
 from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple, Type
 
@@ -53,6 +54,11 @@ class MbagEvaluator(object):
         force_get_set_state=False,
         return_on_exception=False,
     ):
+        if len(agent_configs) != env_config["num_players"]:
+            raise ValueError(
+                f"not enough agent_configs (expected {env_config['num_players']})"
+            )
+
         self.env = MbagEnv(env_config)
         env_config = self.env.config
         self.agents = [
@@ -105,21 +111,21 @@ class MbagEvaluator(object):
 
                 if self.force_get_set_state:
                     agent_states = [agent.get_state() for agent in self.agents]
-                self.previous_infos = all_infos
-
-            episode_info = EpisodeInfo(
-                reward_history=reward_history,
-                cumulative_reward=sum(reward_history),
-                length=timestep,
-                last_obs=all_obs,
-                last_infos=all_infos,
-                obs_history=obs_history,
-                info_history=info_history,
-            )
-            return episode_info
+                previous_infos = all_infos
         except Exception as exception:
             if self.return_on_exception:
                 logger.error(exception)
-                return episode_info
+                traceback.print_exc()
             else:
                 raise exception
+
+        episode_info = EpisodeInfo(
+            reward_history=reward_history,
+            cumulative_reward=sum(reward_history),
+            length=timestep,
+            last_obs=all_obs,
+            last_infos=all_infos,
+            obs_history=obs_history,
+            info_history=info_history,
+        )
+        return episode_info
