@@ -72,21 +72,21 @@ class MbagEvaluator(object):
         """
         Run a single episode, returning the cumulative reward.
         """
+        for agent in self.agents:
+            agent.reset()
+        all_obs = self.env.reset()
+        previous_infos: Optional[List[MbagInfoDict]] = None
+        done = False
+        timestep = 0
+        if self.force_get_set_state:
+            agent_states = [agent.get_state() for agent in self.agents]
+
+        # should the initial setting be included?
+        reward_history = [0.0]
+        obs_history = [all_obs]
+        info_history: List[List[MbagInfoDict]] = []
+
         try:
-            for agent in self.agents:
-                agent.reset()
-            all_obs = self.env.reset()
-            previous_infos: Optional[List[MbagInfoDict]] = None
-            done = False
-            timestep = 0
-            if self.force_get_set_state:
-                agent_states = [agent.get_state() for agent in self.agents]
-
-            # should the initial setting be included?
-            reward_history = [0.0]
-            obs_history = [all_obs]
-            info_history: List[List[MbagInfoDict]] = []
-
             while not done:
                 if self.force_get_set_state:
                     for agent, state in zip(self.agents, agent_states):
