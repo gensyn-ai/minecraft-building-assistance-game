@@ -78,6 +78,14 @@ class MalmoConfigDict(TypedDict, total=False):
     Optional directory to record video from the game into.
     """
 
+    ssh_args: Optional[List[Optional[List[str]]]]
+    """
+    If one of the Malmo instances is running over an SSH tunnel, then the entry in this
+    list of the corresponding player should be set to a list of arguments that are
+    passed to ssh in order to access the remote machine. This will be used to
+    automatically set up necessary port forwarding.
+    """
+
 
 class RewardsConfigDict(TypedDict, total=False):
     noop: float
@@ -250,6 +258,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "use_spectator": False,
         "restrict_players": False,
         "video_dir": None,
+        "ssh_args": None,
     },
     "rewards": {
         "noop": 0.0,
@@ -259,7 +268,11 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "own_reward_prop_horizon": None,
         "get_resources": 0,
     },
-    "abilities": {"teleportation": True, "flying": True, "inf_blocks": True},
+    "abilities": {
+        "teleportation": True,
+        "flying": True,
+        "inf_blocks": True,
+    },
 }
 
 NO_ONE = 0

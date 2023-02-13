@@ -10,7 +10,7 @@ from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import Experiment
 
 from mbag.agents.human_agent import HumanAgent
-from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.environment.goals import TransformedGoalGenerator
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import MbagEvaluator
 
@@ -25,23 +25,47 @@ ex = Experiment()
 def make_human_action_config():
     launch_minecraft = False  # noqa: F841
     data_path = "data/human_data"  # noqa: F841
-    horizon = 50
+    horizon = 10000
+
+    num_players = 2
 
     mbag_config: MbagConfigDict = {  # noqa: F841
-        "world_size": (5, 6, 5),
-        "num_players": 1,
+        "world_size": (10, 10, 10),
+        "num_players": num_players,
         "horizon": horizon,
-        "goal_generator": BasicGoalGenerator,
-        "goal_generator_config": {"pallette": True},
+        "goal_generator": TransformedGoalGenerator,
+        "goal_generator_config": {
+            "goal_generator": "grabcraft",
+            "goal_generator_config": {
+                "data_dir": "data/grabcraft",
+                "subset": "train",
+            },
+            "transforms": [
+                {
+                    "transform": "crop",
+                    "config": {
+                        "density_threshold": 0.25,
+                        "tethered_to_ground": True,
+                        "wall": False,
+                    },
+                },
+                {"transform": "single_cc_filter"},
+                {"transform": "randomly_place"},
+                {"transform": "add_grass"},
+            ],
+        },
         "malmo": {
             "use_malmo": True,
             "use_spectator": False,
             "video_dir": None,
+            "restrict_players": True,
+            "ssh_args": [None for _ in range(num_players)],
         },
         "players": [
             {
                 "is_human": True,
             }
+            for _ in range(num_players)
         ],
         "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
     }
@@ -49,9 +73,15 @@ def make_human_action_config():
 
 @ex.automain
 def main(
-    launch_minecraft: bool, data_path: str, human: bool, mbag_config: MbagConfigDict
+    launch_minecraft: bool,
+    data_path: str,
+    num_players: int,
+    mbag_config: MbagConfigDict,
 ):
-    result_folder = os.path.join(data_path, str(datetime.now()))
+    os.makedirs(data_path, exist_ok=True)
+    result_folder = os.path.join(
+        data_path, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    )
     os.mkdir(result_folder)
 
     minecraft_process: Optional[Popen] = None
@@ -60,9 +90,7 @@ def main(
 
     evaluator = MbagEvaluator(
         mbag_config,
-        [
-            (HumanAgent, {}),
-        ],
+        [(HumanAgent, {}) for _ in range(num_players)],
         return_on_exception=True,
     )
 
