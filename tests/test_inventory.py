@@ -210,7 +210,7 @@ def test_initialize_with_items_in_malmo():
                                 },
                                 {
                                     "id": 34,  # gives unbreaking enchantment
-                                    "lvl": 3,  # manually set the level
+                                    "level": 3,  # manually set the level
                                 },
                             ],
                         }

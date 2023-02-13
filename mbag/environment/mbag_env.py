@@ -160,13 +160,13 @@ class Item(TypedDict):
     enchantments: List[Enchantment]
 
 
-class Enchantment(TypedDict):
-    id: str
+class Enchantment(TypedDict, total=False):
+    id: int
     """
     String id of Enchantment
     """
 
-    lvl: int
+    level: int
     """
     The level of the enchantment to give to the item
     """
@@ -482,13 +482,13 @@ class MbagEnv(object):
 
                     for enchantment in item["enchantments"]:
                         assert "id" in enchantment
-                        if "lvl" not in enchantment:
-                            enchantment["lvl"] = 32767
+                        if "level" not in enchantment:
+                            enchantment["level"] = 32767
 
                     enchantments_str = ",".join(
                         [
-                            "{{id: {}, lvl: {}}}".format(
-                                enchantment["id"], enchantment["lvl"]
+                            "{{id: {}, level: {}}}".format(
+                                enchantment["id"], enchantment["level"]
                             )
                             for enchantment in item["enchantments"]
                         ]
@@ -1205,7 +1205,7 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _update_state_from_malmo(self, infos) -> (List[MbagInfoDict], bool):
+    def _update_state_from_malmo(self, infos) -> Tuple[List[MbagInfoDict], bool]:
         """
         Resolve any discrepancies between the environment state and the state of the
         Minecraft game via Malmo. This generates human actions for human players.
@@ -1214,7 +1214,7 @@ class MbagEnv(object):
         malmo_observations = self.malmo_client.get_observations(0)
 
         if len(malmo_observations) == 0:
-            return infos
+            return infos, False
 
         _, latest_malmo_observation = sorted(malmo_observations)[-1]
 

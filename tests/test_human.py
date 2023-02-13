@@ -26,7 +26,7 @@ def test_human_in_malmo():
                 "video_dir": None,
                 "restrict_players": True,
             },
-            "players": [{"is_human": True, "give_items": [("diamond_pickaxe", 1)]}],
+            "players": [{"is_human": True}],
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
