@@ -581,7 +581,7 @@ class MalmoClient(object):
                 player_index,
                 ssh_args=player_ssh_args,
             )
-            if player_index == 0:
+            if player_index == 0 and self._get_num_agents(env_config) > 1:
                 # Wait for the Minecraft server to start and get its port.
                 timeout_seconds_left = 60
                 logger.info("waiting for the Minecraft server to start...")
