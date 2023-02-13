@@ -198,12 +198,29 @@ def test_initialize_with_items_in_malmo():
             "num_players": 1,
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
-            "players": [{"give_items": [{"id": "diamond_pickaxe", "count": 1}]}],
+            "players": [
+                {
+                    "give_items": [
+                        {
+                            "id": "diamond_pickaxe",
+                            "count": 1,
+                            "enchantments": [
+                                {
+                                    "id": 33,  # gives silk touch enchantment, lvl defaults to max lvl
+                                },
+                                {
+                                    "id": 34,  # gives unbreaking enchantment
+                                    "lvl": 3,  # manually set the level
+                                },
+                            ],
+                        }
+                    ]
+                }
+            ],
             "malmo": {"use_malmo": True, "use_spectator": False, "video_dir": None},
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
-            (HardcodedInventoryDonator, {}),
             (NoopAgent, {}),
         ],
     )

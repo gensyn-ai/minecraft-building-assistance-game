@@ -149,6 +149,20 @@ class Item(TypedDict):
     The number of this item to place in the player inventory
     """
 
+    enchantments: List[Enchantment]
+
+
+class Enchantment(TypedDict):
+    id: str
+    """
+    String id of Enchantment
+    """
+
+    lvl: int
+    """
+    The level of the enchantment to give to the item
+    """
+
 
 class MbagPlayerConfigDict(TypedDict, total=False):
     player_name: Optional[str]
@@ -450,12 +464,32 @@ class MbagEnv(object):
 
                 # Give items to players.
                 for item in self.config["players"][player_index]["give_items"]:
+
+                    if "enchantments" not in item:
+                        item["enchantments"] = []
+
+                    for enchantment in item["enchantments"]:
+                        assert "id" in enchantment
+                        if "lvl" not in enchantment:
+                            enchantment["lvl"] = 32767
+
+                    enchantments_str = ",".join(
+                        [
+                            "{{id: {}, lvl: {}}}".format(
+                                enchantment["id"], enchantment["lvl"]
+                            )
+                            for enchantment in item["enchantments"]
+                        ]
+                    )
+
                     self.malmo_client.send_command(
                         player_index,
-                        "chat /give {} {} {}".format(
+                        "chat /give {} {} {} {} {}".format(
                             player_name,
                             item["id"],
                             item["count"],
+                            0,
+                            "{{ench: [{}]}}".format(enchantments_str),
                         ),
                     )
 
