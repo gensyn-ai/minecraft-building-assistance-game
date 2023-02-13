@@ -64,6 +64,22 @@ def make_human_action_config():
         "players": [
             {
                 "is_human": True,
+                "give_items": [
+                    {
+                        "id": "diamond_pickaxe",
+                        "count": 1,
+                        "enchantments": [
+                            # Gives silk touch enchantment, level defaults to max.
+                            {
+                                "id": 33,
+                            },
+                            {
+                                "id": 34,  # Gives unbreaking enchantment.
+                                "level": 3,  # Manually set the level.
+                            },
+                        ],
+                    }
+                ],
             }
             for _ in range(num_players)
         ],
@@ -98,7 +114,7 @@ def main(
     with open(os.path.join(result_folder, "result.json"), "w") as result_file:
         json.dump(episode_info.toJSON(), result_file, cls=SafeFallbackEncoder)
 
-    logger.info("Saved file in ", result_folder)
+    logger.info(f"saved file in {result_folder}")
 
     if minecraft_process is not None:
         minecraft_process.terminate()
