@@ -16,8 +16,6 @@ from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
 
-READY_STATE = "CLIENT enter state: WAITING_FOR_MOD_READY"
-
 ex = Experiment()
 
 
