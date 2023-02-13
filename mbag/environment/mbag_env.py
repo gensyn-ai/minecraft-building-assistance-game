@@ -556,8 +556,9 @@ class MbagEnv(object):
 
         if self.config["malmo"]["use_malmo"]:
             time.sleep(self.malmo_client.ACTION_DELAY)
-            infos = self._update_state_from_malmo(infos)
-            self._copy_palette_from_goal_in_malmo()
+            infos, update = self._update_state_from_malmo(infos)
+            if update:
+                self._copy_palette_from_goal_in_malmo()
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -1205,9 +1206,9 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _update_state_from_malmo(self, infos):
+    def _update_state_from_malmo(self, infos) -> (List[MbagInfoDict], bool):
         """
-        Resolve any discrepencies between the environment state and the state of the
+        Resolve any discrepancies between the environment state and the state of the
         Minecraft game via Malmo. This generates human actions for human players.
         """
 
@@ -1218,8 +1219,7 @@ class MbagEnv(object):
 
         _, latest_malmo_observation = sorted(malmo_observations)[-1]
 
-        human_actions: List[Tuple[int, MbagActionTuple]] = []
-
+        human_actions: List[Tuple[int, MbagActionTuple]] = []        
         for player_index in range(self.config["num_players"]):
             malmo_player_observations = []
             if player_index == 0:
@@ -1314,17 +1314,22 @@ class MbagEnv(object):
                             )
                             self.player_locations[player_index] = malmo_location
 
-        self._update_blocks_from_malmo(latest_malmo_observation)
+        palette_needs_updating = self._update_blocks_from_malmo(latest_malmo_observation)
 
         for player_index, human_action in human_actions:
             assert self.config["players"][player_index]["is_human"]
             infos[player_index]["human_actions"].append(human_action)
 
-        return infos
+        return infos, palette_needs_updating
 
     def _update_blocks_from_malmo(
         self, latest_malmo_observation: "MalmoObservationDict"
-    ):
+    ) -> bool:
+        """
+        Compares blocks in the env and Malmo. Returns whether the palette needs to be regenerated
+        """
+
+        palette_needs_updating = False
         if "world" in latest_malmo_observation and "goal" in latest_malmo_observation:
             self.malmo_blocks = MinecraftBlocks.from_malmo_grid(
                 self.config["world_size"], latest_malmo_observation["world"]
@@ -1352,6 +1357,8 @@ class MbagEnv(object):
                     f"{MinecraftBlocks.ID2NAME[self.malmo_blocks.blocks[location]]} "
                     "from Malmo"
                 )
+                if location[0] == self.palette_x:
+                    palette_needs_updating = True
 
             for location in cast(
                 Sequence[BlockLocation],
@@ -1370,6 +1377,8 @@ class MbagEnv(object):
         ] = self.malmo_blocks.blocks[
             self.human_action_detector.blocks_with_no_pending_human_interactions
         ]
+
+        return palette_needs_updating
 
     def _done(self) -> bool:
         return (
