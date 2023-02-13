@@ -530,8 +530,7 @@ class MalmoClient(object):
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
     ):
-        # For players that aren't represented in the client pool already, make sure we
-        # set up SSH forwarding.
+        # Set up SSH forwarding.
         for player_index in range(env_config["num_players"]):
             player_ssh_args = self._get_player_ssh_args(env_config, player_index)
             if player_ssh_args is not None:
@@ -572,7 +571,7 @@ class MalmoClient(object):
                 assert minecraft_server_port is not None
                 self._open_ssh_tunnels(player_ssh_args, [("-R", minecraft_server_port)])
                 # Give some time for SSH to start.
-                time.sleep(5)
+                time.sleep(10)
 
             self._safe_start_mission(
                 agent_host,
