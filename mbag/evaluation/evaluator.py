@@ -112,12 +112,15 @@ class MbagEvaluator(object):
                 if self.force_get_set_state:
                     agent_states = [agent.get_state() for agent in self.agents]
                 previous_infos = all_infos
-        except Exception as exception:
+        except (Exception, KeyboardInterrupt) as exception:
             if self.return_on_exception:
                 logger.error(exception)
                 traceback.print_exc()
             else:
                 raise exception
+
+        if self.env.config["malmo"]["use_malmo"]:
+            self.env.malmo_client.end_mission()
 
         episode_info = EpisodeInfo(
             reward_history=reward_history,
