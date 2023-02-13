@@ -477,7 +477,6 @@ class MbagEnv(object):
 
                 # Give items to players.
                 for item in self.config["players"][player_index]["give_items"]:
-
                     if "enchantments" not in item:
                         item["enchantments"] = []
 
@@ -1219,7 +1218,7 @@ class MbagEnv(object):
 
         _, latest_malmo_observation = sorted(malmo_observations)[-1]
 
-        human_actions: List[Tuple[int, MbagActionTuple]] = []        
+        human_actions: List[Tuple[int, MbagActionTuple]] = []
         for player_index in range(self.config["num_players"]):
             malmo_player_observations = []
             if player_index == 0:
@@ -1314,7 +1313,9 @@ class MbagEnv(object):
                             )
                             self.player_locations[player_index] = malmo_location
 
-        palette_needs_updating = self._update_blocks_from_malmo(latest_malmo_observation)
+        palette_needs_updating = self._update_blocks_from_malmo(
+            latest_malmo_observation
+        )
 
         for player_index, human_action in human_actions:
             assert self.config["players"][player_index]["is_human"]
