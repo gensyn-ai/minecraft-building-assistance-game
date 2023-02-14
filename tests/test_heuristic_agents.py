@@ -274,14 +274,10 @@ def test_mirror_placed_blocks():
     assert np.array_equal(agent._mirror_placed_blocks(blocks), blocks)
 
     # If one half is all bedrock the other half should also be all bedrock
-    blocks[
-        :2,
-    ] = MinecraftBlocks.BEDROCK
+    blocks[:2,] = MinecraftBlocks.BEDROCK
     assert (agent._mirror_placed_blocks(blocks) == MinecraftBlocks.BEDROCK).all()
     blocks[:] = MinecraftBlocks.AIR
-    blocks[
-        2:,
-    ] = MinecraftBlocks.BEDROCK
+    blocks[2:,] = MinecraftBlocks.BEDROCK
     assert (agent._mirror_placed_blocks(blocks) == MinecraftBlocks.BEDROCK).all()
 
     # Check if it can mirror one block change on the left side
@@ -366,7 +362,6 @@ def test_mirror_building_agent_get_action():
 
 
 def test_mirror_building_agent():
-
     evaluator = MbagEvaluator(
         {
             "world_size": (10, 10, 10),

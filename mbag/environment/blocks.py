@@ -57,16 +57,7 @@ class MinecraftBlocks(object):
         **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
         # Alias names:
         "grass": 2,
-        "auto": 28,
-        "barrier": 29,
-        "ghost_dirt": 0,
-        "ghost_cobblestone": 0,
-        "ghost_glass": 0,
-        "ghost_log": 0,
-        "ghost_planks": 0,
-        "ghost_stone": 0,
-        "ghost_stonebrick": 0,
-        "ghost_wool": 0,
+        "auto": 255,
     }
 
     AIR = NAME2ID["air"]

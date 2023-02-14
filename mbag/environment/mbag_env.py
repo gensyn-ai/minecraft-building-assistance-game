@@ -34,6 +34,7 @@ from .types import (
     GOAL_BLOCK_STATES,
     GOAL_BLOCKS,
     LAST_INTERACTED,
+    PLAYER_LOCATIONS,
     BlockLocation,
     FacingDirection,
     MbagAction,
@@ -405,6 +406,7 @@ class MbagEnv(object):
         self.last_interacted[:] = NO_INTERACTION
 
         self.goal_blocks = self._generate_goal()
+
         self.player_locations = [
             (
                 (i % self.config["world_size"][0]) + 0.5,
@@ -1038,7 +1040,6 @@ class MbagEnv(object):
 
     def _collides_with_players(self, proposed_block, player_id: int) -> bool:
         for i in range(len(self.player_locations)):
-
             if i == player_id:
                 continue
 
@@ -1135,8 +1136,8 @@ class MbagEnv(object):
             if y_feet + 1 < self.config["world_size"][1]
             else [y_feet]
         ):
-            assert world_obs[4, x, y, z] == 0, "players are overlapping"
-            world_obs[4, x, y, z] = marker
+            assert world_obs[PLAYER_LOCATIONS, x, y, z] == 0, "players are overlapping"
+            world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         return self.config["players"][player_index]["rewards"]
