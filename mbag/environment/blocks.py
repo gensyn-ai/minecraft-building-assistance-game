@@ -440,17 +440,14 @@ class MinecraftBlocks(object):
         num_rows
         """
         shape = original_blocks.shape
-        if axis == 0:
-            new_matrix = np.full((shape[0] + num_rows, shape[1], shape[2]), value)
-            new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
-        elif axis == 1:
-            new_matrix = np.full((shape[0], shape[1] + num_rows, shape[2]), value)
-            new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
-        elif axis == 2:
-            new_matrix = np.full((shape[0], shape[1], shape[2] + num_rows), value)
-            new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
-        else:
+
+        if axis not in [0, 1, 2]:
             raise ValueError("Invalid axis value. Axis must be 0, 1, or 2.")
+
+        new_shape = list(shape)
+        new_shape[axis] += num_rows
+        new_matrix = np.full(new_shape, value)
+        new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
 
         return new_matrix
 
@@ -460,20 +457,15 @@ class MinecraftBlocks(object):
         being a 3d block from the structure of the specified chunk size.
         """
         work_array = np.copy(self.blocks)
-        if self.size[0] % chunk_size[0] != 0:
-            work_array = MinecraftBlocks._pad_blocks(
-                work_array, 0, chunk_size[0] - (self.size[0] % chunk_size[0])
-            )
-        if self.size[1] % chunk_size[1] != 0:
-            work_array = MinecraftBlocks._pad_blocks(
-                work_array, 1, chunk_size[1] - (self.size[1] % chunk_size[1])
-            )
-        if self.size[2] % chunk_size[2] != 0:
-            work_array = MinecraftBlocks._pad_blocks(
-                work_array, 2, chunk_size[2] - (self.size[2] % chunk_size[2])
-            )
 
-        # print(work_array.shape)
+        for axis in [0, 1, 2]:
+            if self.size[axis] % chunk_size[axis] != 0:
+                work_array = MinecraftBlocks._pad_blocks(
+                    work_array,
+                    axis,
+                    chunk_size[axis] - (self.size[axis] % chunk_size[axis]),
+                )
+
         blocks: NDArray = view_as_blocks(work_array, chunk_size)
         return np.concatenate(blocks).ravel().reshape((-1, *chunk_size))  # type: ignore
 
