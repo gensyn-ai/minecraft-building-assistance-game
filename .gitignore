@@ -2,8 +2,7 @@ __pycache__
 *.pyc
 *.ipynb
 .vscode
-data/
-data/grabcraft
+data
 venv
 .idea
 venv.bak
