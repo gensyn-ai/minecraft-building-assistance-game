@@ -246,7 +246,7 @@ class MalmoClient(object):
 
     @staticmethod
     def _draw_wall(
-        env_config: MbagConfigDict,
+        env_config: "MbagConfigDict",
         block_type: str,
         coord_1: Tuple[int, int, int],
         coord_2: Tuple[int, int, int],
