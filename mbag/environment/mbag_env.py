@@ -34,6 +34,7 @@ from .types import (
     GOAL_BLOCK_STATES,
     GOAL_BLOCKS,
     LAST_INTERACTED,
+    PLAYER_LOCATIONS,
     BlockLocation,
     FacingDirection,
     MbagAction,
@@ -1132,8 +1133,8 @@ class MbagEnv(object):
             if y_feet + 1 < self.config["world_size"][1]
             else [y_feet]
         ):
-            assert world_obs[4, x, y, z] == 0, "players are overlapping"
-            world_obs[4, x, y, z] = marker
+            assert world_obs[PLAYER_LOCATIONS, x, y, z] == 0, "players are overlapping"
+            world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         return self.config["players"][player_index]["rewards"]
