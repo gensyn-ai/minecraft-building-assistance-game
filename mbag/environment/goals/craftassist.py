@@ -166,6 +166,8 @@ class CraftAssistGoalGenerator(GoalGenerator):
                         success = False
 
             self._fill_auto_with_real_blocks(structure)
+            if np.any(structure.blocks == MinecraftBlocks.AUTO):
+                success = False
 
         logger.info(f"chose house {house_id}")
 
