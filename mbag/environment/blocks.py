@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 import cc3d
 import numpy as np
 from numpy.typing import NDArray
-from skimage.util import view_as_blocks  # type: ignore
+from skimage.util import view_as_blocks
 
 from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize
 
