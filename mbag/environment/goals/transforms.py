@@ -5,10 +5,13 @@ Various GoalTransforms which alter a goal.
 import logging
 import math
 import random
-from typing import Optional, Tuple, TypedDict, cast
+from typing import List, Optional, Tuple, TypedDict, cast
 
+import cc3d
+import networkx as nx
 import numpy as np
 from scipy import ndimage
+from skimage.util import view_as_blocks
 from typing_extensions import Literal
 
 from ..blocks import MinecraftBlocks
@@ -157,15 +160,35 @@ class CropTransform(GoalTransform):
 
 class AreaSampleTransformConfig(TypedDict):
     max_scaling_factor: float
+    """Maximum factor by which goals should be scaled."""
+
     interpolate: bool
+    """Use interpolation to scale by factors that are not a power of two."""
+
+    interpolation_order: int
+    """The spline order used to interpolate, i.e., 0 = nearest neighbor, 1 = bilinear,
+    3 = bicubic, etc."""
+
+    scale_y_independently: bool
+    """If interpolate is True, then this allows the Y dimension to be scaled
+    independently of the X and Z dimensions."""
+
+    max_scaling_factor_ratio: float
+    """If scale_y_independently is True, this controls the maximum ratio between the
+    scale factors for the Y and X/Z dimensions."""
 
 
 class AreaSampleTransform(GoalTransform):
     default_config: AreaSampleTransformConfig = {
         "max_scaling_factor": 4.0,
         "interpolate": True,
+        "interpolation_order": 3,
+        "scale_y_independently": True,
+        "max_scaling_factor_ratio": 1.5,
     }
     config: AreaSampleTransformConfig
+
+    DOOR = 254
 
     def generate_goal(self, size: WorldSize, *, retries: int = 20) -> MinecraftBlocks:
         structure: Optional[MinecraftBlocks] = None
@@ -192,57 +215,112 @@ class AreaSampleTransform(GoalTransform):
     ) -> MinecraftBlocks:
         assert structure is not None, "Must pass in a valid structure to scale down"
 
-        structure_size = structure.size
-        print(structure_size)
-        while (
-            structure_size[0] > size[0]
-            or structure_size[1] > size[1]
-            or structure_size[2] > size[2]
-        ):
-            if (
-                self._get_scale_factor(structure.blocks, size) > 0.5
-                and self.config["interpolate"]
-            ):
-                print(f"Scaling By: {1/self._get_scale_factor(structure.blocks, size)}")
-                scaled_down_structure_blocks = self._interpolate_structure(
-                    structure.blocks, size
-                )
-                structure = MinecraftBlocks(size)
-                structure.blocks[
-                    : scaled_down_structure_blocks.shape[0],
-                    : scaled_down_structure_blocks.shape[1],
-                    : scaled_down_structure_blocks.shape[2],
-                ] = scaled_down_structure_blocks
-                break
+        logger.info(f"original structure size = {structure.size}")
 
-            scaled_down_structure = MinecraftBlocks(
-                (
-                    int(math.ceil(0.5 * structure_size[0])),
-                    int(math.ceil(0.5 * structure_size[1])),
-                    int(math.ceil(0.5 * structure_size[2])),
+        if all(structure.size[axis] <= size[axis] for axis in range(3)):
+            return structure
+
+        doors = AreaSampleTransform._find_doors(structure)
+        structure.blocks[doors] = AreaSampleTransform.DOOR
+
+        if self.config["interpolate"]:
+            scaling_iterations = int(
+                np.ceil(
+                    np.log2(max(structure.size[axis] / size[axis] for axis in range(3)))
                 )
             )
+            assert scaling_iterations >= 1
 
-            chunk_size = (2, 2, 2)
-            print("Scaling By: 2")
+            structure = self._interpolate_structure(
+                structure,
+                size,
+                self._get_zoom(structure.size, size, scaling_iterations),
+            )
 
-            idx = [
-                (i, j, k)
-                for i in range(scaled_down_structure.size[0])
-                for j in range(scaled_down_structure.size[1])
-                for k in range(scaled_down_structure.size[2])
-            ]
+        if False:
+            # We directly zoom to get block types, but scale up and then scale down
+            # to get the mask (where air should/shouldn't be).
 
-            for i, chunk in enumerate(structure.get_chunks(chunk_size)):
-                index = idx[i]
-                scaled_down_structure.blocks[index] = self._most_common_block(chunk)
+            mask_zoom = self._get_zoom(structure.size, size, scaling_iterations)
+            mask = structure.blocks != MinecraftBlocks.AIR
+            mask = self._zoom_with_ids(mask.astype(np.uint8), mask_zoom) != 0
+            print(f"{mask_zoom=} {mask.shape=}")
+            while any(mask.shape[axis] > size[axis] for axis in range(3)):
+                scaled_down_mask_size = tuple(
+                    int(math.ceil(mask.shape[axis] / 2)) for axis in range(3)
+                )
+                padded_size = tuple(
+                    scaled_down_mask_size[axis] * 2 for axis in range(3)
+                )
+                padded_mask = np.zeros_like(mask, shape=padded_size)
+                padded_mask[: mask.shape[0], : mask.shape[1], : mask.shape[2]] = mask
+                scaled_down_mask = (
+                    view_as_blocks(padded_mask, (2, 2, 2))
+                    .reshape((scaled_down_mask_size) + (8,))
+                    .any(axis=-1)
+                )
+                mask = scaled_down_mask
+                print(f"{mask.shape=}")
 
-            structure = scaled_down_structure
-            structure_size = structure.size
+            block_zoom = (
+                mask.shape[0] / structure.size[0],
+                mask.shape[1] / structure.size[1],
+                mask.shape[2] / structure.size[2],
+            )
+            interpolated_structure = self._interpolate_structure(
+                structure, size, block_zoom, ignore_air=True
+            )
+            print(f"{block_zoom=} {interpolated_structure.size=}")
 
-        return structure
+            interpolated_structure.blocks[~mask] = MinecraftBlocks.AIR
+            return interpolated_structure
+
+        if True:
+            while (
+                structure.size[0] > size[0]
+                or structure.size[1] > size[1]
+                or structure.size[2] > size[2]
+            ):
+                scaled_down_structure = MinecraftBlocks(
+                    (
+                        int(math.ceil(0.5 * structure.size[0])),
+                        int(math.ceil(0.5 * structure.size[1])),
+                        int(math.ceil(0.5 * structure.size[2])),
+                    )
+                )
+
+                chunk_size = (2, 2, 2)
+                logger.info("scaling down by 2x")
+
+                idx = [
+                    (i, j, k)
+                    for i in range(scaled_down_structure.size[0])
+                    for j in range(scaled_down_structure.size[1])
+                    for k in range(scaled_down_structure.size[2])
+                ]
+
+                for i, chunk in enumerate(structure.get_chunks(chunk_size)):
+                    index = idx[i]
+                    scaled_down_structure.blocks[index] = self._most_common_block(
+                        chunk, ignore_air=True
+                    )
+
+                structure = scaled_down_structure
+
+            # Postprocess doors.
+            for door_x, door_y, door_z in zip(
+                *np.nonzero(structure.blocks == AreaSampleTransform.DOOR)
+            ):
+                structure.blocks[door_x, door_y, door_z] = MinecraftBlocks.AIR
+                if door_y + 1 < structure.size[1]:
+                    structure.blocks[door_x, door_y + 1, door_z] = MinecraftBlocks.AIR
+
+            return structure
 
     def _most_common_block(self, array: np.ndarray, ignore_air=False) -> int:
+        if np.any(array == AreaSampleTransform.DOOR):
+            return AreaSampleTransform.DOOR
+
         mask = (array != 0) & (array != -1)
         if np.sum(mask) < array[(array != -1)].size / 2 and not ignore_air:
             return 0
@@ -258,56 +336,171 @@ class AreaSampleTransform(GoalTransform):
 
         return int(max(ties))
 
+    def _zoom_with_ids(
+        self,
+        input: np.ndarray,
+        zoom: Tuple[float, float, float],
+        ignore_air=False,
+        **kwargs,
+    ) -> np.ndarray:
+        all_ids = np.sort(np.unique(input))
+        assert all_ids[0] == MinecraftBlocks.AIR
+        zoomed_per_id_list: List[np.ndarray] = []
+        for id_index, id in enumerate(all_ids):
+            zoomed_per_id_list.append(
+                ndimage.zoom((input == id).astype(float), zoom, **kwargs)
+            )
+        zoomed_per_id = np.stack(zoomed_per_id_list, axis=0)
+        if ignore_air:
+            zoomed_per_id[0] = -1
+        return cast(np.ndarray, all_ids[zoomed_per_id.argmax(axis=0)])
+
     def _interpolate_structure(
-        self, structure: np.ndarray, size: WorldSize
-    ) -> np.ndarray:
-        masked_struct = np.where(structure != 0, 1, structure)
-        scale_factor = self._get_scale_factor(structure, size)
-
-        scaled_down_structure_outline = np.around(
-            ndimage.zoom(masked_struct, scale_factor)
+        self,
+        structure: MinecraftBlocks,
+        size: WorldSize,
+        zoom: Tuple[float, float, float],
+        ignore_air: bool = False,
+    ) -> MinecraftBlocks:
+        blocks = self._zoom_with_ids(
+            structure.blocks,
+            zoom,
+            order=self.config["interpolation_order"],
+            ignore_air=ignore_air,
         )
-        block_fill_func = lambda coords: self._most_common_block(  # noqa: E731
-            self._get_upscaled_chunk(coords, scale_factor, structure), ignore_air=True
-        )
-        v_block_fill_func = np.vectorize(lambda x, y, z: block_fill_func((x, y, z)))
-        x, y, z = np.indices(scaled_down_structure_outline.shape)
-
-        return np.where(  # type: ignore
-            scaled_down_structure_outline != 0,
-            v_block_fill_func(x, y, z),
-            scaled_down_structure_outline,
+        block_states = self._zoom_with_ids(
+            structure.block_states, zoom, order=self.config["interpolation_order"]
         )
 
-    def _get_scale_factor(self, structure: np.ndarray, size: WorldSize):
-        return min(
-            size[0] / structure.shape[0],
-            size[1] / structure.shape[1],
-            size[2] / structure.shape[2],
+        interpolated_structure = MinecraftBlocks(cast(WorldSize, blocks.shape))
+        interpolated_structure.blocks[...] = blocks
+        interpolated_structure.block_states[...] = block_states
+        return interpolated_structure
+
+    def _get_zoom(
+        self,
+        structure_size: WorldSize,
+        target_size: WorldSize,
+        scaling_iterations: int,
+    ) -> Tuple[float, float, float]:
+        total_scaling = 2.0**scaling_iterations
+
+        raw_zoom = [np.nan] * 3
+        for axis in range(3):
+            raw_zoom[axis] = (
+                min(1, target_size[axis] / structure_size[axis]) * total_scaling
+            )
+
+        if self.config["scale_y_independently"]:
+            xz_zoom = min(raw_zoom[0], raw_zoom[2])
+            y_zoom = raw_zoom[1]
+
+            y_zoom = min(y_zoom, xz_zoom * self.config["max_scaling_factor_ratio"])
+            xz_zoom = min(xz_zoom, y_zoom * self.config["max_scaling_factor_ratio"])
+            return xz_zoom, y_zoom, xz_zoom
+        else:
+            xyz_zoom = min(raw_zoom)
+            return xyz_zoom, xyz_zoom, xyz_zoom
+
+    @staticmethod
+    def _find_doors(structure: MinecraftBlocks):
+        width, height, depth = structure.size
+        world = MinecraftBlocks((width + 2, height + 2, depth + 2))
+        world.blocks[1:-1, :-2, 1:-1] = structure.blocks
+        bottom_layer = world.blocks[:, 0, :]
+        bottom_layer[bottom_layer != MinecraftBlocks] = 1
+        can_stand = np.concatenate(
+            [
+                np.zeros_like(structure.blocks[:, :1, :], dtype=bool),
+                (structure.blocks != MinecraftBlocks.AIR)[:, :-1, :],
+            ],
+            axis=1,
+        )
+        can_stand = np.zeros_like(world.blocks, dtype=bool)
+        can_stand[:, 1:-1, :] = (
+            (world.blocks != MinecraftBlocks.AIR)[:, :-2, :]
+            & (world.blocks == MinecraftBlocks.AIR)[:, 1:-1]
+            & (world.blocks == MinecraftBlocks.AIR)[:, 2:, :]
+        )
+        can_stand[:, 2:-1, :] |= (
+            (world.blocks != MinecraftBlocks.AIR)[:, :-3, :]
+            & (world.blocks == MinecraftBlocks.AIR)[:, 1:-2]
+            & (world.blocks == MinecraftBlocks.AIR)[:, 2:-1]
+            & (world.blocks == MinecraftBlocks.AIR)[:, 3:, :]
         )
 
-    def _get_upscaled_chunk(
-        self, coords: Tuple[int, int, int], downsize: float, large_structure: np.ndarray
-    ) -> np.ndarray:
-        upsize = 1 / downsize
-        upsized_coords = (
-            math.floor(coords[0] * upsize),
-            math.floor(coords[1] * upsize),
-            math.floor(coords[2] * upsize),
+        component_ids = cc3d.connected_components(can_stand, connectivity=6)
+        ground_component_id = component_ids[0, 1, 0]
+        ground_component = (component_ids == ground_component_id)[:, :-2, :]
+
+        xx, yy, zz = np.meshgrid(
+            np.arange(width + 2), np.arange(height), np.arange(depth + 2), indexing="ij"
+        )
+        numel = (width + 2) * height * (depth + 2)
+        xx1, yy1, zz1 = xx.reshape(numel, 1), yy.reshape(numel, 1), zz.reshape(numel, 1)
+        xx2, yy2, zz2 = xx.reshape(1, numel), yy.reshape(1, numel), zz.reshape(1, numel)
+        adj_matrix = np.zeros((numel, numel), dtype=bool)
+        adj_matrix |= (np.abs(xx1 - xx2) == 1) & (yy1 == yy2) & (zz1 == zz2)
+        adj_matrix |= (xx1 == xx2) & (np.abs(yy1 - yy2) == 1) & (zz1 == zz2)
+        adj_matrix |= (xx1 == xx2) & (yy1 == yy2) & (np.abs(zz1 - zz2) == 1)
+        adj_matrix[~ground_component.reshape(numel), :] = False
+        adj_matrix[:, ~ground_component.reshape(numel)] = False
+
+        walkable_graph = nx.Graph(
+            adj_matrix,
+        )
+        walkable_graph.remove_nodes_from(
+            [
+                node
+                for node, degree in dict(walkable_graph.degree()).items()
+                if degree == 0
+            ]
         )
 
-        upsized_chunk = large_structure[
-            upsized_coords[0] : upsized_coords[0] + 2,
-            upsized_coords[1] : upsized_coords[1] + 2,
-            upsized_coords[2] : upsized_coords[2] + 2,
-        ]
+        centrality_dict = nx.betweenness_centrality(walkable_graph)
+        centrality = np.zeros((width + 2, height, depth + 2))
+        for node_id, node_centrality in centrality_dict.items():
+            centrality.flat[node_id] = node_centrality
 
-        full_block = np.full((2, 2, 2), -1)
-        full_block[
-            : upsized_chunk.shape[0], : upsized_chunk.shape[1], : upsized_chunk.shape[2]
-        ] = upsized_chunk
+        centrality[0, :, :] = 0
+        centrality[-1, :, :] = 0
+        centrality[:, :, 0] = 0
+        centrality[:, :, -1] = 0
 
-        return full_block
+        local_max_id = np.arange(numel)
+        local_max_val = np.zeros(numel)
+        local_max_val[:] = centrality.flat
+        prev_local_max_id = np.zeros_like(local_max_id)
+        while np.any(local_max_id != prev_local_max_id):
+            prev_local_max_id = local_max_id
+            possible_max_vals = np.zeros((numel, numel))
+            possible_max_vals[...] = centrality.reshape(numel)[None, :]
+            possible_max_vals[~(adj_matrix | np.eye(numel, dtype=bool))] = 0
+            new_max_val_indices = possible_max_vals.argmax(axis=1)
+            local_max_id = local_max_id[new_max_val_indices]
+            local_max_val = local_max_val[new_max_val_indices]
+
+        local_max_val = local_max_val.reshape((width + 2, height, depth + 2))
+        is_local_max = (local_max_id == np.arange(numel)).reshape(
+            (width + 2, height, depth + 2)
+        ) & ground_component
+
+        doors = np.zeros_like(centrality, dtype=bool)
+        for node_id in np.nonzero((is_local_max & (centrality >= 0.2)).flat)[0]:
+            node_id = int(node_id)
+            local_graph = nx.generators.ego_graph(walkable_graph, node_id, radius=2)
+            local_node_ids = [
+                local_node_id
+                for local_node_id in local_graph.nodes.keys()
+                if not doors.flat[local_node_id]
+            ]
+            local_node_ids.sort(
+                key=lambda local_node_id: centrality_dict[local_node_id], reverse=True
+            )
+            for node_id in local_node_ids[:3]:
+                doors.flat[node_id] = True
+
+        return doors[1:-1, :, 1:-1]
 
 
 class SeamCarvingTransformConfig(TypedDict):
