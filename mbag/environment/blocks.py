@@ -184,6 +184,7 @@ class MinecraftBlocks(object):
         player_location: Optional[WorldLocation] = None,
         other_player_locations: List[WorldLocation] = [],
         update_blocks: bool = True,
+        is_human: bool = False,
     ) -> Optional[Tuple[WorldLocation, WorldLocation]]:
         """
         Try to place or break a block (depending on action_type) at the given
@@ -246,7 +247,11 @@ class MinecraftBlocks(object):
 
         player_locations: NDArray[np.float_]
         if player_location is not None:
-            player_locations = self.generate_block_edges(player_location)
+            player_locations = (
+                self.generate_block_edges(player_location)
+                if is_human
+                else np.array([player_location])
+            )
         else:
             player_deltas = cartesian_product(
                 np.linspace(-4, 4, 9),

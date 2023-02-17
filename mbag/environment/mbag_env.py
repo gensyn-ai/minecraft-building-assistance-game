@@ -759,6 +759,7 @@ class MbagEnv(object):
                     player_location=self.player_locations[player_index],
                     other_player_locations=self.player_locations[:player_index]
                     + self.player_locations[player_index + 1 :],
+                    is_human=self.config["players"][player_index]["is_human"],
                 )
 
         if place_break_result is None:
