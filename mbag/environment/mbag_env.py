@@ -567,6 +567,10 @@ class MbagEnv(object):
         dones = [self._done()] * self.config["num_players"]
 
         # Copy over the goal palette
+
+        # logger.info(self.current_blocks.blocks[self.palette_x])
+        # logger.info(self.goal_blocks.blocks[self.palette_x])
+
         if (
             self.current_blocks.blocks[self.palette_x]
             != self.goal_blocks.blocks[self.palette_x]
@@ -923,12 +927,13 @@ class MbagEnv(object):
 
         # Check if player can reach the location specified (has to be within one block
         # in all directions).
-        gx, gy, gz = self.player_locations[giver_player_index]
-        rx, ry, rz = receiver_player_location
-        if not self.config["abilities"]["teleportation"] and (
-            abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1
-        ):
-            return 0
+        if not self.config["players"][giver_player_index]["is_human"]:
+            gx, gy, gz = self.player_locations[giver_player_index]
+            rx, ry, rz = receiver_player_location
+            if not self.config["abilities"]["teleportation"] and (
+                abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1
+            ):
+                return 0
 
         logger.debug("Finding player index")
         # Find player index at the location specified
@@ -941,7 +946,12 @@ class MbagEnv(object):
 
         logger.debug(self.player_inventories[giver_player_index])
         # Give the blocks
-        for block_index in range(self.BLOCKS_TO_GIVE):
+
+        given_blocks = self.BLOCKS_TO_GIVE
+        if self.config["players"][giver_player_index]["is_human"]:
+            given_blocks = 1
+
+        for block_index in range(given_blocks):
             success = False
             inventory_taken = self._try_take_player_block(
                 block_id, giver_player_index, True
@@ -956,7 +966,7 @@ class MbagEnv(object):
         logger.debug("Successfully gave block to player")
         logger.debug(self.player_inventories[giver_player_index])
 
-        return self.BLOCKS_TO_GIVE
+        return given_blocks
 
     def _try_give_player_block(
         self, block_id: int, player_index: int, give_in_malmo: bool = True
