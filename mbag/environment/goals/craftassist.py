@@ -98,7 +98,18 @@ class CraftAssistGoalGenerator(GoalGenerator):
             house_data = np.load(schematic_fname, "r").transpose((1, 0, 2, 3))
 
             # Strip air from around house to get down to the minimum size.
-            house_is_air = house_data[..., 0] == 0
+            house_is_air = np.zeros(house_data.shape[:3], dtype=bool)
+            for x in range(house_data.shape[0]):
+                for y in range(house_data.shape[1]):
+                    for z in range(house_data.shape[2]):
+                        minecraft_id, minecraft_data = house_data[x, y, z]
+                        minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
+                        house_is_air[x, y, z] = (
+                            self.block_map.get(minecraft_combined_id, True) is None
+                        )
+            # Count dirt as air also.
+            house_is_air |= (house_data[..., 0] == 2) | (house_data[..., 0] == 3)
+
             x_air_slices = np.all(house_is_air, axis=(1, 2))
             x_air_start, x_air_end = x_air_slices.argmin(), x_air_slices[::-1].argmin()
             y_air_slices = np.all(house_is_air, axis=(0, 2))
@@ -111,6 +122,7 @@ class CraftAssistGoalGenerator(GoalGenerator):
                 y_air_start : -y_air_end or None,
                 z_air_start : -z_air_end or None,
             ]
+            self.last_house_data = house_data
             # logger.info(
             #     " ".join(
             #         map(
@@ -166,6 +178,8 @@ class CraftAssistGoalGenerator(GoalGenerator):
                         success = False
 
             self._fill_auto_with_real_blocks(structure)
+            if np.any(structure.blocks == MinecraftBlocks.AUTO):
+                success = False
 
         logger.info(f"chose house {house_id}")
 

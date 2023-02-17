@@ -7,7 +7,10 @@ from mbag.environment.goals.filters import DensityFilter, SingleConnectedCompone
 from mbag.environment.goals.simple import RandomGoalGenerator, SetGoalGenerator
 from mbag.environment.goals.transforms import (
     AddGrassTransform,
+    AreaSampleTransform,
+    CropAirTransform,
     CropTransform,
+    LargestConnectedComponentTransform,
     MirrorTransform,
     RandomlyPlaceTransform,
     UniformBlockTypeTransform,
@@ -76,6 +79,34 @@ def test_add_grass():
     )
 
 
+def test_largest_cc():
+    single_cc = MinecraftBlocks((5, 5, 5))
+    single_cc.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["dirt"]
+
+    two_ccs = MinecraftBlocks((5, 5, 5))
+    two_ccs.blocks[:, 0, :] = MinecraftBlocks.NAME2ID["dirt"]
+    two_ccs.blocks[1:4, 2, 1:4] = MinecraftBlocks.NAME2ID["cobblestone"]
+
+    filter = LargestConnectedComponentTransform(
+        {},
+        SetGoalGenerator({"goals": [single_cc, two_ccs]}),
+    )
+    for _ in range(20):
+        assert np.all(filter.generate_goal((5, 5, 5)).blocks == single_cc.blocks)
+
+
+def test_crop_air():
+    small_goal = MinecraftBlocks((3, 3, 3))
+    small_goal.blocks[:] = MinecraftBlocks.NAME2ID["cobblestone"]
+    transform = CropAirTransform(
+        {}, RandomlyPlaceTransform({}, SetGoalGenerator({"goals": [small_goal]}))
+    )
+    for _ in range(4):
+        goal = transform.generate_goal((5, 5, 5))
+        assert np.all(goal.blocks == MinecraftBlocks.NAME2ID["cobblestone"])
+        assert goal.size == (3, 3, 3)
+
+
 def test_crop():
     cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
     big_goal = MinecraftBlocks((5, 5, 5))
@@ -116,6 +147,22 @@ def test_crop():
     assert goal.size == (3, 3, 3)
     assert np.all(goal.blocks[:1, :, :] == cobblestone)
     assert np.all(goal.blocks[1:, :, :] == MinecraftBlocks.AIR)
+
+
+def test_area_sampling():
+    cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
+    big_goal = MinecraftBlocks((7, 7, 7))
+    big_goal.blocks[:, 0, :] = cobblestone
+
+    transform = AreaSampleTransform(
+        {"preserve_paths": False},
+        SetGoalGenerator({"goals": [big_goal]}),
+    )
+    goal = transform.generate_goal((5, 5, 5))
+    print(goal.blocks)
+    assert goal.size == (5, 5, 5)
+    assert np.all(goal.blocks[:, 0, :] == cobblestone)
+    assert np.all(goal.blocks[:, 1:, :] == MinecraftBlocks.AIR)
 
 
 def test_uniform_block_type():

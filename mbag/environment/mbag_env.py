@@ -540,13 +540,16 @@ class MbagEnv(object):
 
         goal = self.current_blocks.copy()
 
-        if self.config["abilities"]["inf_blocks"]:
-            goal.blocks[1:-1, 1:, 1:-1] = small_goal.blocks
-            goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
-        else:
-            goal.blocks[1:-2, 1:, 1:-1] = small_goal.blocks
-            goal.block_states[1:-2, 1:, 1:-1] = small_goal.block_states
+        shape = small_goal.size
 
+        goal.blocks[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.blocks
+        goal.block_states[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.block_states
+
+        if not self.config["abilities"]["inf_blocks"]:
             for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
                 if index >= world_size[2]:
                     break
