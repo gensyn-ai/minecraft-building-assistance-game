@@ -34,7 +34,7 @@ def test_human_in_malmo():
         ],
     )
     episode_info = evaluator.rollout()
-    assert episode_info.cumulative_reward == -1
+    assert episode_info.cumulative_reward == 0
 
 
 @pytest.mark.uses_malmo
@@ -65,4 +65,4 @@ def test_two_humans_in_malmo():
         ],
     )
     episode_info = evaluator.rollout()
-    assert episode_info.cumulative_reward == -1
+    assert episode_info.cumulative_reward == 0

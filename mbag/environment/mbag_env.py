@@ -555,9 +555,7 @@ class MbagEnv(object):
 
         if self.config["malmo"]["use_malmo"]:
             time.sleep(self.malmo_client.ACTION_DELAY)
-            infos, update = self._update_state_from_malmo(infos)
-            if update:
-                self._copy_palette_from_goal_in_malmo()
+            infos = self._update_state_from_malmo(infos)
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -567,6 +565,16 @@ class MbagEnv(object):
             for player_index, own_reward in enumerate(own_rewards)
         ]
         dones = [self._done()] * self.config["num_players"]
+
+        # Copy over the goal palette
+        if (
+            self.current_blocks.blocks[self.palette_x]
+            != self.goal_blocks.blocks[self.palette_x]
+        ).any() and not self.config["abilities"]["inf_blocks"]:
+            logger.info("Copying palette from goal ")
+            self._copy_palette_from_goal()
+            if self.config["malmo"]["use_malmo"]:
+                self._copy_palette_from_goal_in_malmo()
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
             # Wait for a second for the final block to place and then end mission.
@@ -607,7 +615,7 @@ class MbagEnv(object):
         return goal
 
     def _copy_palette_from_goal(self):
-        # Copy over the palette from the goal generator.
+        # Copy over the palette from the goal generator
         self.current_blocks.blocks[self.palette_x] = self.goal_blocks.blocks[
             self.palette_x
         ]
@@ -705,9 +713,6 @@ class MbagEnv(object):
             ]
 
         reward = goal_dependent_reward + goal_independent_reward
-
-        if not self.config["abilities"]["inf_blocks"]:
-            self._copy_palette_from_goal()
 
         info: MbagInfoDict = {
             "goal_similarity": self._get_goal_similarity(
@@ -1206,7 +1211,7 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _update_state_from_malmo(self, infos) -> Tuple[List[MbagInfoDict], bool]:
+    def _update_state_from_malmo(self, infos) -> List[MbagInfoDict]:
         """
         Resolve any discrepancies between the environment state and the state of the
         Minecraft game via Malmo. This generates human actions for human players.
@@ -1314,15 +1319,13 @@ class MbagEnv(object):
                             )
                             self.player_locations[player_index] = malmo_location
 
-        palette_needs_updating = self._update_blocks_from_malmo(
-            latest_malmo_observation
-        )
+        self._update_blocks_from_malmo(latest_malmo_observation)
 
         for player_index, human_action in human_actions:
             assert self.config["players"][player_index]["is_human"]
             infos[player_index]["human_actions"].append(human_action)
 
-        return infos, palette_needs_updating
+        return infos
 
     def _update_blocks_from_malmo(
         self, latest_malmo_observation: "MalmoObservationDict"
@@ -1331,7 +1334,6 @@ class MbagEnv(object):
         Compares blocks in the env and Malmo. Returns whether the palette needs to be regenerated
         """
 
-        palette_needs_updating = False
         if "world" in latest_malmo_observation and "goal" in latest_malmo_observation:
             self.malmo_blocks = MinecraftBlocks.from_malmo_grid(
                 self.config["world_size"], latest_malmo_observation["world"]
@@ -1359,8 +1361,6 @@ class MbagEnv(object):
                     f"{MinecraftBlocks.ID2NAME[self.malmo_blocks.blocks[location]]} "
                     "from Malmo"
                 )
-                if location[0] == self.palette_x:
-                    palette_needs_updating = True
 
             for location in cast(
                 Sequence[BlockLocation],
@@ -1379,8 +1379,6 @@ class MbagEnv(object):
         ] = self.malmo_blocks.blocks[
             self.human_action_detector.blocks_with_no_pending_human_interactions
         ]
-
-        return palette_needs_updating
 
     def _done(self) -> bool:
         return (
