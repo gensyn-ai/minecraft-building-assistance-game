@@ -60,8 +60,8 @@ def test_two_humans_in_malmo():
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
-            (NoopAgent, {}),
-            (NoopAgent, {}),
+            (HumanAgent, {}),
+            (HumanAgent, {}),
         ],
     )
     episode_info = evaluator.rollout()
