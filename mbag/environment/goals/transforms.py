@@ -8,10 +8,8 @@ import random
 from typing import List, Optional, Tuple, TypedDict, cast
 
 import cc3d
-import networkx as nx
 import numpy as np
 from scipy import ndimage
-from skimage.util import view_as_blocks
 from typing_extensions import Literal
 
 from ..blocks import MinecraftBlocks
@@ -90,6 +88,67 @@ class AddGrassTransform(GoalTransform):
             ] = MinecraftBlocks.NAME2ID["grass"]
 
         return goal
+
+
+class LargestConnectedComponentTransformConfig(TypedDict):
+    connectivity: Literal[6, 18, 26]
+
+
+class LargestConnectedComponentTransform(GoalTransform):
+    """
+    Filters the goal to its largest connected component
+    """
+
+    default_config: LargestConnectedComponentTransformConfig = {
+        "connectivity": 6,
+    }
+    config: LargestConnectedComponentTransformConfig
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        goal = self.goal_generator.generate_goal(size)
+        width, height, depth = goal.size
+        not_air = np.zeros((width, height + 2, depth), dtype=bool)
+        not_air[:, 1:-1, :] = goal.blocks != MinecraftBlocks.AIR
+        not_air[:, 0, :] = True
+        not_air[:, -1, :] = False
+        components = cc3d.connected_components(
+            not_air, connectivity=self.config["connectivity"]
+        )
+        assert np.all(components[:, -1, :] == 0)
+        components = components[:, 1:-1, :]
+        num_components = np.max(components) + 1
+        component_counts = [0]
+        for component_id in range(1, num_components):
+            component_counts.append(np.sum(components == component_id))
+        largest_component_id = np.argmax(component_counts)
+        goal.blocks[components != largest_component_id] = MinecraftBlocks.AIR
+        return goal
+
+
+class CropAirTransform(GoalTransform):
+    """
+    Crops the structure to remove any surrounding air.
+    """
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        goal = self.goal_generator.generate_goal(size)
+        is_air = goal.blocks == MinecraftBlocks.AIR
+        x_air_slices = np.all(is_air, axis=(1, 2))
+        x_air_start, x_air_end = x_air_slices.argmin(), x_air_slices[::-1].argmin()
+        y_air_slices = np.all(is_air, axis=(0, 2))
+        y_air_start, y_air_end = y_air_slices.argmin(), y_air_slices[::-1].argmin()
+        z_air_slices = np.all(is_air, axis=(0, 1))
+        z_air_start, z_air_end = z_air_slices.argmin(), z_air_slices[::-1].argmin()
+
+        blocks, block_states = goal[
+            x_air_start : -x_air_end or None,
+            y_air_start : -y_air_end or None,
+            z_air_start : -z_air_end or None,
+        ]
+        cropped_goal = MinecraftBlocks(cast(WorldSize, blocks.shape))
+        cropped_goal.blocks[...] = blocks
+        cropped_goal.block_states[...] = block_states
+        return cropped_goal
 
 
 class CropTransformConfig(TypedDict):
@@ -177,6 +236,10 @@ class AreaSampleTransformConfig(TypedDict):
     """If scale_y_independently is True, this controls the maximum ratio between the
     scale factors for the Y and X/Z dimensions."""
 
+    preserve_paths: bool
+    """If True, will try to preserve walkable paths throughout the structure
+    (e.g., doors and stairs)."""
+
 
 class AreaSampleTransform(GoalTransform):
     default_config: AreaSampleTransformConfig = {
@@ -185,14 +248,14 @@ class AreaSampleTransform(GoalTransform):
         "interpolation_order": 3,
         "scale_y_independently": True,
         "max_scaling_factor_ratio": 1.5,
+        "preserve_paths": True,
     }
     config: AreaSampleTransformConfig
 
-    DOOR = 254
+    PATH = 254
 
     def generate_goal(self, size: WorldSize, *, retries: int = 20) -> MinecraftBlocks:
         structure: Optional[MinecraftBlocks] = None
-
         while structure is None:
             structure = self.goal_generator.generate_goal((100, 100, 100))
             max_scale_down_size = (
@@ -220,8 +283,9 @@ class AreaSampleTransform(GoalTransform):
         if all(structure.size[axis] <= size[axis] for axis in range(3)):
             return structure
 
-        doors = AreaSampleTransform._find_doors(structure)
-        structure.blocks[doors] = AreaSampleTransform.DOOR
+        if self.config["preserve_paths"]:
+            paths = AreaSampleTransform._find_paths(structure)
+            structure.blocks[paths] = AreaSampleTransform.PATH
 
         if self.config["interpolate"]:
             scaling_iterations = int(
@@ -237,89 +301,44 @@ class AreaSampleTransform(GoalTransform):
                 self._get_zoom(structure.size, size, scaling_iterations),
             )
 
-        if False:
-            # We directly zoom to get block types, but scale up and then scale down
-            # to get the mask (where air should/shouldn't be).
-
-            mask_zoom = self._get_zoom(structure.size, size, scaling_iterations)
-            mask = structure.blocks != MinecraftBlocks.AIR
-            mask = self._zoom_with_ids(mask.astype(np.uint8), mask_zoom) != 0
-            print(f"{mask_zoom=} {mask.shape=}")
-            while any(mask.shape[axis] > size[axis] for axis in range(3)):
-                scaled_down_mask_size = tuple(
-                    int(math.ceil(mask.shape[axis] / 2)) for axis in range(3)
+        while (
+            structure.size[0] > size[0]
+            or structure.size[1] > size[1]
+            or structure.size[2] > size[2]
+        ):
+            scaled_down_structure = MinecraftBlocks(
+                (
+                    int(math.ceil(0.5 * structure.size[0])),
+                    int(math.ceil(0.5 * structure.size[1])),
+                    int(math.ceil(0.5 * structure.size[2])),
                 )
-                padded_size = tuple(
-                    scaled_down_mask_size[axis] * 2 for axis in range(3)
-                )
-                padded_mask = np.zeros_like(mask, shape=padded_size)
-                padded_mask[: mask.shape[0], : mask.shape[1], : mask.shape[2]] = mask
-                scaled_down_mask = (
-                    view_as_blocks(padded_mask, (2, 2, 2))
-                    .reshape((scaled_down_mask_size) + (8,))
-                    .any(axis=-1)
-                )
-                mask = scaled_down_mask
-                print(f"{mask.shape=}")
-
-            block_zoom = (
-                mask.shape[0] / structure.size[0],
-                mask.shape[1] / structure.size[1],
-                mask.shape[2] / structure.size[2],
             )
-            interpolated_structure = self._interpolate_structure(
-                structure, size, block_zoom, ignore_air=True
-            )
-            print(f"{block_zoom=} {interpolated_structure.size=}")
 
-            interpolated_structure.blocks[~mask] = MinecraftBlocks.AIR
-            return interpolated_structure
+            chunk_size = (2, 2, 2)
+            logger.info("scaling down by 2x")
 
-        if True:
-            while (
-                structure.size[0] > size[0]
-                or structure.size[1] > size[1]
-                or structure.size[2] > size[2]
-            ):
-                scaled_down_structure = MinecraftBlocks(
-                    (
-                        int(math.ceil(0.5 * structure.size[0])),
-                        int(math.ceil(0.5 * structure.size[1])),
-                        int(math.ceil(0.5 * structure.size[2])),
-                    )
+            idx = [
+                (i, j, k)
+                for i in range(scaled_down_structure.size[0])
+                for j in range(scaled_down_structure.size[1])
+                for k in range(scaled_down_structure.size[2])
+            ]
+
+            for i, chunk in enumerate(structure.get_chunks(chunk_size)):
+                index = idx[i]
+                scaled_down_structure.blocks[index] = self._most_common_block(
+                    chunk, ignore_air=True
                 )
 
-                chunk_size = (2, 2, 2)
-                logger.info("scaling down by 2x")
+            structure = scaled_down_structure
 
-                idx = [
-                    (i, j, k)
-                    for i in range(scaled_down_structure.size[0])
-                    for j in range(scaled_down_structure.size[1])
-                    for k in range(scaled_down_structure.size[2])
-                ]
+        self._recreate_paths(structure)
 
-                for i, chunk in enumerate(structure.get_chunks(chunk_size)):
-                    index = idx[i]
-                    scaled_down_structure.blocks[index] = self._most_common_block(
-                        chunk, ignore_air=True
-                    )
-
-                structure = scaled_down_structure
-
-            # Postprocess doors.
-            for door_x, door_y, door_z in zip(
-                *np.nonzero(structure.blocks == AreaSampleTransform.DOOR)
-            ):
-                structure.blocks[door_x, door_y, door_z] = MinecraftBlocks.AIR
-                if door_y + 1 < structure.size[1]:
-                    structure.blocks[door_x, door_y + 1, door_z] = MinecraftBlocks.AIR
-
-            return structure
+        return structure
 
     def _most_common_block(self, array: np.ndarray, ignore_air=False) -> int:
-        if np.any(array == AreaSampleTransform.DOOR):
-            return AreaSampleTransform.DOOR
+        if np.any(array == AreaSampleTransform.PATH):
+            return AreaSampleTransform.PATH
 
         mask = (array != 0) & (array != -1)
         if np.sum(mask) < array[(array != -1)].size / 2 and not ignore_air:
@@ -403,19 +422,14 @@ class AreaSampleTransform(GoalTransform):
             return xyz_zoom, xyz_zoom, xyz_zoom
 
     @staticmethod
-    def _find_doors(structure: MinecraftBlocks):
+    def _find_paths(structure: MinecraftBlocks):
         width, height, depth = structure.size
-        world = MinecraftBlocks((width + 2, height + 2, depth + 2))
-        world.blocks[1:-1, :-2, 1:-1] = structure.blocks
-        bottom_layer = world.blocks[:, 0, :]
-        bottom_layer[bottom_layer != MinecraftBlocks] = 1
-        can_stand = np.concatenate(
-            [
-                np.zeros_like(structure.blocks[:, :1, :], dtype=bool),
-                (structure.blocks != MinecraftBlocks.AIR)[:, :-1, :],
-            ],
-            axis=1,
-        )
+        pad = 2
+        padded_width = width + 2 * pad
+        padded_depth = depth + 2 * pad
+        world = MinecraftBlocks((padded_width, height + 2, padded_depth))
+        world.blocks[pad:-pad, :-2, pad:-pad] = structure.blocks
+
         can_stand = np.zeros_like(world.blocks, dtype=bool)
         can_stand[:, 1:-1, :] = (
             (world.blocks != MinecraftBlocks.AIR)[:, :-2, :]
@@ -428,79 +442,95 @@ class AreaSampleTransform(GoalTransform):
             & (world.blocks == MinecraftBlocks.AIR)[:, 2:-1]
             & (world.blocks == MinecraftBlocks.AIR)[:, 3:, :]
         )
+        can_stand[:, :3, :] = (world.blocks == MinecraftBlocks.AIR)[:, :3, :] & (
+            world.blocks == MinecraftBlocks.AIR
+        )[:, 1:4, :]
 
         component_ids = cc3d.connected_components(can_stand, connectivity=6)
         ground_component_id = component_ids[0, 1, 0]
         ground_component = (component_ids == ground_component_id)[:, :-2, :]
 
-        xx, yy, zz = np.meshgrid(
-            np.arange(width + 2), np.arange(height), np.arange(depth + 2), indexing="ij"
-        )
-        numel = (width + 2) * height * (depth + 2)
-        xx1, yy1, zz1 = xx.reshape(numel, 1), yy.reshape(numel, 1), zz.reshape(numel, 1)
-        xx2, yy2, zz2 = xx.reshape(1, numel), yy.reshape(1, numel), zz.reshape(1, numel)
-        adj_matrix = np.zeros((numel, numel), dtype=bool)
-        adj_matrix |= (np.abs(xx1 - xx2) == 1) & (yy1 == yy2) & (zz1 == zz2)
-        adj_matrix |= (xx1 == xx2) & (np.abs(yy1 - yy2) == 1) & (zz1 == zz2)
-        adj_matrix |= (xx1 == xx2) & (yy1 == yy2) & (np.abs(zz1 - zz2) == 1)
-        adj_matrix[~ground_component.reshape(numel), :] = False
-        adj_matrix[:, ~ground_component.reshape(numel)] = False
+        paths = ground_component.copy()
+        prev_paths = np.zeros_like(paths)
+        while np.any(paths != prev_paths):
+            prev_paths = paths.copy()
+            border = np.zeros_like(paths)
+            for x_slice_a, x_slice_b, z_slice_a, z_slice_b in [
+                (slice(1, None), slice(None, -1), slice(None), slice(None)),
+                (slice(None, -1), slice(1, None), slice(None), slice(None)),
+                (slice(None), slice(None), slice(1, None), slice(None, -1)),
+                (slice(None), slice(None), slice(None, -1), slice(1, None)),
+            ]:
+                border_in_dir = np.zeros_like(border)
+                border_in_dir[x_slice_a, :, z_slice_a] = ~paths[x_slice_b, :, z_slice_b]
+                border_in_dir[x_slice_a, :-1, z_slice_a] &= ~paths[
+                    x_slice_b, 1:, z_slice_b
+                ]
+                border_in_dir[x_slice_a, 1:, z_slice_a] &= ~paths[
+                    x_slice_b, :-1, z_slice_b
+                ]
+                border |= border_in_dir
 
-        walkable_graph = nx.Graph(
-            adj_matrix,
-        )
-        walkable_graph.remove_nodes_from(
-            [
-                node
-                for node, degree in dict(walkable_graph.degree()).items()
-                if degree == 0
-            ]
-        )
+            border &= paths
+            border[0, :, :] = False
+            border[-1, :, :] = False
+            border[:, :, 0] = False
+            border[:, :, -1] = False
 
-        centrality_dict = nx.betweenness_centrality(walkable_graph)
-        centrality = np.zeros((width + 2, height, depth + 2))
-        for node_id, node_centrality in centrality_dict.items():
-            centrality.flat[node_id] = node_centrality
-
-        centrality[0, :, :] = 0
-        centrality[-1, :, :] = 0
-        centrality[:, :, 0] = 0
-        centrality[:, :, -1] = 0
-
-        local_max_id = np.arange(numel)
-        local_max_val = np.zeros(numel)
-        local_max_val[:] = centrality.flat
-        prev_local_max_id = np.zeros_like(local_max_id)
-        while np.any(local_max_id != prev_local_max_id):
-            prev_local_max_id = local_max_id
-            possible_max_vals = np.zeros((numel, numel))
-            possible_max_vals[...] = centrality.reshape(numel)[None, :]
-            possible_max_vals[~(adj_matrix | np.eye(numel, dtype=bool))] = 0
-            new_max_val_indices = possible_max_vals.argmax(axis=1)
-            local_max_id = local_max_id[new_max_val_indices]
-            local_max_val = local_max_val[new_max_val_indices]
-
-        local_max_val = local_max_val.reshape((width + 2, height, depth + 2))
-        is_local_max = (local_max_id == np.arange(numel)).reshape(
-            (width + 2, height, depth + 2)
-        ) & ground_component
-
-        doors = np.zeros_like(centrality, dtype=bool)
-        for node_id in np.nonzero((is_local_max & (centrality >= 0.2)).flat)[0]:
-            node_id = int(node_id)
-            local_graph = nx.generators.ego_graph(walkable_graph, node_id, radius=2)
-            local_node_ids = [
-                local_node_id
-                for local_node_id in local_graph.nodes.keys()
-                if not doors.flat[local_node_id]
-            ]
-            local_node_ids.sort(
-                key=lambda local_node_id: centrality_dict[local_node_id], reverse=True
+            border_locations: List[Tuple[int, int, int]] = list(
+                zip(*np.nonzero(border))
             )
-            for node_id in local_node_ids[:3]:
-                doors.flat[node_id] = True
+            border_locations.sort(key=lambda loc: loc[1], reverse=True)
+            for x, y, z in border_locations:
+                neighborhood = paths[
+                    x - 1 : x + 2, max(0, y - 1) : y + 2, z - 1 : z + 2
+                ]
+                neighborhood_without = neighborhood.copy()
+                neighborhood_without[1, 0 if y == 0 else 1, 1] = False
+                if (
+                    np.max(
+                        cc3d.connected_components(
+                            neighborhood_without.any(axis=1), connectivity=4
+                        )
+                    )
+                    == np.max(
+                        cc3d.connected_components(
+                            neighborhood.any(axis=1), connectivity=4
+                        )
+                    )
+                    and neighborhood_without.sum() > 1
+                ):
+                    paths[x, y, z] = False
 
-        return doors[1:-1, :, 1:-1]
+        return paths[pad:-pad, :, pad:-pad]
+
+    def _recreate_paths(self, structure: MinecraftBlocks):
+        width, height, depth = structure.size
+        PATH = AreaSampleTransform.PATH  # noqa: N806
+
+        path_locations: List[Tuple[int, int, int]] = list(
+            zip(*np.nonzero(structure.blocks == PATH))
+        )
+        path_locations.sort(key=lambda loc: loc[1])
+
+        for x, y, z in path_locations:
+            if y >= 1:
+                if structure.blocks[x, y - 1, z] == MinecraftBlocks.AIR:
+                    structure.blocks[x, y - 1, z] = MinecraftBlocks.AUTO
+            structure.blocks[x, y, z] = MinecraftBlocks.AIR
+            if y + 1 < height:
+                structure.blocks[x, y + 1, z] = MinecraftBlocks.AIR
+                if y + 2 < height and (
+                    (x >= 1 and structure.blocks[x - 1, y + 1, z] == PATH)
+                    or (x < width - 1 and structure.blocks[x + 1, y + 1, z] == PATH)
+                    or (z >= 1 and structure.blocks[x, y + 1, z - 1] == PATH)
+                    or (z < depth - 1 and structure.blocks[x, y + 1, z + 1] == PATH)
+                ):
+                    structure.blocks[x, y + 2, z] = MinecraftBlocks.AIR
+
+        self._fill_auto_with_real_blocks(structure)
+
+        return structure
 
 
 class SeamCarvingTransformConfig(TypedDict):
