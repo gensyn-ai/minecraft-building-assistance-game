@@ -32,12 +32,11 @@ class EpisodeInfo:
             "last_infos": self.last_infos,
         }
 
-    def toJSON(self) -> dict:  # noqa: N802
+    def to_json_with_history(self) -> dict:  # noqa: N802
         return {
             "cumulative_reward": self.cumulative_reward,
             "length": self.length,
             "info_history": self.info_history,
-            # "obs_history": self.obs_history,
         }
 
 

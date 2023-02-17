@@ -110,7 +110,7 @@ def main(
 
     episode_info = evaluator.rollout()
     with open(os.path.join(result_folder, "result.json"), "w") as result_file:
-        json.dump(episode_info.toJSON(), result_file, cls=SafeFallbackEncoder)
+        json.dump(episode_info.to_json_with_history(), result_file, cls=SafeFallbackEncoder)
 
     logger.info(f"saved file in {result_folder}")
 
