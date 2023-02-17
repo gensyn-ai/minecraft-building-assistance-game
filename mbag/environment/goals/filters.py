@@ -5,6 +5,8 @@ Various GoalTransforms which filter the possible goals.
 import logging
 from typing import TypedDict
 
+from typing_extensions import Literal
+
 from ..blocks import MinecraftBlocks
 from ..types import WorldSize
 from .goal_transform import GoalTransform
@@ -31,6 +33,10 @@ class GoalFilter(GoalTransform):
         return goal
 
 
+class SingleConnectedComponentFilterConfig(TypedDict):
+    connectivity: Literal[6, 18, 26]
+
+
 class SingleConnectedComponentFilter(GoalFilter):
     """
     Filters out any structures which do not consist of a single connected component
@@ -38,10 +44,13 @@ class SingleConnectedComponentFilter(GoalFilter):
     Minecraft without any scaffolding which makes construction easier.
     """
 
+    default_config: SingleConnectedComponentFilterConfig = {"connectivity": 6}
+    config: SingleConnectedComponentFilterConfig
+
     def filter(self, size: WorldSize, goal: MinecraftBlocks) -> bool:
         if goal.size == (1, 1, 1):
             return True
-        return goal.is_single_cc()
+        return goal.is_single_cc(connectivity=self.config["connectivity"])
 
 
 class DensityFilterConfig(TypedDict):
