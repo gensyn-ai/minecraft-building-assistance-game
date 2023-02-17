@@ -151,14 +151,14 @@ class MinecraftBlocks(object):
             x_bound[1] = 0.999
 
         if (
-            player_x > 0
+            player_z > 0
             and blocks[(player_x, player_y, player_z - 1)] == MinecraftBlocks.AIR
             and blocks[(player_x, player_y + 1, player_z - 1)]
         ):
             z_bound[0] = 0
 
         if (
-            player_x < self.size[0] - 1
+            player_z < self.size[0] - 1
             and blocks[(player_x, player_y, player_z + 1)] == MinecraftBlocks.AIR
             and blocks[(player_x, player_y + 1, player_z + 1)]
         ):
