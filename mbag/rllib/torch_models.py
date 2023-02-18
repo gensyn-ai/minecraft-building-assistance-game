@@ -12,6 +12,7 @@ from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
+from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from torch import nn
@@ -385,10 +386,19 @@ class MbagTorchModel(ActorCriticModel):
         )
 
         if mask_logits:
-            numpy_mask = MbagActionDistribution.get_mask_flat(
-                self.env_config, convert_to_numpy(obs)
-            )
-            mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
+            if SampleBatch.ACTION_DIST_INPUTS in input_dict:
+                # We can assume that any action distribution inputs that exactly match
+                # MASK_LOGIT should be masked, saving the expensive re-computation of
+                # the mask.
+                mask = (
+                    input_dict[SampleBatch.ACTION_DIST_INPUTS]
+                    != MbagTorchModel.MASK_LOGIT
+                )
+            else:
+                numpy_mask = MbagActionDistribution.get_mask_flat(
+                    self.env_config, convert_to_numpy(obs)
+                )
+                mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
             self._flat_logits[~mask] = MbagTorchModel.MASK_LOGIT
 
         return self._flat_logits, state
