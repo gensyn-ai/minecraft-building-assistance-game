@@ -1,7 +1,8 @@
+import contextlib
 import copy
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, ContextManager, Dict, List, Tuple, cast
 
 import numpy as np
 import torch
@@ -368,22 +369,33 @@ class MbagTorchModel(ActorCriticModel):
         if self._embedded_obs.requires_grad:
             self._embedded_obs.retain_grad()  # TODO: remove
 
-        if self.vf_share_layers:
-            self._backbone_out = self.backbone(self._embedded_obs)
-        else:
-            self._backbone_out = self.action_backbone(self._embedded_obs)
-        self._backbone_out_shape = self._backbone_out.size()[1:]
-        assert self._backbone_out_shape[0] == self._get_head_in_channels()
+        amp_or_nothing: ContextManager = contextlib.nullcontext()
+        device = self._embedded_obs.device
+        if device.type == "cuda" and torch.cuda.is_bf16_supported():
+            amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
 
-        if self.use_per_location_lstm:
-            self._backbone_out, state = self._run_lstm(
-                self._backbone_out, state, seq_lens
+        with amp_or_nothing:
+            if self.vf_share_layers:
+                self._backbone_out = self.backbone(self._embedded_obs)
+            else:
+                self._backbone_out = self.action_backbone(self._embedded_obs)
+            self._backbone_out_shape = self._backbone_out.size()[1:]
+            assert self._backbone_out_shape[0] == self._get_head_in_channels()
+
+            if self.use_per_location_lstm:
+                self._backbone_out, state = self._run_lstm(
+                    self._backbone_out, state, seq_lens
+                )
+
+            self._logits = self.action_head(self._backbone_out)
+            self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
+                self.env_config, self._logits
             )
 
-        self._logits = self.action_head(self._backbone_out)
-        self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
-            self.env_config, self._logits
-        )
+        self._backbone_out = self._backbone_out.float()
+        self._logits = self._logits.float()
+        self._flat_logits = self._flat_logits.float()
+        state = [state_var.float() for state_var in state]
 
         if mask_logits:
             if SampleBatch.ACTION_DIST_INPUTS in input_dict:
