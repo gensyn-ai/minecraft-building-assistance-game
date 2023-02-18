@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple, Union, cast
 
 import numpy as np
@@ -16,6 +17,8 @@ from mbag.environment.types import (
     MbagActionType,
     MbagObs,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class MbagActionDistribution(object):
@@ -304,7 +307,13 @@ class MbagActionDistribution(object):
             world_obs[:, None, PLAYER_LOCATIONS] > 0
         )
 
-        if not config["abilities"]["teleportation"]:
+        if (
+            np.all(world_obs[:, PLAYER_LOCATIONS] == 0)
+            and not config["abilities"]["teleportation"]
+        ):
+            # Happens during loss intialization.
+            logger.warn("no player locations found in observation")
+        elif not config["abilities"]["teleportation"]:
             # If we can't teleport, then we can only place or break blocks up to 3 blocks away
             player_location = world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER
             batch_indices, player_x, player_y, player_z = np.nonzero(player_location)
@@ -318,11 +327,12 @@ class MbagActionDistribution(object):
             world_x, world_y, world_z = np.meshgrid(
                 np.arange(width), np.arange(height), np.arange(depth), indexing="ij"
             )
-            reachable_3 = (
-                (world_x[None] - head_x[:, None, None, None] <= 3)
-                & (world_y[None] - head_y[:, None, None, None] <= 3)
-                & (world_z[None] - head_z[:, None, None, None] <= 3)
+            dist_from_player = np.sqrt(
+                (world_x[None] - head_x[:, None, None, None]) ** 2
+                + (world_y[None] - head_y[:, None, None, None]) ** 2
+                + (world_z[None] - head_z[:, None, None, None]) ** 2
             )
+            reachable_3 = dist_from_player <= 3
 
             mask[:, MbagActionDistribution.BREAK_BLOCK] &= reachable_3
             mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable_3[:, None]
