@@ -526,14 +526,14 @@ class MbagEnv(object):
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
-        # Generate a goal with buffer of at least 1 on the sides and bottom.
+        # Generate a goal with buffer of at least 1 on the sides, top, and bottom.
         world_size = self.config["world_size"]
 
-        goal_size = (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
+        goal_size = (world_size[0] - 2, world_size[1] - 2, world_size[2] - 2)
         if self.config["abilities"]["inf_blocks"]:
             self.palette_x = -1
         else:
-            goal_size = (world_size[0] - 3, world_size[1] - 1, world_size[2] - 2)
+            goal_size = (world_size[0] - 3, world_size[1] - 2, world_size[2] - 2)
             self.palette_x = world_size[0] - 1
 
         small_goal = self.goal_generator.generate_goal(goal_size)
@@ -671,6 +671,7 @@ class MbagEnv(object):
             "goal_independent_reward": goal_independent_reward,
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
+            "attempted_action": action,
             "action": action if not noop else MbagAction.noop_action(),
             "action_correct": action_correct and not noop,
             "malmo_observations": [],
