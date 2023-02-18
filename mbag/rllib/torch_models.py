@@ -369,12 +369,12 @@ class MbagTorchModel(ActorCriticModel):
         if self._embedded_obs.requires_grad:
             self._embedded_obs.retain_grad()  # TODO: remove
 
-        amp_or_nothing: ContextManager = contextlib.nullcontext()
+        self._amp_or_nothing: ContextManager = contextlib.nullcontext()
         device = self._embedded_obs.device
         if device.type == "cuda" and torch.cuda.is_bf16_supported():
-            amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
+            self._amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
 
-        with amp_or_nothing:
+        with self._amp_or_nothing:
             if self.vf_share_layers:
                 self._backbone_out = self.backbone(self._embedded_obs)
             else:
@@ -392,7 +392,6 @@ class MbagTorchModel(ActorCriticModel):
                 self.env_config, self._logits
             )
 
-        self._backbone_out = self._backbone_out.float()
         self._logits = self._logits.float()
         self._flat_logits = self._flat_logits.float()
         state = [state_var.float() for state_var in state]
@@ -423,13 +422,17 @@ class MbagTorchModel(ActorCriticModel):
         raise NotImplementedError()
 
     def value_function(self):
-        if self.vf_share_layers:
-            return self.value_head(self._backbone_out).squeeze(1)
-        else:
-            return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+        with self._amp_or_nothing:
+            if self.vf_share_layers:
+                vf = self.value_head(self._backbone_out).squeeze(1)
+            else:
+                vf = self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+        return vf.float()
 
     def goal_function(self):
-        return self.goal_head(self._backbone_out)
+        with self._amp_or_nothing:
+            goal_preds = self.goal_head(self._backbone_out)
+        return goal_preds.float()
 
     def get_initial_state(self):
         if self.use_per_location_lstm:
