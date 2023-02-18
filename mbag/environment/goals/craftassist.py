@@ -1,3 +1,4 @@
+import functools
 import glob
 import itertools
 import json
@@ -79,6 +80,13 @@ class CraftAssistGoalGenerator(GoalGenerator):
             house_id = os.path.split(house_dir)[-1]
             self.house_ids.append(house_id)
 
+    @functools.lru_cache
+    def _minecraft_ids_to_block_variant(
+        self, minecraft_id: int, minecraft_data: int
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
+        return self.block_map[minecraft_combined_id]
+
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         success = False
         while not success:
@@ -104,9 +112,15 @@ class CraftAssistGoalGenerator(GoalGenerator):
                     for z in range(house_data.shape[2]):
                         minecraft_id, minecraft_data = house_data[x, y, z]
                         minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
-                        house_is_air[x, y, z] = (
-                            self.block_map.get(minecraft_combined_id, True) is None
-                        )
+                        try:
+                            house_is_air[
+                                x, y, z
+                            ] = self._minecraft_ids_to_block_variant(
+                                minecraft_id,
+                                minecraft_data,
+                            )
+                        except KeyError:
+                            house_is_air[x, y, z] = False
             # Count dirt as air also.
             house_is_air |= (house_data[..., 0] == 2) | (house_data[..., 0] == 3)
 
@@ -160,9 +174,10 @@ class CraftAssistGoalGenerator(GoalGenerator):
                 range(structure_size[2]),
             ):
                 minecraft_id, minecraft_data = house_data[x, y, z]
-                minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
                 try:
-                    block_variant = self.block_map[minecraft_combined_id]
+                    block_variant = self._minecraft_ids_to_block_variant(
+                        minecraft_id, minecraft_data
+                    )
                 except KeyError:
                     logger.warning(f"no map entry for {minecraft_combined_id}")
                     success = False
