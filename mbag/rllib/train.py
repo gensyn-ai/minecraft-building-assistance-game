@@ -73,6 +73,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         height = 12
         width = 12
         depth = 12
+        random_start_locations = False
         noop_reward = 0
         get_resources_reward = 0
         action_reward = 0
@@ -176,6 +177,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
+            "random_start_locations": random_start_locations,
             "goal_generator_config": transformed_goal_generator_config,
             "malmo": {
                 "use_malmo": False,

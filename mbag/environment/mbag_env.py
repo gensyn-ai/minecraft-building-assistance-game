@@ -186,6 +186,7 @@ class MbagConfigDict(TypedDict, total=False):
     num_players: int
     horizon: int
     world_size: WorldSize
+    random_start_locations: bool
 
     goal_generator: Union[Type[GoalGenerator], str]
     goal_generator_config: GoalGeneratorConfig
@@ -223,6 +224,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
     "horizon": 50,
     "world_size": (5, 5, 5),
+    "random_start_locations": False,
     "goal_generator": TransformedGoalGenerator,
     "goal_generator_config": {
         "goal_generator": "random",
@@ -393,6 +395,20 @@ class MbagEnv(object):
     def update_global_timestep(self, global_timestep: int) -> None:
         self.global_timestep = global_timestep
 
+    def _randomly_place_players(self):
+        width, height, depth = self.config["world_size"]
+        self.player_locations = []
+        for player_index in range(self.config["num_players"]):
+            player_location: WorldLocation = (-1, -1, -1)
+            # Generate random locations until we find a valid one.
+            while not self._is_valid_player_space(player_location, player_index):
+                player_location = (
+                    random.randrange(width) + 0.5,
+                    random.randrange(height),
+                    random.randrange(depth) + 0.5,
+                )
+            self.player_locations.append(player_location)
+
     def reset(self) -> List[MbagObs]:
         """Reset Minecraft environment and return player observations for each player."""
 
@@ -407,14 +423,18 @@ class MbagEnv(object):
 
         self.goal_blocks = self._generate_goal()
 
-        self.player_locations = [
-            (
-                (i % self.config["world_size"][0]) + 0.5,
-                2,
-                int(i / self.config["world_size"][0]) + 0.5,
-            )
-            for i in range(self.config["num_players"])
-        ]
+        # Place players in the world.
+        if self.config["random_start_locations"]:
+            self._randomly_place_players()
+        else:
+            self.player_locations = [
+                (
+                    (i % self.config["world_size"][0]) + 0.5,
+                    2,
+                    int(i / self.config["world_size"][0]) + 0.5,
+                )
+                for i in range(self.config["num_players"])
+            ]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
             np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
@@ -1008,10 +1028,6 @@ class MbagEnv(object):
     def _is_valid_player_space(
         self, player_location: WorldLocation, player_index: int
     ) -> bool:
-        """
-        Check to see if the player is able to place a block from their current position.
-        """
-
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
             int(np.floor(player_location[1])),
