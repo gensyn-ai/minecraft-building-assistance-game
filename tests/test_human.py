@@ -2,7 +2,6 @@ import logging
 
 import pytest
 
-from mbag.agents.heuristic_agents import NoopAgent
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 from mbag.evaluation.evaluator import MbagEvaluator
