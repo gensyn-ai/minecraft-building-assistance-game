@@ -507,7 +507,8 @@ class MbagEnv(object):
 
             # Convert players to survival mode.
             if not self.config["abilities"]["inf_blocks"]:
-                self.malmo_client.send_command(0, "chat /gamemode 0")
+                for i in range(self.config["num_players"]):
+                    self.malmo_client.send_command(i, "chat /gamemode 0")
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()

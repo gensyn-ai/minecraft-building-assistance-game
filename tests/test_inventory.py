@@ -195,7 +195,7 @@ def test_initialize_with_items_in_malmo():
     evaluator = MbagEvaluator(
         {
             "world_size": (5, 6, 5),
-            "num_players": 1,
+            "num_players": 2,
             "horizon": 50,
             "goal_generator": BasicGoalGenerator,
             "players": [
@@ -215,12 +215,25 @@ def test_initialize_with_items_in_malmo():
                             ],
                         }
                     ]
+                }, {
+                    "give_items": [
+                        {
+                            "id": "diamond_pickaxe",
+                            "count": 1,
+                            "enchantments": [
+                                {
+                                    "id": 33,  # gives silk touch enchantment, lvl defaults to max lvl
+                                },
+                            ],
+                        }
+                    ]
                 }
             ],
             "malmo": {"use_malmo": True, "use_spectator": False, "video_dir": None},
             "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
+            (NoopAgent, {}),
             (NoopAgent, {}),
         ],
     )
