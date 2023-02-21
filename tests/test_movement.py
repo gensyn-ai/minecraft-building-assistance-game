@@ -3,6 +3,8 @@ import pytest
 from mbag.agents.hardcoded_agents import HardcodedBuilderAgent
 from mbag.agents.heuristic_agents import LayerBuilderAgent, MovementAgent, NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.environment.mbag_env import MbagEnv
+from mbag.environment.types import PLAYER_LOCATIONS
 from mbag.evaluation.evaluator import MbagEvaluator
 
 
@@ -30,6 +32,39 @@ def test_movement():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward == 0
+
+
+def test_random_start_locations():
+    for num_players in [1, 2, 3]:
+        env = MbagEnv(
+            {
+                # Make the world deliberately small so there is a higher chance of
+                # collisions if we did something wrong.
+                "world_size": (3, 3, 3),
+                "num_players": num_players,
+                "horizon": 10,
+                "random_start_locations": True,
+                "goal_generator": BasicGoalGenerator,
+                "abilities": {
+                    "teleportation": False,
+                    "flying": True,
+                    "inf_blocks": True,
+                },
+                "players": [{} for _ in range(num_players)],
+            },
+        )
+
+        all_location_obs = set()
+        for episode_index in range(5):
+            obs = env.reset()
+            (
+                world_obs,
+                _,
+                _,
+            ) = obs[0]
+            location_obs = world_obs[PLAYER_LOCATIONS]
+            all_location_obs.add(location_obs.tobytes())
+        assert len(all_location_obs) > 1
 
 
 @pytest.mark.uses_malmo

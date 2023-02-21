@@ -34,6 +34,7 @@ from .types import (
     GOAL_BLOCK_STATES,
     GOAL_BLOCKS,
     LAST_INTERACTED,
+    PLAYER_LOCATIONS,
     BlockLocation,
     FacingDirection,
     MbagAction,
@@ -207,6 +208,7 @@ class MbagConfigDict(TypedDict, total=False):
     num_players: int
     horizon: int
     world_size: WorldSize
+    random_start_locations: bool
 
     goal_generator: Union[Type[GoalGenerator], str]
     goal_generator_config: GoalGeneratorConfig
@@ -244,6 +246,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "num_players": 1,
     "horizon": 50,
     "world_size": (5, 5, 5),
+    "random_start_locations": False,
     "goal_generator": TransformedGoalGenerator,
     "goal_generator_config": {
         "goal_generator": "random",
@@ -419,6 +422,20 @@ class MbagEnv(object):
     def update_global_timestep(self, global_timestep: int) -> None:
         self.global_timestep = global_timestep
 
+    def _randomly_place_players(self):
+        width, height, depth = self.config["world_size"]
+        self.player_locations = []
+        for player_index in range(self.config["num_players"]):
+            player_location: WorldLocation = (-1, -1, -1)
+            # Generate random locations until we find a valid one.
+            while not self._is_valid_player_space(player_location, player_index):
+                player_location = (
+                    random.randrange(width) + 0.5,
+                    random.randrange(height),
+                    random.randrange(depth) + 0.5,
+                )
+            self.player_locations.append(player_location)
+
     def reset(self) -> List[MbagObs]:
         """Reset Minecraft environment and return player observations for each player."""
 
@@ -433,14 +450,18 @@ class MbagEnv(object):
 
         self.goal_blocks = self._generate_goal()
 
-        self.player_locations = [
-            (
-                (i % self.config["world_size"][0]) + 0.5,
-                2,
-                int(i / self.config["world_size"][0]) + 0.5,
-            )
-            for i in range(self.config["num_players"])
-        ]
+        # Place players in the world.
+        if self.config["random_start_locations"]:
+            self._randomly_place_players()
+        else:
+            self.player_locations = [
+                (
+                    (i % self.config["world_size"][0]) + 0.5,
+                    2,
+                    int(i / self.config["world_size"][0]) + 0.5,
+                )
+                for i in range(self.config["num_players"])
+            ]
         self.player_directions = [(0, 0) for _ in range(self.config["num_players"])]
         self.player_inventories = [
             np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=np.int32)
@@ -589,27 +610,30 @@ class MbagEnv(object):
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
-        # Generate a goal with buffer of at least 1 on the sides and bottom.
+        # Generate a goal with buffer of at least 1 on the sides, top, and bottom.
         world_size = self.config["world_size"]
 
-        goal_size = (world_size[0] - 2, world_size[1] - 1, world_size[2] - 2)
+        goal_size = (world_size[0] - 2, world_size[1] - 2, world_size[2] - 2)
         if self.config["abilities"]["inf_blocks"]:
             self.palette_x = -1
         else:
-            goal_size = (world_size[0] - 3, world_size[1] - 1, world_size[2] - 2)
+            goal_size = (world_size[0] - 3, world_size[1] - 2, world_size[2] - 2)
             self.palette_x = world_size[0] - 1
 
         small_goal = self.goal_generator.generate_goal(goal_size)
 
         goal = self.current_blocks.copy()
 
-        if self.config["abilities"]["inf_blocks"]:
-            goal.blocks[1:-1, 1:, 1:-1] = small_goal.blocks
-            goal.block_states[1:-1, 1:, 1:-1] = small_goal.block_states
-        else:
-            goal.blocks[1:-2, 1:, 1:-1] = small_goal.blocks
-            goal.block_states[1:-2, 1:, 1:-1] = small_goal.block_states
+        shape = small_goal.size
 
+        goal.blocks[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.blocks
+        goal.block_states[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.block_states
+
+        if not self.config["abilities"]["inf_blocks"]:
             for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
                 if index >= world_size[2]:
                     break
@@ -728,6 +752,7 @@ class MbagEnv(object):
             "goal_independent_reward": goal_independent_reward,
             "own_reward": reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
+            "attempted_action": action,
             "action": action if not noop else MbagAction.noop_action(),
             "action_correct": action_correct and not noop,
             "malmo_observations": [],
@@ -1071,10 +1096,6 @@ class MbagEnv(object):
     def _is_valid_player_space(
         self, player_location: WorldLocation, player_index: int
     ) -> bool:
-        """
-        Check to see if the player is able to place a block from their current position.
-        """
-
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
             int(np.floor(player_location[1])),
@@ -1200,8 +1221,8 @@ class MbagEnv(object):
             if y_feet + 1 < self.config["world_size"][1]
             else [y_feet]
         ):
-            assert world_obs[4, x, y, z] == 0, "players are overlapping"
-            world_obs[4, x, y, z] = marker
+            assert world_obs[PLAYER_LOCATIONS, x, y, z] == 0, "players are overlapping"
+            world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         return self.config["players"][player_index]["rewards"]

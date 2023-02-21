@@ -195,6 +195,11 @@ class MbagInfoDict(TypedDict):
     direct actions, as opposed to other agents'.
     """
 
+    attempted_action: MbagAction
+    """
+    The action that the player tried to take.
+    """
+
     action: MbagAction
     """
     The action that the player effectively took. That is, if the player attempted to

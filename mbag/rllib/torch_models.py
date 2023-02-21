@@ -1,7 +1,8 @@
+import contextlib
 import copy
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, ContextManager, Dict, List, Tuple, cast
 
 import numpy as np
 import torch
@@ -12,6 +13,7 @@ from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
+from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from torch import nn
@@ -367,28 +369,47 @@ class MbagTorchModel(ActorCriticModel):
         if self._embedded_obs.requires_grad:
             self._embedded_obs.retain_grad()  # TODO: remove
 
-        if self.vf_share_layers:
-            self._backbone_out = self.backbone(self._embedded_obs)
-        else:
-            self._backbone_out = self.action_backbone(self._embedded_obs)
-        self._backbone_out_shape = self._backbone_out.size()[1:]
-        assert self._backbone_out_shape[0] == self._get_head_in_channels()
+        self._amp_or_nothing: ContextManager = contextlib.nullcontext()
+        device = self._embedded_obs.device
+        if device.type == "cuda" and torch.cuda.is_bf16_supported():
+            self._amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
 
-        if self.use_per_location_lstm:
-            self._backbone_out, state = self._run_lstm(
-                self._backbone_out, state, seq_lens
+        with self._amp_or_nothing:
+            if self.vf_share_layers:
+                self._backbone_out = self.backbone(self._embedded_obs)
+            else:
+                self._backbone_out = self.action_backbone(self._embedded_obs)
+            self._backbone_out_shape = self._backbone_out.size()[1:]
+            assert self._backbone_out_shape[0] == self._get_head_in_channels()
+
+            if self.use_per_location_lstm:
+                self._backbone_out, state = self._run_lstm(
+                    self._backbone_out, state, seq_lens
+                )
+
+            self._logits = self.action_head(self._backbone_out)
+            self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
+                self.env_config, self._logits
             )
 
-        self._logits = self.action_head(self._backbone_out)
-        self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
-            self.env_config, self._logits
-        )
+        self._logits = self._logits.float()
+        self._flat_logits = self._flat_logits.float()
+        state = [state_var.float() for state_var in state]
 
         if mask_logits:
-            numpy_mask = MbagActionDistribution.get_mask_flat(
-                self.env_config, convert_to_numpy(obs)
-            )
-            mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
+            if SampleBatch.ACTION_DIST_INPUTS in input_dict:
+                # We can assume that any action distribution inputs that exactly match
+                # MASK_LOGIT should be masked, saving the expensive re-computation of
+                # the mask.
+                mask = (
+                    input_dict[SampleBatch.ACTION_DIST_INPUTS]
+                    != MbagTorchModel.MASK_LOGIT
+                )
+            else:
+                numpy_mask = MbagActionDistribution.get_mask_flat(
+                    self.env_config, convert_to_numpy(obs)
+                )
+                mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
             self._flat_logits[~mask] = MbagTorchModel.MASK_LOGIT
 
         return self._flat_logits, state
@@ -401,13 +422,17 @@ class MbagTorchModel(ActorCriticModel):
         raise NotImplementedError()
 
     def value_function(self):
-        if self.vf_share_layers:
-            return self.value_head(self._backbone_out).squeeze(1)
-        else:
-            return self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+        with self._amp_or_nothing:
+            if self.vf_share_layers:
+                vf = self.value_head(self._backbone_out).squeeze(1)
+            else:
+                vf = self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
+        return vf.float()
 
     def goal_function(self):
-        return self.goal_head(self._backbone_out)
+        with self._amp_or_nothing:
+            goal_preds = self.goal_head(self._backbone_out)
+        return goal_preds.float()
 
     def get_initial_state(self):
         if self.use_per_location_lstm:

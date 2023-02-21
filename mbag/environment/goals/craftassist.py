@@ -1,3 +1,4 @@
+import functools
 import glob
 import itertools
 import json
@@ -79,6 +80,13 @@ class CraftAssistGoalGenerator(GoalGenerator):
             house_id = os.path.split(house_dir)[-1]
             self.house_ids.append(house_id)
 
+    @functools.lru_cache
+    def _minecraft_ids_to_block_variant(
+        self, minecraft_id: int, minecraft_data: int
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
+        return self.block_map[minecraft_combined_id]
+
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         success = False
         while not success:
@@ -98,7 +106,24 @@ class CraftAssistGoalGenerator(GoalGenerator):
             house_data = np.load(schematic_fname, "r").transpose((1, 0, 2, 3))
 
             # Strip air from around house to get down to the minimum size.
-            house_is_air = house_data[..., 0] == 0
+            house_is_air = np.zeros(house_data.shape[:3], dtype=bool)
+            for x in range(house_data.shape[0]):
+                for y in range(house_data.shape[1]):
+                    for z in range(house_data.shape[2]):
+                        minecraft_id, minecraft_data = house_data[x, y, z]
+                        minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
+                        try:
+                            house_is_air[
+                                x, y, z
+                            ] = self._minecraft_ids_to_block_variant(
+                                minecraft_id,
+                                minecraft_data,
+                            )
+                        except KeyError:
+                            house_is_air[x, y, z] = False
+            # Count dirt as air also.
+            house_is_air |= (house_data[..., 0] == 2) | (house_data[..., 0] == 3)
+
             x_air_slices = np.all(house_is_air, axis=(1, 2))
             x_air_start, x_air_end = x_air_slices.argmin(), x_air_slices[::-1].argmin()
             y_air_slices = np.all(house_is_air, axis=(0, 2))
@@ -111,6 +136,7 @@ class CraftAssistGoalGenerator(GoalGenerator):
                 y_air_start : -y_air_end or None,
                 z_air_start : -z_air_end or None,
             ]
+            self.last_house_data = house_data
             # logger.info(
             #     " ".join(
             #         map(
@@ -148,9 +174,10 @@ class CraftAssistGoalGenerator(GoalGenerator):
                 range(structure_size[2]),
             ):
                 minecraft_id, minecraft_data = house_data[x, y, z]
-                minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
                 try:
-                    block_variant = self.block_map[minecraft_combined_id]
+                    block_variant = self._minecraft_ids_to_block_variant(
+                        minecraft_id, minecraft_data
+                    )
                 except KeyError:
                     logger.warning(f"no map entry for {minecraft_combined_id}")
                     success = False
@@ -166,6 +193,8 @@ class CraftAssistGoalGenerator(GoalGenerator):
                         success = False
 
             self._fill_auto_with_real_blocks(structure)
+            if np.any(structure.blocks == MinecraftBlocks.AUTO):
+                success = False
 
         logger.info(f"chose house {house_id}")
 

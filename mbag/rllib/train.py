@@ -25,7 +25,11 @@ from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
     TransformedGoalGeneratorConfig,
 )
-from mbag.environment.goals.transforms import CropTransformConfig
+from mbag.environment.goals.transforms import (
+    AreaSampleTransform,
+    AreaSampleTransformConfig,
+    CropTransformConfig,
+)
 from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
 from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
 
@@ -64,11 +68,12 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         environment_name = "MBAGFlatActions-v1"
         goal_generator = "random"
         goal_subset = "train"
-        horizon = 50
+        horizon = 1000
         num_players = 1
-        height = 5
-        width = 5
-        depth = 5
+        height = 12
+        width = 12
+        depth = 12
+        random_start_locations = False
         noop_reward = 0
         get_resources_reward = 0
         action_reward = 0
@@ -84,16 +89,30 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
 
         goal_transforms: List[GoalTransformSpec] = []
         uniform_block_type = False
-        force_single_cc = True
         min_density = 0
         max_density = 1
+        extract_largest_cc = True
+        extract_largest_cc_connectivity = 18
+        force_single_cc = True
+        force_single_cc_connectivity = 18
+        crop_air = True
         crop = False
         crop_density_threshold = 0.25
+        area_sample = True
         wall = False
         mirror = False
-        min_width, min_height, min_depth = width // 2, height // 2, depth // 2
+        min_width, min_height, min_depth = 4, 4, 4
         if uniform_block_type:
             goal_transforms.append({"transform": "uniform_block_type"})
+        if extract_largest_cc:
+            goal_transforms.append(
+                {
+                    "transform": "largest_cc",
+                    "config": {"connectivity": extract_largest_cc_connectivity},
+                }
+            )
+        if crop_air:
+            goal_transforms.append({"transform": "crop_air"})
         min_size_config: MinSizeFilterConfig = {
             "min_size": (min_width, min_height, min_depth)
         }
@@ -107,8 +126,20 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
                 "wall": wall,
             }
             goal_transforms.append({"transform": "crop", "config": crop_config})
-        if force_single_cc:
-            goal_transforms.append({"transform": "single_cc_filter"})
+        if area_sample:
+            area_sample_config: AreaSampleTransformConfig = {
+                "max_scaling_factor": 2,
+                "interpolate": True,
+                "interpolation_order": 1,
+                "scale_y_independently": True,
+                "max_scaling_factor_ratio": AreaSampleTransform.default_config[
+                    "max_scaling_factor_ratio"
+                ],
+                "preserve_paths": True,
+            }
+            goal_transforms.append(
+                {"transform": "area_sample", "config": area_sample_config}
+            )
         density_config: DensityFilterConfig = {
             "min_density": min_density,
             "max_density": max_density,
@@ -120,6 +151,13 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
         goal_transforms.append({"transform": "add_grass"})
         if mirror:
             goal_transforms.append({"transform": "mirror"})
+        if force_single_cc:
+            goal_transforms.append(
+                {
+                    "transform": "single_cc_filter",
+                    "config": {"connectivity": force_single_cc_connectivity},
+                }
+            )
 
         transformed_goal_generator_config: TransformedGoalGeneratorConfig = {
             "goal_generator": goal_generator,
@@ -139,6 +177,7 @@ def make_mbag_sacred_config(ex: Experiment):  # noqa
             "num_players": num_players,
             "horizon": horizon,
             "world_size": (width, height, depth),
+            "random_start_locations": random_start_locations,
             "goal_generator_config": transformed_goal_generator_config,
             "malmo": {
                 "use_malmo": False,

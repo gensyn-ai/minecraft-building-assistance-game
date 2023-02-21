@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 import cc3d
 import numpy as np
 from numpy.typing import NDArray
+from skimage.util import view_as_blocks
+from typing_extensions import Literal
 
 from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize
 
@@ -57,7 +59,7 @@ class MinecraftBlocks(object):
         **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
         # Alias names:
         "grass": 2,
-        "auto": -1,
+        "auto": 255,
     }
 
     AIR = NAME2ID["air"]
@@ -451,7 +453,7 @@ class MinecraftBlocks(object):
 
         frequencies = frequencies[np.argsort(frequencies[:, 1])]
         frequencies = frequencies[frequencies[:, 0] != 0]
-        frequencies = frequencies[frequencies[:, 0] != 28]
+        frequencies = frequencies[frequencies[:, 0] != MinecraftBlocks.AUTO]
 
         if len(frequencies) == 0:
             return 0
@@ -486,9 +488,49 @@ class MinecraftBlocks(object):
             z : z + depth,
         ]
 
-    def is_single_cc(self) -> bool:
+    @staticmethod
+    def _pad_blocks(
+        original_blocks: np.ndarray, axis: int, num_rows: int, value: int = -1
+    ):
+        """
+        Pads original blocks with the specified values along the specified axis for
+        num_rows
+        """
+        shape = original_blocks.shape
+
+        if axis not in [0, 1, 2]:
+            raise ValueError("Invalid axis value. Axis must be 0, 1, or 2.")
+
+        new_shape = list(shape)
+        new_shape[axis] += num_rows
+        new_matrix = np.full(new_shape, value)
+        new_matrix[: shape[0], : shape[1], : shape[2]] = original_blocks
+
+        return new_matrix
+
+    def get_chunks(self, chunk_size: Tuple[int, int, int]) -> NDArray:
+        """
+        Returns a four dimensional numpy array with each entry in the first dimension
+        being a 3d block from the structure of the specified chunk size.
+        """
+        work_array = np.copy(self.blocks)
+
+        for axis in [0, 1, 2]:
+            if self.size[axis] % chunk_size[axis] != 0:
+                work_array = MinecraftBlocks._pad_blocks(
+                    work_array,
+                    axis,
+                    chunk_size[axis] - (self.size[axis] % chunk_size[axis]),
+                )
+
+        blocks: NDArray = view_as_blocks(work_array, chunk_size)
+        return np.concatenate(blocks).ravel().reshape((-1, *chunk_size))  # type: ignore
+
+    def is_single_cc(self, connectivity: Literal[6, 18, 26] = 6) -> bool:
         structure_mask = self.blocks != MinecraftBlocks.AIR
-        structure_mask_ccs = cc3d.connected_components(structure_mask, connectivity=6)
+        structure_mask_ccs = cc3d.connected_components(
+            structure_mask, connectivity=connectivity
+        )
         ground_ccs: Set[int] = set(structure_mask_ccs[:, 0, :].reshape(-1).tolist())
         if np.any(~structure_mask[:, 0, :]):
             ground_ccs.remove(0)

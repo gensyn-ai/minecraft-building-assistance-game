@@ -99,7 +99,7 @@ def test_pq_agent_overhangs():
             force_get_set_state=True,
         )
         episode_info = evaluator.rollout()
-        assert episode_info.cumulative_reward == 13
+        assert episode_info.cumulative_reward == 12
 
 
 def test_pq_agent_grabcraft():

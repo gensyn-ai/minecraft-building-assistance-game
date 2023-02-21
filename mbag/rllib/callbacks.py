@@ -85,6 +85,14 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                     ] = 0
             episode.custom_metrics[action_key] += 1
 
+            if (
+                info_dict["attempted_action"].action_type != MbagAction.NOOP
+                and info_dict["action"].action_type == MbagAction.NOOP
+            ):
+                metric_key = f"{policy_id}/num_unintentional_noop"
+                episode.custom_metrics.setdefault(metric_key, 0)
+                episode.custom_metrics[metric_key] += 1
+
             if f"{policy_id}/num_correct_place_block" not in episode.custom_metrics:
                 for name in ["place_block", "break_block"]:
                     episode.custom_metrics[f"{policy_id}/num_correct_{name}"] = 0
@@ -116,6 +124,11 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         info_dict = cast(MbagInfoDict, episode.last_info_for("player_0"))
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
+        env = unwrap_mbag_env(base_env.get_sub_environments()[0])
+        width, height, depth = env.config["world_size"]
+        episode.custom_metrics["goal_distance"] = (
+            width * height * depth - info_dict["goal_similarity"]
+        )
 
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)

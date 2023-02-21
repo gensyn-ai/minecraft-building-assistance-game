@@ -269,6 +269,11 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
             convert_to_numpy(info),
         )
 
+    def update_kl(self, sampled_kl):
+        super().update_kl(sampled_kl)
+        # Don't let the KL coefficient go below 0.001.
+        self.kl_coeff = max(self.kl_coeff, 1e-3)
+
 
 class MbagPPOTrainer(PPOTrainer):
     @classmethod

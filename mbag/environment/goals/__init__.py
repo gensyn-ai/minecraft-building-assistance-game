@@ -5,12 +5,21 @@ from .filters import DensityFilter, MinSizeFilter, SingleConnectedComponentFilte
 from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
 from .grabcraft import GrabcraftGoalGenerator
-from .simple import BasicGoalGenerator, RandomGoalGenerator, SimpleOverhangGoalGenerator
+from .simple import (
+    BasicGoalGenerator,
+    RandomGoalGenerator,
+    SetGoalGenerator,
+    SimpleOverhangGoalGenerator,
+)
 from .transforms import (
     AddGrassTransform,
+    AreaSampleTransform,
+    CropAirTransform,
     CropTransform,
+    LargestConnectedComponentTransform,
     MirrorTransform,
     RandomlyPlaceTransform,
+    SeamCarvingTransform,
     UniformBlockTypeTransform,
 )
 
@@ -20,6 +29,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "simple_overhang": SimpleOverhangGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
+    "set_goal": SetGoalGenerator,
 }
 
 ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
@@ -28,9 +38,13 @@ ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
     "min_size_filter": MinSizeFilter,
     "randomly_place": RandomlyPlaceTransform,
     "add_grass": AddGrassTransform,
+    "largest_cc": LargestConnectedComponentTransform,
+    "crop_air": CropAirTransform,
     "crop": CropTransform,
     "uniform_block_type": UniformBlockTypeTransform,
     "mirror": MirrorTransform,
+    "area_sample": AreaSampleTransform,
+    "seam_carve": SeamCarvingTransform,
 }
 
 __all__ = [
