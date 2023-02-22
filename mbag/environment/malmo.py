@@ -536,8 +536,9 @@ class MalmoClient(object):
             if player_ssh_args is not None:
                 ports_to_forward: List[Tuple[str, int]] = []
                 ports_to_forward.append(("-L", 10000 + player_index))
-                for port in range(10000 + self._get_num_agents(env_config), 11001):
+                for port in range(10000 + self._get_num_agents(env_config), 11000):
                     ports_to_forward.append(("-R", port))
+                ports_to_forward.append(("-L", 11000 + player_index))
                 self._open_ssh_tunnels(player_ssh_args, ports_to_forward)
 
         self._expand_client_pool(self._get_num_agents(env_config))
@@ -641,6 +642,7 @@ class MalmoClient(object):
 
         self._save_specatator_video()
 
+        time.sleep(5)
         self._cleanup_ssh_processes()
 
     def _save_specatator_video(self):
