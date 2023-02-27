@@ -157,7 +157,7 @@ class HumanActionDetector(object):
         human_inventory = self.malmo_inventories[player_index]
         for slot in np.nonzero(np.any(human_inventory != player_inventory, axis=1))[0]:
             logger.warning(
-                f"inventory discrepancy at slot {slot}: "
+                f"inventory discrepancy for player {player_index} at slot {slot}: "
                 f"expected {player_inventory[slot, 1]} x "
                 f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
                 f"but received {human_inventory[slot, 1]} x "
@@ -168,6 +168,11 @@ class HumanActionDetector(object):
 
         # Make sure position is the same as the environment
         human_location = self.human_locations[player_index]
+        player_location = (
+            int(player_location[0]),
+            int(player_location[1]),
+            int(player_location[2]),
+        )
         if any(
             abs(malmo_coord - stored_coord) > 1e-4
             for malmo_coord, stored_coord in zip(human_location, player_location)
