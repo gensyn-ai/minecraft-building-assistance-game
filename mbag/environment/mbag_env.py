@@ -481,19 +481,17 @@ class MbagEnv(object):
 
             # Pre-episode setup in Malmo.
             for player_index in range(self.config["num_players"]):
-                # Make players fly.
-                for _ in range(2):
-                    self.malmo_client.send_command(player_index, "jump 1")
-                    time.sleep(0.1)
-                    self.malmo_client.send_command(player_index, "jump 0")
-                    time.sleep(0.1)
+                player_config = self.config["players"][player_index]
+                if not player_config["is_human"]:
+                    # Make players fly.
+                    for _ in range(2):
+                        self.malmo_client.send_command(player_index, "jump 1")
+                        time.sleep(0.1)
+                        self.malmo_client.send_command(player_index, "jump 0")
+                        time.sleep(0.1)
                 self.malmo_client.send_command(
                     player_index,
                     "tp " + " ".join(map(str, self.player_locations[player_index])),
-                )
-
-                player_name = self.malmo_client.get_player_name(
-                    player_index, self.config
                 )
 
                 # Give items to players.
@@ -517,16 +515,7 @@ class MbagEnv(object):
 
                     print(enchantments_str)
                     print("{{ench: [{}]}}".format(enchantments_str))
-                    print("chat /give {} {} {} {} {}".format(
-                            "@p",
-                            item["id"],
-                            item["count"],
-                            0,
-                            "{{ench: [{}]}}".format(enchantments_str),
-                        ))
-
-                    self.malmo_client.send_command(
-                        player_index,
+                    print(
                         "chat /give {} {} {} {} {}".format(
                             "@p",
                             item["id"],
@@ -536,10 +525,21 @@ class MbagEnv(object):
                         )
                     )
 
+                    self.malmo_client.send_command(
+                        player_index,
+                        "chat /give {} {} {} {} {}".format(
+                            "@p",
+                            item["id"],
+                            item["count"],
+                            0,
+                            "{{ench: [{}]}}".format(enchantments_str),
+                        ),
+                    )
+
             # Convert players to survival mode.
             if not self.config["abilities"]["inf_blocks"]:
-                for i in range(self.config["num_players"]):
-                    self.malmo_client.send_command(i, "chat /gamemode 0")
+                for player_index in range(self.config["num_players"]):
+                    self.malmo_client.send_command(player_index, "chat /gamemode 0")
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -907,6 +907,9 @@ class MbagEnv(object):
         Returns whether the action was successful or not
         """
 
+        if self.config["players"][player_index]["is_human"]:
+            self.human_action_detector.record_human_movement(player_index)
+
         player_location = self.player_locations[player_index]
 
         action_mask: Dict[MbagActionType, Tuple[WorldLocation, str]] = {
@@ -929,9 +932,6 @@ class MbagEnv(object):
 
         player_location = new_player_location
         self.player_locations[player_index] = player_location
-
-        if self.config["players"][player_index]["is_human"]:
-            self.human_action_detector.record_human_movement(player_index)
 
         if (
             self.config["malmo"]["use_malmo"]
@@ -961,8 +961,6 @@ class MbagEnv(object):
             receiver_location[1],
             receiver_location[2] + 0.5,
         )
-        logger.debug(self.player_locations)
-        logger.debug(receiver_player_location)
 
         # Check if player can reach the location specified (has to be within one block
         # in all directions).
@@ -974,9 +972,9 @@ class MbagEnv(object):
             ):
                 return 0
 
-        logger.debug("Finding player index")
         # Find player index at the location specified
         try:
+            print(self.player_locations, receiver_player_location)
             receiver_player_index = self.player_locations.index(
                 receiver_player_location
             )
@@ -1002,8 +1000,6 @@ class MbagEnv(object):
 
             if not success:
                 return block_index
-        logger.debug("Successfully gave block to player")
-        logger.debug(self.player_inventories[giver_player_index])
 
         return given_blocks
 

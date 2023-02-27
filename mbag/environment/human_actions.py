@@ -156,7 +156,7 @@ class HumanActionDetector(object):
         # Make sure inventory is the same as the environment
         human_inventory = self.malmo_inventories[player_index]
         for slot in np.nonzero(np.any(human_inventory != player_inventory, axis=1))[0]:
-            logger.warning(
+            logger.debug(
                 f"inventory discrepancy for player {player_index} at slot {slot}: "
                 f"expected {player_inventory[slot, 1]} x "
                 f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
@@ -164,7 +164,6 @@ class HumanActionDetector(object):
                 f"{MinecraftBlocks.ID2NAME[human_inventory[slot, 0]]} "
                 "from human action detector"
             )
-            # player_inventory[slot] = malmo_inventory[slot]
 
         # Make sure position is the same as the environment
         human_location = self.human_locations[player_index]
@@ -182,7 +181,7 @@ class HumanActionDetector(object):
                 f"expected {player_location} but received "
                 f"{human_location} from human action detector"
             )
-            # self.player_locations[player_index] = malmo_location
+            self.human_locations[player_index] = player_location
 
     def _get_block_discrepancies(
         self, player_index: int, malmo_observation: "MalmoObservationDict"
@@ -459,7 +458,7 @@ class HumanActionDetector(object):
         if self.num_pending_human_movements[player_id] > 0:
             self.num_pending_human_movements[player_id] -= 1
         else:
-            logger.error(f"unexpected block action from human player {player_id}")
+            logger.error(f"unexpected movement action from human player {player_id}")
 
     def record_human_interaction(self, block_location: BlockLocation):
         if self.num_pending_human_interactions[block_location] > 0:
