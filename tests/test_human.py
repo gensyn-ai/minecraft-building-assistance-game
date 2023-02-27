@@ -5,6 +5,7 @@ import pytest
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 from mbag.evaluation.evaluator import MbagEvaluator
+from mbag.agents.heuristic_agents import NoopAgent
 
 logger = logging.getLogger(__name__)
 
@@ -165,4 +166,3 @@ def test_with_items_two_player():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward == 0
-    

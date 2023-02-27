@@ -508,22 +508,32 @@ class MbagEnv(object):
 
                     enchantments_str = ",".join(
                         [
-                            "{{id: {}, level: {}}}".format(
+                            "{{id: {}, lvl: {}}}".format(
                                 enchantment["id"], enchantment["level"]
                             )
                             for enchantment in item["enchantments"]
                         ]
                     )
 
-                    self.malmo_client.send_command(
-                        player_index,
-                        "chat /give {} {} {} {} {}".format(
-                            player_name,
+                    print(enchantments_str)
+                    print("{{ench: [{}]}}".format(enchantments_str))
+                    print("chat /give {} {} {} {} {}".format(
+                            "@p",
                             item["id"],
                             item["count"],
                             0,
                             "{{ench: [{}]}}".format(enchantments_str),
-                        ),
+                        ))
+
+                    self.malmo_client.send_command(
+                        player_index,
+                        "chat /give {} {} {} {} {}".format(
+                            "@p",
+                            item["id"],
+                            item["count"],
+                            0,
+                            "{{ench: [{}]}}".format(enchantments_str),
+                        )
                     )
 
             # Convert players to survival mode.
