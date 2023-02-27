@@ -191,16 +191,25 @@ class MbagMCTSNode(Node):
 
         if add_dirichlet_noise:
             num_action_types = self.action_mapping[-1, 0] + 1
+            type_masks = np.empty(
+                (num_action_types, self.valid_actions.shape[0]), dtype=bool
+            )
+            for action_type in range(num_action_types):
+                type_masks[action_type] = (
+                    self.action_mapping[:, 0] == action_type
+                ) & self.valid_actions
+            valid_action_types = np.any(type_masks, axis=1)
+
             action_type_dirichlet_noise = np.random.dirichlet(
                 np.full(num_action_types, 0.25)
             )
+            action_type_dirichlet_noise[~valid_action_types] = 0
+            action_type_dirichlet_noise /= action_type_dirichlet_noise.sum()
 
             for action_type in range(num_action_types):
-                type_mask = (
-                    self.action_mapping[:, 0] == action_type
-                ) & self.valid_actions
+                type_mask = type_masks[action_type]
                 if not np.any(type_mask):
-                    break
+                    continue
 
                 self.child_priors[type_mask] *= (
                     (1 - self.mcts.dir_epsilon) * self.child_priors[type_mask].sum()
@@ -217,6 +226,7 @@ class MbagMCTSNode(Node):
                 ] + self.mcts.dir_epsilon * self.child_priors[
                     type_mask
                 ].sum() * dirichlet_noise
+
             assert abs(self.child_priors.sum() - 1) < 1e-2
 
     def get_child(self, action: int) -> "MbagMCTSNode":
