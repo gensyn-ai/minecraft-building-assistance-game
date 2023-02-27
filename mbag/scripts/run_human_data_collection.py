@@ -28,28 +28,38 @@ def make_human_action_config():
     num_players = 2
 
     mbag_config: MbagConfigDict = {  # noqa: F841
-        "world_size": (10, 10, 10),
+        "world_size": (12, 12, 12),
         "num_players": num_players,
         "horizon": horizon,
         "goal_generator": TransformedGoalGenerator,
         "goal_generator_config": {
-            "goal_generator": "grabcraft",
+            "goal_generator": "craftassist",
             "goal_generator_config": {
-                "data_dir": "data/grabcraft",
+                "data_dir": "data/craftassist",
                 "subset": "train",
             },
             "transforms": [
+                {"config": {"connectivity": 18}, "transform": "largest_cc"},
+                {"transform": "crop_air"},
+                {"config": {"min_size": [4, 4, 4]}, "transform": "min_size_filter"},
                 {
-                    "transform": "crop",
                     "config": {
-                        "density_threshold": 0.25,
-                        "tethered_to_ground": True,
-                        "wall": False,
+                        "interpolate": True,
+                        "interpolation_order": 1,
+                        "max_scaling_factor": 2,
+                        "max_scaling_factor_ratio": 1.5,
+                        "preserve_paths": True,
+                        "scale_y_independently": True,
                     },
+                    "transform": "area_sample",
                 },
-                {"transform": "single_cc_filter"},
+                {
+                    "config": {"max_density": 1, "min_density": 0},
+                    "transform": "density_filter",
+                },
                 {"transform": "randomly_place"},
                 {"transform": "add_grass"},
+                {"config": {"connectivity": 18}, "transform": "single_cc_filter"},
             ],
         },
         "malmo": {
@@ -70,6 +80,7 @@ def make_human_action_config():
                             # Gives silk touch enchantment, level defaults to max.
                             {
                                 "id": 33,
+                                "level": 1,
                             },
                             {
                                 "id": 34,  # Gives unbreaking enchantment.
