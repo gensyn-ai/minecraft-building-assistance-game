@@ -44,7 +44,7 @@ class HumanActionDetector(object):
     """
     malmo_inventories: List[MbagInventory]
     """The last inventories from Malmo"""
-    num_pending_human_iteractions: np.ndarray
+    num_pending_human_interactions: np.ndarray
     """
     How many human interactions have occurred with each block that have yet to be
     reflected in the Python env. This is incremented each time a new human action is
@@ -92,9 +92,10 @@ class HumanActionDetector(object):
             for _ in range(self.env_config["num_players"])
         ]
 
-        self.num_pending_human_iteractions = np.zeros(
+        self.num_pending_human_interactions = np.zeros(
             self.env_config["world_size"], dtype=np.int8
         )
+        self.num_pending_human_movements = np.zeros(self.env_config["num_players"])
 
     def get_human_actions(
         self,
@@ -140,6 +141,43 @@ class HumanActionDetector(object):
                 + str(MbagAction(action_tuple, self.env_config["world_size"]))
             )
         return actions
+
+    def sync_human_state(self, player_index, player_location, player_inventory):
+        if (
+            self.num_pending_human_interactions.sum()
+            != self.num_pending_human_movements.sum()
+            != 0
+        ):
+            logger.info(
+                "Skipping human action detector sync because of outstanding human actions"
+            )
+            return
+
+        # Make sure inventory is the same as the environment
+        human_inventory = self.malmo_inventories[player_index]
+        for slot in np.nonzero(np.any(human_inventory != player_inventory, axis=1))[0]:
+            logger.warning(
+                f"inventory discrepancy at slot {slot}: "
+                f"expected {player_inventory[slot, 1]} x "
+                f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
+                f"but received {human_inventory[slot, 1]} x "
+                f"{MinecraftBlocks.ID2NAME[human_inventory[slot, 0]]} "
+                "from human action detector"
+            )
+            # player_inventory[slot] = malmo_inventory[slot]
+
+        # Make sure position is the same as the environment
+        human_location = self.human_locations[player_index]
+        if any(
+            abs(malmo_coord - stored_coord) > 1e-4
+            for malmo_coord, stored_coord in zip(human_location, player_location)
+        ):
+            logger.warning(
+                f"location discrepancy for player {player_index}: "
+                f"expected {player_location} but received "
+                f"{human_location} from human action detector"
+            )
+            # self.player_locations[player_index] = malmo_location
 
     def _get_block_discrepancies(
         self, player_index: int, malmo_observation: "MalmoObservationDict"
@@ -204,6 +242,7 @@ class HumanActionDetector(object):
             movement_actions.append((player_index, (MbagAction.MOVE_NEG_Z, 0, 0)))
             current_z -= 1
         self.human_locations[player_index] = (current_x, current_y, current_z)
+        self.num_pending_human_movements[player_index] += len(movement_actions)
         return movement_actions
 
     def _get_place_break_actions(
@@ -297,7 +336,7 @@ class HumanActionDetector(object):
                 )
 
                 del block_discrepancies[block_location]
-                self.num_pending_human_iteractions[block_location] += 1
+                self.num_pending_human_interactions[block_location] += 1
 
         return place_break_actions
 
@@ -411,14 +450,20 @@ class HumanActionDetector(object):
 
         return actions
 
+    def record_human_movement(self, player_id: int):
+        if self.num_pending_human_movements[player_id] > 0:
+            self.num_pending_human_movements[player_id] -= 1
+        else:
+            logger.error(f"unexpected block action from human player {player_id}")
+
     def record_human_interaction(self, block_location: BlockLocation):
-        if self.num_pending_human_iteractions[block_location] > 0:
-            self.num_pending_human_iteractions[block_location] -= 1
+        if self.num_pending_human_interactions[block_location] > 0:
+            self.num_pending_human_interactions[block_location] -= 1
         else:
             logger.error(
-                f"unexpected action from human player at location {block_location}"
+                f"unexpected block action from human player at location {block_location}"
             )
 
     @property
     def blocks_with_no_pending_human_interactions(self):
-        return self.num_pending_human_iteractions == 0
+        return self.num_pending_human_interactions == 0
