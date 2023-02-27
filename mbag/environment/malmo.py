@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -459,6 +460,9 @@ class MalmoClient(object):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
+                # This prevents the processes from getting killed on Ctrl+C, since
+                # at that point we want to send a quit command before stopping SSH.
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
             )
             self.ssh_processes.append(ssh_process)
 
@@ -572,7 +576,7 @@ class MalmoClient(object):
                 assert minecraft_server_port is not None
                 self._open_ssh_tunnels(player_ssh_args, [("-R", minecraft_server_port)])
                 # Give some time for SSH to start.
-                time.sleep(10)
+                time.sleep(2)
 
             self._safe_start_mission(
                 agent_host,
@@ -636,13 +640,14 @@ class MalmoClient(object):
         for player_index in range(len(self.agent_hosts)):
             self.send_command(player_index, "quit")
 
+        time.sleep(1)
+
         # Important to get rid of agent hosts, which triggers video writing for some
         # reason.
         self.agent_hosts = []
 
         self._save_specatator_video()
 
-        time.sleep(5)
         self._cleanup_ssh_processes()
 
     def _save_specatator_video(self):
