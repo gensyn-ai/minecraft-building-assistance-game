@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import pickle
 from datetime import datetime
 from subprocess import Popen
 from typing import Optional
@@ -120,10 +121,8 @@ def main(
     )
 
     episode_info = evaluator.rollout()
-    with open(os.path.join(result_folder, "result.json"), "w") as result_file:
-        json.dump(
-            episode_info.to_json_with_history(), result_file, cls=SafeFallbackEncoder
-        )
+    with open(os.path.join(result_folder, "result.pb"), "wb") as result_file:
+        pickle.dump(episode_info, result_file)
 
     logger.info(f"saved file in {result_folder}")
 
