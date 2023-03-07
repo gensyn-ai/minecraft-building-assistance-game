@@ -75,7 +75,7 @@ def make_human_action_config():
                 "is_human": True,
                 "give_items": [
                     {
-                        "id": "diamond_pickaxe",
+                        "id": item_id,
                         "count": 1,
                         "enchantments": [
                             # Gives silk touch enchantment, level defaults to max.
@@ -89,6 +89,7 @@ def make_human_action_config():
                             },
                         ],
                     }
+                    for item_id in ["diamond_pickaxe", "diamond_axe"]
                 ],
             }
             for _ in range(num_players)
