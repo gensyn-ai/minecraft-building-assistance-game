@@ -1281,12 +1281,6 @@ class MbagEnv(object):
             _, latest_malmo_player_observation = sorted(malmo_player_observations)[-1]
 
             if self.config["players"][player_index]["is_human"]:
-                human_actions.extend(
-                    self.human_action_detector.get_human_actions(
-                        player_index,
-                        malmo_player_observations,
-                    )
-                )
                 infos[player_index]["malmo_observations"] = malmo_player_observations
 
             malmo_inventory: Optional[MbagInventory] = None
@@ -1360,11 +1354,28 @@ class MbagEnv(object):
                             )
                             self.player_locations[player_index] = malmo_location
             else:
-                self.human_action_detector.sync_human_state(
-                    player_index,
-                    self.player_locations[player_index],
-                    self.player_inventories[player_index],
-                )
+                # self.human_action_detector.sync_human_state(
+                #     player_index,
+                #     self.player_locations[player_index],
+                #     self.player_inventories[player_index],
+                # )
+                pass
+
+        human_players = [
+            x
+            for x in range(self.config["num_players"])
+            if self.config["players"][x]["is_human"]
+        ]
+        human_actions = self.human_action_detector.get_human_actions(
+            human_players, infos
+        )
+
+        for player_index in human_players:
+            self.human_action_detector.sync_human_state(
+                player_index,
+                self.player_locations[player_index],
+                self.player_inventories[player_index],
+            )
 
         self._update_blocks_from_malmo(latest_malmo_observation)
 

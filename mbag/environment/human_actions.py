@@ -11,6 +11,7 @@ from .types import (
     MbagAction,
     MbagActionTuple,
     MbagActionType,
+    MbagInfoDict,
     MbagInventory,
     WorldLocation,
 )
@@ -99,6 +100,56 @@ class HumanActionDetector(object):
 
     def get_human_actions(
         self,
+        human_players: List[int],
+        infos: MbagInfoDict,
+    ) -> List[Tuple[int, MbagActionTuple]]:
+        actions = []
+        human_actions = {}
+        timestamps = []
+
+        for player_index in human_players:
+            one_human_action = self.get_one_human_actions(
+                player_index, infos[player_index]["malmo_observations"]
+            )
+            timestamps.extend(one_human_action.keys())
+            human_actions[player_index] = one_human_action
+
+        timestamps = sorted([*set(timestamps)])
+
+        # For each timestamp, pad each category of movement
+        for time in timestamps:
+            for index in range(3):
+                largest_size = max(
+                    [
+                        len(human_actions[player_index][time][index])
+                        for player_index in human_players
+                    ]
+                )
+                for player_index in human_players:
+                    total_actions = human_actions[player_index][time][index] + [
+                        (player_index, (MbagAction.NOOP, 0, 0))
+                        for _ in range(
+                            largest_size - len(human_actions[player_index][time][index])
+                        )
+                    ]
+                    actions.extend(total_actions)
+
+        if len(actions) > 0:
+            logger.info(actions)
+
+        for player_index, action_tuple in actions:
+            if action_tuple[0] == MbagAction.NOOP:
+                logger.info(f"padding action from player {player_index}")
+            else:
+                logger.info(
+                    f"human action from player {player_index}: "
+                    + str(MbagAction(action_tuple, self.env_config["world_size"]))
+                )
+
+        return actions
+
+    def get_one_human_actions(
+        self,
         player_index: int,
         malmo_observations: List[Tuple[datetime, "MalmoObservationDict"]],
     ) -> List[Tuple[int, MbagActionTuple]]:
@@ -111,35 +162,34 @@ class HumanActionDetector(object):
         a GIVE_BLOCK action for the other player.
         """
 
-        actions: List[Tuple[int, MbagActionTuple]] = []
+        actions: Dict[datetime, List[List[Tuple[int, MbagActionTuple]]]] = defaultdict(
+            lambda: [[], [], []]
+        )
 
         for observation_time, malmo_observation in sorted(malmo_observations):
+            timestamp_actions = [[], [], []]
             block_discrepancies = self._get_block_discrepancies(
                 player_index, malmo_observation
             )
             dropped_blocks, picked_up_blocks = self._get_dropped_picked_up_blocks(
                 player_index, malmo_observation
             )
-            actions.extend(self._get_movement_actions(player_index, malmo_observation))
-            actions.extend(
-                self._get_place_break_actions(
-                    player_index,
-                    malmo_observation,
-                    block_discrepancies,
-                    dropped_blocks,
-                )
+            timestamp_actions[0] = self._get_movement_actions(
+                player_index, malmo_observation
             )
-            actions.extend(
-                self._handle_dropped_picked_up_blocks(
-                    player_index, dropped_blocks, picked_up_blocks
-                )
+            timestamp_actions[1] = self._get_place_break_actions(
+                player_index,
+                malmo_observation,
+                block_discrepancies,
+                dropped_blocks,
             )
 
-        for _, action_tuple in actions:
-            logger.info(
-                f"human action from player {player_index}: "
-                + str(MbagAction(action_tuple, self.env_config["world_size"]))
+            timestamp_actions[2] = self._handle_dropped_picked_up_blocks(
+                player_index, dropped_blocks, picked_up_blocks
             )
+
+            actions[observation_time] = timestamp_actions
+
         return actions
 
     def sync_human_state(self, player_index, player_location, player_inventory):
