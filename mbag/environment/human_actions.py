@@ -482,19 +482,28 @@ class HumanActionDetector(object):
                     picked_block_id
                 ] -= player_picked_blocks
 
+                logger.info(self.human_locations[player_index])
+
                 if other_player_index != player_index:
+                    logger.info(
+                        (
+                            MbagAction.GIVE_BLOCK,
+                            int(
+                                np.ravel_multi_index(
+                                    self.human_locations[player_index],
+                                    self.env_config["world_size"],
+                                )
+                            ),
+                            picked_block_id,
+                        )
+                    )
                     actions.extend(
                         [
                             (
                                 other_player_index,
                                 (
                                     MbagAction.GIVE_BLOCK,
-                                    int(
-                                        np.ravel_multi_index(
-                                            self.human_locations[player_index],
-                                            self.env_config["world_size"],
-                                        )
-                                    ),
+                                    player_index,
                                     picked_block_id,
                                 ),
                             )

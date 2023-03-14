@@ -33,6 +33,8 @@ class HumanAgent(MbagAgent):
         get_action_*_distribution methods should be overridden.
         """
 
+        player_locations = obs[0][4]
+
         if info is None:
             assert self.last_action is None
         else:
@@ -48,6 +50,26 @@ class HumanAgent(MbagAgent):
         action_tuple: MbagActionTuple = MbagAction.NOOP, 0, 0
         if len(self.actions_queue) > 0:
             action_tuple = self.actions_queue.pop(0)
+
+            if action_tuple[0] == MbagAction.GIVE_BLOCK:
+                given_player_location = np.transpose(
+                    (player_locations == action_tuple[1] + 1).nonzero()
+                )[0]
+
+                action_tuple = (
+                    action_tuple[0],
+                    int(
+                        np.ravel_multi_index(
+                            given_player_location,
+                            self.env_config["world_size"],
+                        )
+                    ),
+                    action_tuple[2],
+                )
+
+            if action_tuple[0] == MbagAction.GIVE_BLOCK:
+                logger.info(action_tuple)
+
             action = MbagAction(action_tuple, self.env_config["world_size"])
 
             logger.info(f"human action being replayed: {action}")
