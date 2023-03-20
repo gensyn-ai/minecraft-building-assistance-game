@@ -977,11 +977,13 @@ class MbagEnv(object):
 
         # Find player index at the location specified
         try:
-            print(self.player_locations, receiver_player_location)
             receiver_player_index = self.player_locations.index(
                 receiver_player_location
             )
         except ValueError:
+            logger.error(
+                f"Give Block could not find player at {receiver_player_location}"
+            )
             return 0
 
         logger.debug(self.player_inventories[giver_player_index])
@@ -996,10 +998,15 @@ class MbagEnv(object):
             inventory_taken = self._try_take_player_block(
                 block_id, giver_player_index, True
             )
-            if inventory_taken >= 0:
+
+            if inventory_taken < 0:
+                logger.error(f"Block to be given does not exist in giver's inventory")
+            else:
                 success = self._try_give_player_block(
                     block_id, receiver_player_index, True
                 )
+                if not success:
+                    logger.error(f"Receiver could not pick up block to their inventory")
 
             if not success:
                 return block_index
