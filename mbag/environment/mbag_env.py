@@ -565,9 +565,12 @@ class MbagEnv(object):
         infos: List[MbagInfoDict] = []
 
         # Process give block actions before movement actions
-        action_tuples.sort(key=lambda x: 0 if x[0] == MbagActionTuple else 1)
+        action_tuples_sorted_labeled = sorted(
+            list(enumerate(action_tuples)),
+            key=lambda x: 0 if x[1][0] == MbagAction.GIVE_BLOCK else 1,
+        )
 
-        for player_index, player_action_tuple in enumerate(action_tuples):
+        for player_index, player_action_tuple in action_tuples_sorted_labeled:
             # For each player, if they are acting this timestep, step the player,
             # otherwise execute NOOP.
             if (
