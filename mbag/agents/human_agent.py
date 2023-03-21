@@ -72,9 +72,6 @@ class HumanAgent(MbagAgent):
                     action_tuple[2],
                 )
 
-            if action_tuple[0] == MbagAction.GIVE_BLOCK:
-                logger.info(action_tuple)
-
             action = MbagAction(action_tuple, self.env_config["world_size"])
 
             logger.info(f"human action being replayed: {action}")

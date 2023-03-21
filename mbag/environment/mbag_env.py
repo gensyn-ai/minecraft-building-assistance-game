@@ -561,8 +561,8 @@ class MbagEnv(object):
         ), "Wrong number of actions."
 
         reward: float = 0
-        own_rewards: List[float] = []
-        infos: List[MbagInfoDict] = []
+        own_rewards: List[float] = [0 for _ in range(self.config["num_players"])]
+        infos: List[MbagInfoDict] = [{} for _ in range(self.config["num_players"])]
 
         # Process give block actions before movement actions
         action_tuples_sorted_labeled = sorted(
@@ -586,8 +586,8 @@ class MbagEnv(object):
                     (MbagAction.NOOP, 0, 0),
                 )
             reward += player_reward
-            own_rewards.append(player_reward)
-            infos.append(player_info)
+            own_rewards[player_index] = player_reward
+            infos[player_index] = player_info
 
         self.timestep += 1
 
