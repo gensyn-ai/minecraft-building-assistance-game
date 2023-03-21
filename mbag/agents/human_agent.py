@@ -44,17 +44,22 @@ class HumanAgent(MbagAgent):
                         f"human action did not succeed: expected action "
                         f"{self.last_action} but env reported {info['action']}"
                     )
-
+            else:
+                logger.error(
+                    f"Extraneous environment action: expected action "
+                    f"Noop but env reported {info['action']}"
+                )
             self.actions_queue.extend(info.get("human_actions", []))
 
         action_tuple: MbagActionTuple = MbagAction.NOOP, 0, 0
         if len(self.actions_queue) > 0:
             action_tuple = self.actions_queue.pop(0)
 
+            # TODO: Stop hardcoding this after we figure out obs rotation issue..
             if action_tuple[0] == MbagAction.GIVE_BLOCK:
-                given_player_location = np.transpose(
-                    (player_locations == action_tuple[1] + 1).nonzero()
-                )[0]
+                given_player_location = np.transpose((player_locations == 2).nonzero())[
+                    0
+                ]
 
                 action_tuple = (
                     action_tuple[0],

@@ -133,9 +133,7 @@ class HumanActionDetector(object):
                         )
                     ]
                     actions.extend(total_actions)
-
-        if len(actions) > 0:
-            logger.info(actions)
+                    # actions.extend(human_actions[player_index][time][index])
 
         for player_index, action_tuple in actions:
             if action_tuple[0] == MbagAction.NOOP:
@@ -481,8 +479,6 @@ class HumanActionDetector(object):
                 self.human_blocks_on_ground[other_player_index][
                     picked_block_id
                 ] -= player_picked_blocks
-
-                logger.info(self.human_locations[player_index])
 
                 if other_player_index != player_index:
                     logger.info(
