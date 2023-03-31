@@ -4,8 +4,8 @@ import pytest
 
 from mbag.agents.hardcoded_agents import (
     HardcodedInventoryDonator,
-    HardcodedResourceAgent,
     HardcodedInventoryReceiver,
+    HardcodedResourceAgent,
 )
 from mbag.agents.heuristic_agents import NoopAgent
 from mbag.environment.goals.simple import BasicGoalGenerator

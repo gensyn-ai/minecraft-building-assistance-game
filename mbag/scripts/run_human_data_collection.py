@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import pickle
@@ -7,7 +6,6 @@ from subprocess import Popen
 from typing import Optional
 
 from malmo import minecraft
-from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import Experiment
 
 from mbag.agents.human_agent import HumanAgent

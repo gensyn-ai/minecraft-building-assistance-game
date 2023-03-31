@@ -1003,13 +1003,13 @@ class MbagEnv(object):
             )
 
             if inventory_taken < 0:
-                logger.error(f"Block to be given does not exist in giver's inventory")
+                logger.error("Block to be given does not exist in giver's inventory")
             else:
                 success = self._try_give_player_block(
                     block_id, receiver_player_index, True
                 )
                 if not success:
-                    logger.error(f"Receiver could not pick up block to their inventory")
+                    logger.error("Receiver could not pick up block to their inventory")
 
             if not success:
                 return block_index
@@ -1265,7 +1265,7 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _update_state_from_malmo(self, infos) -> List[MbagInfoDict]:
+    def _update_state_from_malmo(self, infos: List[MbagInfoDict]) -> List[MbagInfoDict]:
         """
         Resolve any discrepancies between the environment state and the state of the
         Minecraft game via Malmo. This generates human actions for human players.
@@ -1274,7 +1274,7 @@ class MbagEnv(object):
         malmo_observations = self.malmo_client.get_observations(0)
 
         if len(malmo_observations) == 0:
-            return infos, False
+            return infos
 
         _, latest_malmo_observation = sorted(malmo_observations)[-1]
 
@@ -1366,13 +1366,6 @@ class MbagEnv(object):
                                 f"{malmo_location} from Malmo"
                             )
                             self.player_locations[player_index] = malmo_location
-            else:
-                # self.human_action_detector.sync_human_state(
-                #     player_index,
-                #     self.player_locations[player_index],
-                #     self.player_inventories[player_index],
-                # )
-                pass
 
         human_players = [
             x
@@ -1400,9 +1393,9 @@ class MbagEnv(object):
 
     def _update_blocks_from_malmo(
         self, latest_malmo_observation: "MalmoObservationDict"
-    ) -> bool:
+    ):
         """
-        Compares blocks in the env and Malmo. Returns whether the palette needs to be regenerated
+        Compares blocks in the env and Malmo. Updates blocks with human action detector
         """
 
         if "world" in latest_malmo_observation and "goal" in latest_malmo_observation:

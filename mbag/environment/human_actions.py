@@ -13,6 +13,7 @@ from .types import (
     MbagActionType,
     MbagInfoDict,
     MbagInventory,
+    MbagInventoryObs,
     WorldLocation,
 )
 
@@ -101,11 +102,11 @@ class HumanActionDetector(object):
     def get_human_actions(
         self,
         human_players: List[int],
-        infos: MbagInfoDict,
+        infos: List[MbagInfoDict],
     ) -> List[Tuple[int, MbagActionTuple]]:
         actions = []
         human_actions = {}
-        timestamps = []
+        timestamps: List[datetime] = []
 
         for player_index in human_players:
             one_human_action = self.get_one_human_actions(
@@ -150,7 +151,7 @@ class HumanActionDetector(object):
         self,
         player_index: int,
         malmo_observations: List[Tuple[datetime, "MalmoObservationDict"]],
-    ) -> List[Tuple[int, MbagActionTuple]]:
+    ) -> Dict[datetime, List[List[Tuple[int, MbagActionTuple]]]]:
         """
         Given a player index and a list of observation dictionaries from Malmo,
         determines which human actions have taken place since the last time the
@@ -165,7 +166,7 @@ class HumanActionDetector(object):
         )
 
         for observation_time, malmo_observation in sorted(malmo_observations):
-            timestamp_actions = [[], [], []]
+            timestamp_actions: List[List[Tuple[int, MbagActionTuple]]] = [[], [], []]
             block_discrepancies = self._get_block_discrepancies(
                 player_index, malmo_observation
             )
@@ -201,15 +202,16 @@ class HumanActionDetector(object):
             )
             return
 
-        # Make sure inventory is the same as the environment
-        human_inventory = self.malmo_inventories[player_index]
-        for slot in np.nonzero(np.any(human_inventory != player_inventory, axis=1))[0]:
-            logger.debug(
-                f"inventory discrepancy for player {player_index} at slot {slot}: "
-                f"expected {player_inventory[slot, 1]} x "
-                f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
-                f"but received {human_inventory[slot, 1]} x "
-                f"{MinecraftBlocks.ID2NAME[human_inventory[slot, 0]]} "
+        # Make sure inventory has the same number of blocks as the environment's env
+        human_inventory_obs = self._get_simplified_inventory(
+            self.malmo_inventories[player_index]
+        )
+        player_inventory_obs = self._get_simplified_inventory(player_inventory)
+        for slot in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
+            logger.warning(
+                f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[slot]}: "
+                f"expected {player_inventory_obs[slot]}"
+                f"but received {human_inventory_obs[slot]}"
                 "from human action detector"
             )
 
@@ -230,6 +232,21 @@ class HumanActionDetector(object):
                 f"{human_location} from human action detector"
             )
             self.human_locations[player_index] = player_location
+
+    def _get_simplified_inventory(
+        self, player_inventory: MbagInventory
+    ) -> MbagInventoryObs:
+        """
+        Gets the array representation of the given player's inventory.
+        """
+
+        inventory_obs: MbagInventoryObs = np.zeros(
+            MinecraftBlocks.NUM_BLOCKS, dtype=int
+        )  # 10 total blocks
+        for i in range(player_inventory.shape[0]):
+            inventory_obs[player_inventory[i][0]] += player_inventory[i][1]
+
+        return inventory_obs
 
     def _get_block_discrepancies(
         self, player_index: int, malmo_observation: "MalmoObservationDict"
