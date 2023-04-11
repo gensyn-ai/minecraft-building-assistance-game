@@ -256,6 +256,7 @@ class HumanActionDetector(object):
         for i in range(player_inventory.shape[0]):
             inventory_obs[player_inventory[i][0]] += player_inventory[i][1]
 
+        inventory_obs[MinecraftBlocks.AIR] = 0
         return inventory_obs
 
     def _get_block_discrepancies(
