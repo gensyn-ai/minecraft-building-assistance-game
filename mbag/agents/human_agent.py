@@ -56,11 +56,12 @@ class HumanAgent(MbagAgent):
             action_tuple = self.actions_queue.pop(0)
 
             # TODO: Stop hardcoding this after we figure out obs rotation issue..
-            if action_tuple[0] == MbagAction.GIVE_BLOCK:
-                given_player_location = np.transpose((player_locations == 2).nonzero())[
-                    0
-                ]
-
+            action_type, location_id, block_id = action_tuple
+            if action_type == MbagAction.GIVE_BLOCK:
+                player_tag = location_id
+                given_player_location = np.transpose(
+                    (player_locations == player_tag).nonzero()
+                )[0]
                 action_tuple = (
                     action_tuple[0],
                     int(

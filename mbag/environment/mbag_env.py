@@ -87,6 +87,12 @@ class MalmoConfigDict(TypedDict, total=False):
     automatically set up necessary port forwarding.
     """
 
+    action_delay: float
+    """
+    The number of seconds to wait after each step to allow actions to complete
+    in Malmo.
+    """
+
 
 class RewardsConfigDict(TypedDict, total=False):
     noop: float
@@ -262,6 +268,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "restrict_players": False,
         "video_dir": None,
         "ssh_args": None,
+        "action_delay": 0.3,
     },
     "rewards": {
         "noop": 0.0,
@@ -471,6 +478,7 @@ class MbagEnv(object):
         self.human_action_detector.reset(
             self.player_locations,
             self.current_blocks,
+            self.palette_x,
         )
 
         if self.config["malmo"]["use_malmo"]:
@@ -546,7 +554,7 @@ class MbagEnv(object):
 
         if self.config["malmo"]["use_malmo"]:
             # Let everything load in Malmo.
-            time.sleep(self.malmo_client.ACTION_DELAY)
+            time.sleep(self.config["malmo"]["action_delay"])
 
         return [
             self._get_player_obs(player_index)
@@ -562,12 +570,16 @@ class MbagEnv(object):
 
         reward: float = 0
         own_rewards: List[float] = [0 for _ in range(self.config["num_players"])]
-        infos: List[MbagInfoDict] = [{} for _ in range(self.config["num_players"])]
+        optional_infos: List[Optional[MbagInfoDict]] = [
+            None for _ in range(self.config["num_players"])
+        ]
 
         # Process give block actions before movement actions
         action_tuples_sorted_labeled = sorted(
             list(enumerate(action_tuples)),
-            key=lambda x: 0 if x[1][0] == MbagAction.GIVE_BLOCK else 1,
+            key=lambda player_index_action_tuple: 0
+            if player_index_action_tuple[1][0] == MbagAction.GIVE_BLOCK
+            else 1,
         )
 
         for player_index, player_action_tuple in action_tuples_sorted_labeled:
@@ -585,14 +597,29 @@ class MbagEnv(object):
                     player_index,
                     (MbagAction.NOOP, 0, 0),
                 )
+            # print(player_index, player_action_tuple, player_info)
             reward += player_reward
             own_rewards[player_index] = player_reward
-            infos[player_index] = player_info
+            optional_infos[player_index] = player_info
+
+        infos: List[MbagInfoDict] = []
+        for info in optional_infos:
+            assert info is not None
+            infos.append(info)
 
         self.timestep += 1
 
+        if (
+            self.current_blocks.blocks[self.palette_x]
+            != self.goal_blocks.blocks[self.palette_x]
+        ).any() and not self.config["abilities"]["inf_blocks"]:
+            logger.info("Copying palette from goal ")
+            self._copy_palette_from_goal()
+            if self.config["malmo"]["use_malmo"]:
+                self._copy_palette_from_goal_in_malmo()
+
         if self.config["malmo"]["use_malmo"]:
-            time.sleep(self.malmo_client.ACTION_DELAY)
+            time.sleep(self.config["malmo"]["action_delay"])
             infos = self._update_state_from_malmo(infos)
         obs = [
             self._get_player_obs(player_index)
@@ -608,15 +635,6 @@ class MbagEnv(object):
 
         # logger.info(self.current_blocks.blocks[self.palette_x])
         # logger.info(self.goal_blocks.blocks[self.palette_x])
-
-        if (
-            self.current_blocks.blocks[self.palette_x]
-            != self.goal_blocks.blocks[self.palette_x]
-        ).any() and not self.config["abilities"]["inf_blocks"]:
-            logger.info("Copying palette from goal ")
-            self._copy_palette_from_goal()
-            if self.config["malmo"]["use_malmo"]:
-                self._copy_palette_from_goal_in_malmo()
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
             # Wait for a second for the final block to place and then end mission.
@@ -661,12 +679,13 @@ class MbagEnv(object):
 
     def _copy_palette_from_goal(self):
         # Copy over the palette from the goal generator
-        self.current_blocks.blocks[self.palette_x] = self.goal_blocks.blocks[
-            self.palette_x
-        ]
-        self.current_blocks.block_states[
-            self.palette_x
-        ] = self.goal_blocks.block_states[self.palette_x]
+        palette_blocks = self.goal_blocks.blocks[self.palette_x]
+        palette_block_states = self.goal_blocks.block_states[self.palette_x]
+        self.current_blocks.blocks[self.palette_x] = palette_blocks
+        self.current_blocks.block_states[self.palette_x] = palette_block_states
+        self.human_action_detector._copy_palette(
+            self.palette_x, palette_blocks, palette_block_states
+        )
 
     def _copy_palette_from_goal_in_malmo(self):
         # Sync with Malmo.
@@ -680,6 +699,7 @@ class MbagEnv(object):
                 f"{goal_palette_x} {height - 1} {depth - 1} "
                 f"{self.palette_x} 0 0",
             )
+            time.sleep(0.3)
 
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple
@@ -780,6 +800,8 @@ class MbagEnv(object):
     def _handle_place_break(self, player_index: int, action: MbagAction) -> bool:
         prev_block = self.current_blocks[action.block_location]
         inventory_slot = 0
+
+        # breakpoint()
 
         if (
             not self.config["abilities"]["inf_blocks"]
@@ -984,8 +1006,8 @@ class MbagEnv(object):
                 receiver_player_location
             )
         except ValueError:
-            logger.error(
-                f"Give Block could not find player at {receiver_player_location}"
+            logger.warn(
+                f"give Block could not find player at {receiver_player_location}"
             )
             return 0
 

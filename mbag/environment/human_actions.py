@@ -62,6 +62,7 @@ class HumanActionDetector(object):
         self,
         initial_player_locations: List[WorldLocation],
         initial_blocks: MinecraftBlocks,
+        palette_x: int,
     ):
         """
         This should be called at the beginning of a new episode.
@@ -98,6 +99,8 @@ class HumanActionDetector(object):
             self.env_config["world_size"], dtype=np.int8
         )
         self.num_pending_human_movements = np.zeros(self.env_config["num_players"])
+
+        self.palette_x = palette_x
 
     def get_human_actions(
         self,
@@ -191,11 +194,18 @@ class HumanActionDetector(object):
 
         return actions
 
+    def _copy_palette(
+        self,
+        palette_x: int,
+        palette_blocks: np.ndarray,
+        palette_block_states: np.ndarray,
+    ):
+        pass
+
     def sync_human_state(self, player_index, player_location, player_inventory):
         if (
-            self.num_pending_human_interactions.sum()
-            != self.num_pending_human_movements.sum()
-            != 0
+            self.num_pending_human_interactions.sum() > 0
+            or self.num_pending_human_movements.sum() > 0
         ):
             logger.info(
                 "Skipping human action detector sync because of outstanding human actions"
@@ -210,8 +220,8 @@ class HumanActionDetector(object):
         for slot in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
             logger.warning(
                 f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[slot]}: "
-                f"expected {player_inventory_obs[slot]}"
-                f"but received {human_inventory_obs[slot]}"
+                f"expected {player_inventory_obs[slot]} "
+                f"but received {human_inventory_obs[slot]} "
                 "from human action detector"
             )
 
@@ -378,6 +388,7 @@ class HumanActionDetector(object):
             if (
                 self.human_last_placing[block_location] == player_index
                 and new_block_id != MinecraftBlocks.AIR
+                and block_location[0] != self.palette_x
             ):
                 action_type = MbagAction.PLACE_BLOCK
                 dropped_blocks[new_block_id] -= 1
@@ -510,13 +521,16 @@ class HumanActionDetector(object):
                             picked_block_id,
                         )
                     )
+                    player_tag = player_index + 1
+                    if player_index < other_player_index:
+                        player_tag += 1
                     actions.extend(
                         [
                             (
                                 other_player_index,
                                 (
                                     MbagAction.GIVE_BLOCK,
-                                    player_index,
+                                    player_tag,
                                     picked_block_id,
                                 ),
                             )

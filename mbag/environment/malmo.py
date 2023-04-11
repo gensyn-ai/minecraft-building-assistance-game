@@ -55,8 +55,6 @@ class MalmoObservationDict(TypedDict, total=False):
 
 
 class MalmoClient(object):
-    ACTION_DELAY = 0.3
-
     agent_hosts: List[MalmoPython.AgentHost]
     experiment_id: str
     record_fname: Optional[str]
