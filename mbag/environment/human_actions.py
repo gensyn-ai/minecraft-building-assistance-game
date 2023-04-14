@@ -108,6 +108,7 @@ class HumanActionDetector(object):
             self.env_config["world_size"], dtype=np.int8
         )
         self.num_pending_human_movements = np.zeros(self.env_config["num_players"])
+        self.num_pending_give_actions = np.zeros(self.env_config["num_players"])
 
         self.palette_x = palette_x
 
@@ -215,9 +216,15 @@ class HumanActionDetector(object):
         if (
             self.num_pending_human_interactions.sum() > 0
             or self.num_pending_human_movements.sum() > 0
+            or self.num_pending_give_actions.sum() > 0
         ):
             logger.info(
                 "Skipping human action detector sync because of outstanding human actions"
+            )
+            print(
+                self.num_pending_human_interactions.sum(),
+                self.num_pending_human_movements,
+                self.num_pending_give_actions,
             )
             return
 
@@ -557,18 +564,6 @@ class HumanActionDetector(object):
                 ] -= player_picked_blocks
 
                 if other_player_index != player_index:
-                    logger.info(
-                        (
-                            MbagAction.GIVE_BLOCK,
-                            int(
-                                np.ravel_multi_index(
-                                    self.human_locations[player_index],
-                                    self.env_config["world_size"],
-                                )
-                            ),
-                            picked_block_id,
-                        )
-                    )
                     player_tag = player_index + 1
                     if player_index < other_player_index:
                         player_tag += 1
@@ -585,6 +580,9 @@ class HumanActionDetector(object):
                             for _ in range(player_picked_blocks)
                         ]
                     )
+                    self.num_pending_give_actions[
+                        other_player_index
+                    ] += player_picked_blocks
 
         return actions
 
@@ -601,6 +599,12 @@ class HumanActionDetector(object):
             logger.error(
                 f"unexpected block action from human player at location {block_location}"
             )
+
+    def record_human_give_action(self, player_id: int):
+        if self.num_pending_give_actions[player_id] > 0:
+            self.num_pending_give_actions[player_id] -= 1
+        else:
+            logger.error(f"unexpected give action from human player {player_id}")
 
     @property
     def blocks_with_no_pending_human_interactions(self):

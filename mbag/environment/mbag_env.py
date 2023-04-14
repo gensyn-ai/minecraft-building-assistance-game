@@ -1033,6 +1033,9 @@ class MbagEnv(object):
                 if not success:
                     logger.error("Receiver could not pick up block to their inventory")
 
+            if success and self.config["players"][giver_player_index]["is_human"]:
+                self.human_action_detector.record_human_give_action(giver_player_index)
+
             if not success:
                 return block_index
 

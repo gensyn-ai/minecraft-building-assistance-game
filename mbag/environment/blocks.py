@@ -177,7 +177,7 @@ class MinecraftBlocks(object):
         )
         return player_locations
 
-    def try_break_place(
+    def try_break_place(  # noqa: C901
         self,
         action_type: MbagActionType,
         block_location: BlockLocation,
@@ -195,6 +195,18 @@ class MinecraftBlocks(object):
         If the block can be placed or broken, then returns a tuple with the successful
         player location and click location, and updates the blocks accordingly.
         """
+
+        if is_human:
+            # Just assume human actions are valid.
+            assert player_location is not None
+            if update_blocks:
+                if action_type == MbagAction.BREAK_BLOCK:
+                    self.blocks[block_location] = MinecraftBlocks.AIR
+                    self.block_states[block_location] = 0
+                else:
+                    self.blocks[block_location] = block_id
+                    self.block_states[block_location] = 0
+            return player_location, (-1, -1, -1)
 
         if action_type not in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             raise ValueError(f"Invalid action_type: {action_type}")
@@ -387,7 +399,6 @@ class MinecraftBlocks(object):
             else:
                 self.blocks[block_location] = block_id
                 self.block_states[block_location] = 0
-            # TODO: add block to inventory?
 
         # Make choice of viewpoint/click location deterministic by seeding with the
         # current blocks.
