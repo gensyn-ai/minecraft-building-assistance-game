@@ -30,6 +30,12 @@ class HumanActionDetector(object):
     """For each player, which block they are currently looking at."""
     human_blocks_on_ground: List[Dict[int, int]]
     """For each player, number of blocks of each inventory type that is on the ground"""
+    human_missing_blocks: List[Dict[int, int]]
+    """
+    For each player, number of blocks of each type that are present in Minecraft but not
+    in the MbagEnv. This discrepancy is resolved by adding extra palette BREAK_BLOCK
+    actions.
+    """
     human_is_breaking: List[bool]
     human_is_placing: List[bool]
     """For each player, whether they are currently holding the place/break keys."""
@@ -74,6 +80,9 @@ class HumanActionDetector(object):
             None for _ in range(self.env_config["num_players"])
         ]
         self.human_blocks_on_ground = [
+            defaultdict(int) for _ in range(self.env_config["num_players"])
+        ]
+        self.human_missing_blocks = [
             defaultdict(int) for _ in range(self.env_config["num_players"])
         ]
         self.human_is_breaking = [False for _ in range(self.env_config["num_players"])]
@@ -217,13 +226,17 @@ class HumanActionDetector(object):
             self.malmo_inventories[player_index]
         )
         player_inventory_obs = self._get_simplified_inventory(player_inventory)
-        for slot in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
+        for block_id in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
             logger.warning(
-                f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[slot]}: "
-                f"expected {player_inventory_obs[slot]} "
-                f"but received {human_inventory_obs[slot]} "
+                f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
+                f"expected {player_inventory_obs[block_id]} "
+                f"but received {human_inventory_obs[block_id]} "
                 "from human action detector"
             )
+            if human_inventory_obs[block_id] > player_inventory_obs[block_id]:
+                self.human_missing_blocks[player_index][block_id] += (
+                    human_inventory_obs[block_id] - player_inventory_obs[block_id]
+                )
 
         # Make sure position is the same as the environment
         human_location = self.human_locations[player_index]
@@ -419,7 +432,41 @@ class HumanActionDetector(object):
                 del block_discrepancies[block_location]
                 self.num_pending_human_interactions[block_location] += 1
 
+        place_break_actions.extend(self._get_missing_blocks_break_actions(player_index))
+
         return place_break_actions
+
+    def _get_missing_blocks_break_actions(
+        self, player_index: int
+    ) -> List[Tuple[int, MbagActionTuple]]:
+        actions: List[Tuple[int, MbagActionTuple]] = []
+
+        # Handle missing items by attempting to break palette blocks.
+        for block_id, num_missing in list(
+            self.human_missing_blocks[player_index].items()
+        ):
+            for _ in range(num_missing):
+                palette_z = sorted(MinecraftBlocks.PLACEABLE_BLOCK_IDS).index(block_id)
+                block_location = (self.palette_x, 2, palette_z)
+                actions.append(
+                    (
+                        player_index,
+                        (
+                            MbagAction.BREAK_BLOCK,
+                            int(
+                                np.ravel_multi_index(
+                                    block_location,
+                                    self.env_config["world_size"],
+                                )
+                            ),
+                            block_id,
+                        ),
+                    )
+                )
+                self.num_pending_human_interactions[block_location] += 1
+            self.human_missing_blocks[player_index][block_id] = 0
+
+        return actions
 
     def _get_dropped_picked_up_blocks(
         self, player_index: int, malmo_observation: "MalmoObservationDict"
