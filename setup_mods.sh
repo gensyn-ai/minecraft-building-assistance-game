@@ -9,10 +9,9 @@ if ! cd Minecraft ; then
     echo Error: run $(basename $0) in the MalmoPlatorm directory.
     exit 1
 fi
-curl http://people.eecs.berkeley.edu/~cassidy_laidlaw/minecraft-building-assistance-game/mods/CustomSkinLoader_ForgeLegacy-14.13-SNAPSHOT-317.jar -o run/mods/CustomSkinLoader_ForgeLegacy-14.13.jar 
-curl http://people.eecs.berkeley.edu/~cassidy_laidlaw/minecraft-building-assistance-game/mods/Survival-Flight-Mod-1.11.2.jar -o run/mods/Survival-Flight-Mod-1.11.2.jar
 
-cp $SCRIPT_DIR/data/minecraft/config/zevac.survivalflight.cfg  run/config/
+cp -v $SCRIPT_DIR/data/minecraft/mods/*.jar run/mods/
+cp -v $SCRIPT_DIR/data/minecraft/config/*.cfg  run/config/
 
 SKINS_DIR=$SCRIPT_DIR/data/minecraft/skins
 MOD_SKINS_DIR=run/CustomSkinLoader/LocalSkin/skins
