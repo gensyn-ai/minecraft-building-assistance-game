@@ -801,8 +801,6 @@ class MbagEnv(object):
         prev_block = self.current_blocks[action.block_location]
         inventory_slot = 0
 
-        # breakpoint()
-
         if (
             not self.config["abilities"]["inf_blocks"]
             and action.action_type == MbagAction.PLACE_BLOCK
@@ -955,7 +953,11 @@ class MbagEnv(object):
             player_location[2] + dz,
         )
 
-        if not self._is_valid_player_space(new_player_location, player_index):
+        if not self._is_valid_player_space(
+            new_player_location,
+            player_index,
+            ignore_other_players=self.config["players"][player_index]["is_human"],
+        ):
             return False
 
         player_location = new_player_location
@@ -1141,7 +1143,10 @@ class MbagEnv(object):
         return selected_slot
 
     def _is_valid_player_space(
-        self, player_location: WorldLocation, player_index: int
+        self,
+        player_location: WorldLocation,
+        player_index: int,
+        ignore_other_players: bool = False,
     ) -> bool:
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
@@ -1168,7 +1173,10 @@ class MbagEnv(object):
             ):
                 return False
 
-        return not self._collides_with_players(proposed_block, player_index)
+        if ignore_other_players:
+            return True
+        else:
+            return not self._collides_with_players(proposed_block, player_index)
 
     def _collides_with_players(self, proposed_block, player_id: int) -> bool:
         for i in range(len(self.player_locations)):
@@ -1245,6 +1253,8 @@ class MbagEnv(object):
                     world_obs,
                     other_player_location,
                     player_marker_map[other_player_index],
+                    check_for_overlap=self.config["players"][player_index]["is_human"]
+                    or self.config["players"][other_player_index]["is_human"],
                 )
 
         for other_player_index in range(self.config["num_players"]):
@@ -1259,7 +1269,11 @@ class MbagEnv(object):
         )
 
     def _add_player_location_to_world_obs(
-        self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
+        self,
+        world_obs: MbagWorldObsArray,
+        player_location: WorldLocation,
+        marker: int,
+        check_for_overlap: bool = True,
     ):
         x, y_feet, z = player_location
         x, y_feet, z = int(np.floor(x)), int(np.floor(y_feet)), int(np.floor(z))
@@ -1268,7 +1282,10 @@ class MbagEnv(object):
             if y_feet + 1 < self.config["world_size"][1]
             else [y_feet]
         ):
-            assert world_obs[PLAYER_LOCATIONS, x, y, z] == 0, "players are overlapping"
+            if check_for_overlap:
+                assert (
+                    world_obs[PLAYER_LOCATIONS, x, y, z] == 0
+                ), "players are overlapping"
             world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
