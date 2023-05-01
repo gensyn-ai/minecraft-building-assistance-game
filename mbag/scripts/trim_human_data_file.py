@@ -4,6 +4,7 @@ import pickle
 from datetime import datetime
 from subprocess import Popen
 from typing import List, Optional
+import numpy as np
 
 from sacred import Experiment
 
@@ -23,7 +24,12 @@ def make_trim_data_config():
     result_folder = "/Users/timg/Documents/GitHub/minecraft-building-assistance-game/data/human_data/2023-04-11_12-42-43"
 
 
-def filter(reward: float, info_dicts: List[MbagInfoDict], obs: List[MbagObs]) -> bool:
+def filter(
+    reward: float,
+    info_dicts: List[MbagInfoDict],
+    obs: List[MbagObs],
+    next_obs: List[MbagObs],
+) -> bool:
     """
     Returns whether the timestamp should be trimmed.
 
@@ -34,10 +40,19 @@ def filter(reward: float, info_dicts: List[MbagInfoDict], obs: List[MbagObs]) ->
         return True
 
     for info_dict in info_dicts:
-        if info_dict["action"].action_type != MbagAction.NOOP:
+        if info_dict["attempted_action"].action_type != MbagAction.NOOP:
             return True
 
         if len(info_dict["human_actions"]) > 0:
+            return True
+
+    for i in range(len(obs)):
+        current_player_obs = obs[i]
+        next_player_obs = next_obs[i]
+        if not (
+            np.array_equal(current_player_obs[0], next_player_obs[0])
+            and np.array_equal(current_player_obs[1], next_player_obs[1])
+        ):
             return True
 
     return False
@@ -65,6 +80,7 @@ def main(
             episode_info.reward_history[i],
             episode_info.info_history[i],
             episode_info.obs_history[i],
+            episode_info.obs_history[i + 1],
         ):
             trimmed_rewards.append(episode_info.reward_history[i])
             trimmed_obs.append(episode_info.obs_history[i])
