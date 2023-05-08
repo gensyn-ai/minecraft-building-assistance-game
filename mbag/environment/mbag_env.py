@@ -549,6 +549,11 @@ class MbagEnv(object):
                 for player_index in range(self.config["num_players"]):
                     self.malmo_client.send_command(player_index, "chat /gamemode 0")
 
+                    # Disable chat messages from the palette
+                    self.malmo_client.send_command(
+                        player_index, "chat /gamerule sendCommandFeedback false"
+                    )
+
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
 

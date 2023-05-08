@@ -89,7 +89,8 @@ def make_human_action_config():
                         ],
                     }
                     for item_id in ["diamond_pickaxe", "diamond_axe"]
-                ],
+                ]
+                + [{"id": "shears", "count": 1}],
             }
             for _ in range(num_players)
         ],
