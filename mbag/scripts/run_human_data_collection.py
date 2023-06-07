@@ -88,7 +88,7 @@ def make_human_action_config():
                             },
                         ],
                     }
-                    for item_id in ["diamond_pickaxe", "diamond_axe"]
+                    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]
                 ]
                 + [{"id": "shears", "count": 1}],
             }
