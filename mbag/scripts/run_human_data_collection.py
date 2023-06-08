@@ -3,14 +3,16 @@ import os
 import pickle
 from datetime import datetime
 from subprocess import Popen
-from typing import Optional
+from typing import List, Optional
 
 from malmo import minecraft
 from sacred import Experiment
+from sacred.observers import FileStorageObserver
 
 from mbag.agents.human_agent import HumanAgent
-from mbag.environment.goals import TransformedGoalGenerator
-from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.goals import TransformedGoalGenerator, TutorialGoalGenerator
+from mbag.environment.mbag_env import ItemDict, MbagConfigDict
+from mbag.environment.types import WorldSize
 from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
@@ -22,45 +24,68 @@ ex = Experiment()
 def make_human_action_config():
     launch_minecraft = False  # noqa: F841
     data_path = "data/human_data"  # noqa: F841
-    horizon = 10000
 
     num_players = 2
+    world_size: WorldSize = (10, 10, 10)
+    goal_generator = TransformedGoalGenerator
+    goal_generator_config = {
+        "goal_generator": "craftassist",
+        "goal_generator_config": {
+            "data_dir": "data/craftassist",
+            "subset": "train",
+        },
+        "transforms": [
+            {"config": {"connectivity": 18}, "transform": "largest_cc"},
+            {"transform": "crop_air"},
+            {"config": {"min_size": [4, 4, 4]}, "transform": "min_size_filter"},
+            {
+                "config": {
+                    "interpolate": True,
+                    "interpolation_order": 1,
+                    "max_scaling_factor": 2,
+                    "max_scaling_factor_ratio": 1.5,
+                    "preserve_paths": True,
+                    "scale_y_independently": True,
+                },
+                "transform": "area_sample",
+            },
+            {
+                "config": {"max_density": 1, "min_density": 0},
+                "transform": "density_filter",
+            },
+            {"transform": "randomly_place"},
+            {"transform": "add_grass"},
+            {"config": {"connectivity": 18}, "transform": "single_cc_filter"},
+        ],
+    }
+
+    give_items: List[ItemDict] = []
+    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]:
+        give_items.append(
+            {
+                "id": item_id,
+                "count": 1,
+                "enchantments": [
+                    # Gives silk touch enchantment, level defaults to max.
+                    {
+                        "id": 33,
+                        "level": 1,
+                    },
+                    {
+                        "id": 34,  # Gives unbreaking enchantment.
+                        "level": 3,  # Manually set the level.
+                    },
+                ],
+            }
+        )
+    give_items.append({"id": "shears", "count": 1, "enchantments": []})
 
     mbag_config: MbagConfigDict = {  # noqa: F841
-        "world_size": (12, 12, 12),
+        "world_size": world_size,
         "num_players": num_players,
-        "horizon": horizon,
-        "goal_generator": TransformedGoalGenerator,
-        "goal_generator_config": {
-            "goal_generator": "craftassist",
-            "goal_generator_config": {
-                "data_dir": "data/craftassist",
-                "subset": "train",
-            },
-            "transforms": [
-                {"config": {"connectivity": 18}, "transform": "largest_cc"},
-                {"transform": "crop_air"},
-                {"config": {"min_size": [4, 4, 4]}, "transform": "min_size_filter"},
-                {
-                    "config": {
-                        "interpolate": True,
-                        "interpolation_order": 1,
-                        "max_scaling_factor": 2,
-                        "max_scaling_factor_ratio": 1.5,
-                        "preserve_paths": True,
-                        "scale_y_independently": True,
-                    },
-                    "transform": "area_sample",
-                },
-                {
-                    "config": {"max_density": 1, "min_density": 0},
-                    "transform": "density_filter",
-                },
-                {"transform": "randomly_place"},
-                {"transform": "add_grass"},
-                {"config": {"connectivity": 18}, "transform": "single_cc_filter"},
-            ],
-        },
+        "horizon": 1_000_000_000,
+        "goal_generator": goal_generator,
+        "goal_generator_config": goal_generator_config,
         "malmo": {
             "use_malmo": True,
             "use_spectator": False,
@@ -72,45 +97,33 @@ def make_human_action_config():
         "players": [
             {
                 "is_human": True,
-                "give_items": [
-                    {
-                        "id": item_id,
-                        "count": 1,
-                        "enchantments": [
-                            # Gives silk touch enchantment, level defaults to max.
-                            {
-                                "id": 33,
-                                "level": 1,
-                            },
-                            {
-                                "id": 34,  # Gives unbreaking enchantment.
-                                "level": 3,  # Manually set the level.
-                            },
-                        ],
-                    }
-                    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]
-                ]
-                + [{"id": "shears", "count": 1}],
+                "give_items": give_items,
             }
             for _ in range(num_players)
         ],
         "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
     }
 
+    result_dir = os.path.join(data_path, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    observer = FileStorageObserver(result_dir)
+    ex.observers.append(observer)
+
+
+@ex.named_config
+def tutorial():
+    world_size = (6, 6, 6)  # noqa: F841
+    goal_generator = TutorialGoalGenerator  # noqa: F841
+    goal_generator_config = {}  # noqa: F841
+    num_players = 1  # noqa: F841
+
 
 @ex.automain
 def main(
     launch_minecraft: bool,
-    data_path: str,
     num_players: int,
     mbag_config: MbagConfigDict,
+    observer: FileStorageObserver,
 ):
-    os.makedirs(data_path, exist_ok=True)
-    result_folder = os.path.join(
-        data_path, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    )
-    os.mkdir(result_folder)
-
     minecraft_process: Optional[Popen] = None
     if launch_minecraft:
         (minecraft_process,) = minecraft.launch()
@@ -122,10 +135,10 @@ def main(
     )
 
     episode_info = evaluator.rollout()
-    with open(os.path.join(result_folder, "result.pb"), "wb") as result_file:
-        pickle.dump(episode_info, result_file)
-
-    logger.info(f"saved file in {result_folder}")
+    episode_fname = os.path.join(observer.dir, "episode.pkl")
+    logger.info(f"saving episode to {episode_fname}")
+    with open(episode_fname, "wb") as episode_file:
+        pickle.dump(episode_info, episode_file)
 
     if minecraft_process is not None:
         minecraft_process.terminate()

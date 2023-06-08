@@ -10,6 +10,7 @@ from .simple import (
     RandomGoalGenerator,
     SetGoalGenerator,
     SimpleOverhangGoalGenerator,
+    TutorialGoalGenerator,
 )
 from .transforms import (
     AddGrassTransform,
@@ -27,6 +28,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "basic": BasicGoalGenerator,
     "random": RandomGoalGenerator,
     "simple_overhang": SimpleOverhangGoalGenerator,
+    "tutorial": TutorialGoalGenerator,
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
     "set_goal": SetGoalGenerator,
