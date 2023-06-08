@@ -1,18 +1,12 @@
 import logging
 import os
 import pickle
-from datetime import datetime
-from subprocess import Popen
-from typing import List, Optional
-import numpy as np
+from typing import List
 
+import numpy as np
 from sacred import Experiment
 
-from mbag.agents.human_agent import HumanAgent
-from mbag.environment.goals import TransformedGoalGenerator
-from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import MbagAction, MbagInfoDict, MbagObs
-from mbag.evaluation.evaluator import EpisodeInfo, MbagEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +15,7 @@ ex = Experiment()
 
 @ex.config
 def make_trim_data_config():
-    result_folder = "/Users/timg/Documents/GitHub/minecraft-building-assistance-game/data/human_data/2023-04-11_12-42-43"
+    result_dir = ""  # noqa: F841
 
 
 def filter(
@@ -60,10 +54,10 @@ def filter(
 
 @ex.automain
 def main(
-    result_folder: str,
+    result_dir: str,
 ):
-    result_path = os.path.join(result_folder, "result.pb")
-    compressed_path = os.path.join(result_folder, "result_compressed.pb")
+    result_path = os.path.join(result_dir, "result.pb")
+    compressed_path = os.path.join(result_dir, "result_compressed.pb")
 
     with open(result_path, "rb") as result_file:
         episode_info = pickle.load(result_file)
@@ -93,5 +87,5 @@ def main(
     with open(compressed_path, "wb") as result_file:
         pickle.dump(episode_info, result_file)
 
-    logger.info(f"New file size: {os.stat(compressed_path).st_size / (1024 * 1024)} MB")
-    logger.info(f"Saved compressed file in {compressed_path}")
+    logger.info(f"new file size: {os.stat(compressed_path).st_size / (1024 * 1024)} MB")
+    logger.info(f"saved compressed file in {compressed_path}")
