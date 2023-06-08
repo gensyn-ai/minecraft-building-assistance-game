@@ -3,7 +3,7 @@ import os
 import pickle
 from datetime import datetime
 from subprocess import Popen
-from typing import List, Optional
+from typing import Optional
 
 from malmo import minecraft
 from sacred import Experiment
@@ -11,7 +11,7 @@ from sacred.observers import FileStorageObserver
 
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.goals import TransformedGoalGenerator, TutorialGoalGenerator
-from mbag.environment.mbag_env import ItemDict, MbagConfigDict
+from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import WorldSize
 from mbag.evaluation.evaluator import MbagEvaluator
 
@@ -59,27 +59,6 @@ def make_human_action_config():
         ],
     }
 
-    give_items: List[ItemDict] = []
-    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]:
-        give_items.append(
-            {
-                "id": item_id,
-                "count": 1,
-                "enchantments": [
-                    # Gives silk touch enchantment, level defaults to max.
-                    {
-                        "id": 33,
-                        "level": 1,
-                    },
-                    {
-                        "id": 34,  # Gives unbreaking enchantment.
-                        "level": 3,  # Manually set the level.
-                    },
-                ],
-            }
-        )
-    give_items.append({"id": "shears", "count": 1, "enchantments": []})
-
     mbag_config: MbagConfigDict = {  # noqa: F841
         "world_size": world_size,
         "num_players": num_players,
@@ -97,7 +76,31 @@ def make_human_action_config():
         "players": [
             {
                 "is_human": True,
-                "give_items": give_items,
+                "give_items": [  # type: ignore
+                    {
+                        "id": item_id,
+                        "count": 1,
+                        "enchantments": [
+                            # Gives silk touch enchantment, level defaults to max.
+                            {
+                                "id": 33,
+                                "level": 1,
+                            },
+                            {
+                                "id": 34,  # Gives unbreaking enchantment.
+                                "level": 3,  # Manually set the level.
+                            },
+                        ],
+                    }
+                    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]
+                ]
+                + [
+                    {
+                        "id": "shears",
+                        "count": 1,
+                        "enchantments": [],
+                    }
+                ],
             }
             for _ in range(num_players)
         ],
