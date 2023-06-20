@@ -90,39 +90,43 @@ class AddGrassTransform(GoalTransform):
         return goal
 
 
-class LargestConnectedComponentTransformConfig(TypedDict):
-    connectivity: Literal[6, 18, 26]
+class CropLowDensityBottomLayersTransformConfig(TypedDict):
+    density_threshold: float
 
 
-class LargestConnectedComponentTransform(GoalTransform):
+class CropLowDensityBottomLayersTransform(GoalTransform):
     """
-    Filters the goal to its largest connected component
+    Crop bottom layers with density below the given threshold if the layer above is
+    above the threshold.
     """
 
-    default_config: LargestConnectedComponentTransformConfig = {
-        "connectivity": 6,
+    default_config: CropLowDensityBottomLayersTransformConfig = {
+        "density_threshold": 0.1
     }
-    config: LargestConnectedComponentTransformConfig
+    config: CropLowDensityBottomLayersTransformConfig
 
     def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
         goal = self.goal_generator.generate_goal(size)
+        transformed_goal = goal
         width, height, depth = goal.size
-        not_air = np.zeros((width, height + 2, depth), dtype=bool)
-        not_air[:, 1:-1, :] = goal.blocks != MinecraftBlocks.AIR
-        not_air[:, 0, :] = True
-        not_air[:, -1, :] = False
-        components = cc3d.connected_components(
-            not_air, connectivity=self.config["connectivity"]
-        )
-        assert np.all(components[:, -1, :] == 0)
-        components = components[:, 1:-1, :]
-        num_components = np.max(components) + 1
-        component_counts = [0]
-        for component_id in range(1, num_components):
-            component_counts.append(np.sum(components == component_id))
-        largest_component_id = np.argmax(component_counts)
-        goal.blocks[components != largest_component_id] = MinecraftBlocks.AIR
-        return goal
+        for y in [0, 1]:
+            if y >= height - 1:
+                continue
+            layers_below = goal.blocks[:, : y + 1, :]
+            layer_above = goal.blocks[:, y + 1, :]
+            density_below = np.mean(layers_below != MinecraftBlocks.AIR, axis=(0, 2))
+            density_above = np.mean(layer_above != MinecraftBlocks.AIR)
+            if (
+                np.all(density_below < self.config["density_threshold"])
+                and density_above >= self.config["density_threshold"]
+            ):
+                transformed_goal = MinecraftBlocks((width, height - y - 1, depth))
+                transformed_goal.blocks[:, :, :] = goal.blocks[:, y + 1 :, :]
+                transformed_goal.block_states[:, :, :] = goal.block_states[
+                    :, y + 1 :, :
+                ]
+                print("crop", y)
+        return transformed_goal
 
 
 class CropAirTransform(GoalTransform):
@@ -215,6 +219,41 @@ class CropTransform(GoalTransform):
                 return crop
 
             logger.info("CropTransform was unable to find a valid crop")
+
+
+class LargestConnectedComponentTransformConfig(TypedDict):
+    connectivity: Literal[6, 18, 26]
+
+
+class LargestConnectedComponentTransform(GoalTransform):
+    """
+    Filters the goal to its largest connected component
+    """
+
+    default_config: LargestConnectedComponentTransformConfig = {
+        "connectivity": 6,
+    }
+    config: LargestConnectedComponentTransformConfig
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        goal = self.goal_generator.generate_goal(size)
+        width, height, depth = goal.size
+        not_air = np.zeros((width, height + 2, depth), dtype=bool)
+        not_air[:, 1:-1, :] = goal.blocks != MinecraftBlocks.AIR
+        not_air[:, 0, :] = True
+        not_air[:, -1, :] = False
+        components = cc3d.connected_components(
+            not_air, connectivity=self.config["connectivity"]
+        )
+        assert np.all(components[:, -1, :] == 0)
+        components = components[:, 1:-1, :]
+        num_components = np.max(components) + 1
+        component_counts = [0]
+        for component_id in range(1, num_components):
+            component_counts.append(np.sum(components == component_id))
+        largest_component_id = np.argmax(component_counts)
+        goal.blocks[components != largest_component_id] = MinecraftBlocks.AIR
+        return goal
 
 
 class AreaSampleTransformConfig(TypedDict):

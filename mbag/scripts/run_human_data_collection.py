@@ -26,7 +26,7 @@ def make_human_action_config():
     data_path = "data/human_data"  # noqa: F841
 
     num_players = 2
-    world_size: WorldSize = (10, 10, 10)
+    world_size: WorldSize = (11, 10, 10)
     goal_generator = TransformedGoalGenerator
     goal_generator_config = {
         "goal_generator": "craftassist",
@@ -35,10 +35,21 @@ def make_human_action_config():
             "subset": "train",
         },
         "transforms": [
-            {"config": {"connectivity": 18}, "transform": "largest_cc"},
-            {"transform": "crop_air"},
-            {"config": {"min_size": [4, 4, 4]}, "transform": "min_size_filter"},
             {
+                "transform": "largest_cc",
+                "config": {"connectivity": 18},
+            },
+            {"transform": "crop_air"},
+            {
+                "transform": "crop_low_density_bottom_layers",
+                "config": {"density_threshold": 0.1},
+            },
+            {
+                "transform": "min_size_filter",
+                "config": {"min_size": [4, 4, 4]},
+            },
+            {
+                "transform": "area_sample",
                 "config": {
                     "interpolate": True,
                     "interpolation_order": 1,
@@ -47,15 +58,17 @@ def make_human_action_config():
                     "preserve_paths": True,
                     "scale_y_independently": True,
                 },
-                "transform": "area_sample",
             },
             {
-                "config": {"max_density": 1, "min_density": 0},
                 "transform": "density_filter",
+                "config": {"max_density": 1, "min_density": 0},
             },
             {"transform": "randomly_place"},
             {"transform": "add_grass"},
-            {"config": {"connectivity": 18}, "transform": "single_cc_filter"},
+            {
+                "transform": "single_cc_filter",
+                "config": {"connectivity": 18},
+            },
         ],
     }
 
