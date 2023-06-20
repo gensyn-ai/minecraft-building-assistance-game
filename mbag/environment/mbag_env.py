@@ -153,7 +153,7 @@ class AbilitiesConfigDict(TypedDict):
     """
 
 
-class Item(TypedDict):
+class ItemDict(TypedDict):
     id: str
     """
     String id of a Minecraft item.
@@ -164,10 +164,10 @@ class Item(TypedDict):
     The number of this item to place in the player inventory
     """
 
-    enchantments: List[Enchantment]
+    enchantments: List[EnchantmentDict]
 
 
-class Enchantment(TypedDict, total=False):
+class EnchantmentDict(TypedDict, total=False):
     id: int
     """
     String id of Enchantment
@@ -204,7 +204,7 @@ class MbagPlayerConfigDict(TypedDict, total=False):
     values from the overall rewards config dict.
     """
 
-    give_items: List[Item]
+    give_items: List[ItemDict]
     """
     A list of items to give to the player at the beginning of the game.
     """
@@ -827,7 +827,9 @@ class MbagEnv(object):
                 action.block_id,
             )
         else:
-            if self._collides_with_players(action.block_location, player_index):
+            if self._collides_with_players(
+                action.block_location, player_index, check_below_feet=False
+            ):
                 place_break_result = None
             else:
                 place_break_result = self.current_blocks.try_break_place(
@@ -1185,16 +1187,22 @@ class MbagEnv(object):
         else:
             return not self._collides_with_players(proposed_block, player_index)
 
-    def _collides_with_players(self, proposed_block, player_id: int) -> bool:
+    def _collides_with_players(
+        self, proposed_block, player_id: int, check_below_feet: bool = True
+    ) -> bool:
         for i in range(len(self.player_locations)):
             if i == player_id:
                 continue
 
-            player = self.player_locations[i]
+            player_x, player_y, player_z = self.player_locations[i]
+            block_x, block_y, block_z = proposed_block
+            colliding_y_locations = [player_y, player_y + 1]
+            if check_below_feet:
+                colliding_y_locations.append(player_y - 1)
             if (
-                proposed_block[0] == player[0] - 0.5
-                and proposed_block[2] == player[2] - 0.5
-                and (proposed_block[1] in (player[1] - 1, player[1], player[1] + 1))
+                block_x == player_x - 0.5
+                and block_z == player_z - 0.5
+                and block_y in colliding_y_locations
             ):
                 return True
 
@@ -1260,8 +1268,10 @@ class MbagEnv(object):
                     world_obs,
                     other_player_location,
                     player_marker_map[other_player_index],
-                    check_for_overlap=self.config["players"][player_index]["is_human"]
-                    or self.config["players"][other_player_index]["is_human"],
+                    check_for_overlap=not (
+                        self.config["players"][player_index]["is_human"]
+                        or self.config["players"][other_player_index]["is_human"]
+                    ),
                 )
 
         for other_player_index in range(self.config["num_players"]):

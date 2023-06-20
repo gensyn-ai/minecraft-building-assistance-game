@@ -84,3 +84,42 @@ class SimpleOverhangGoalGenerator(GoalGenerator):
         goal.blocks[-1:, -3, size[2] // 2] = MinecraftBlocks.NAME2ID["cobblestone"]
 
         return goal
+
+
+class TutorialGoalGenerator(GoalGenerator):
+    """
+    Generates a small house useful as a tutorial for human players.
+    """
+
+    def generate_goal(self, size: WorldSize) -> MinecraftBlocks:
+        cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
+        planks = MinecraftBlocks.NAME2ID["planks"]
+        glass = MinecraftBlocks.NAME2ID["glass"]
+        stone = MinecraftBlocks.NAME2ID["stone"]
+        log = MinecraftBlocks.NAME2ID["log"]
+
+        goal = MinecraftBlocks(size)
+
+        # Floor made of stone.
+        goal.blocks[:, 0, :] = stone
+
+        # Walls made of planks.
+        goal.blocks[1:-1, 1, 0] = planks
+        goal.blocks[1:-1, 1, -1] = planks
+        goal.blocks[0, 1, 1:-1] = planks
+
+        # Corners made of logs.
+        goal.blocks[0, 1:3, 0] = log
+        goal.blocks[0, 1:3, -1] = log
+        goal.blocks[-1, 1:3, 0] = log
+        goal.blocks[-1, 1:3, -1] = log
+
+        # Glass windows above the planks.
+        goal.blocks[1:-1, 2, 0] = glass
+        goal.blocks[1:-1, 2, -1] = glass
+        goal.blocks[0, 2, 1:-1] = glass
+
+        # Roof made of coblestone.
+        goal.blocks[:, 3, :] = cobblestone
+
+        return goal
