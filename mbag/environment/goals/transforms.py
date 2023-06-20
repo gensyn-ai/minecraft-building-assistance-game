@@ -125,7 +125,6 @@ class CropLowDensityBottomLayersTransform(GoalTransform):
                 transformed_goal.block_states[:, :, :] = goal.block_states[
                     :, y + 1 :, :
                 ]
-                print("crop", y)
         return transformed_goal
 
 
