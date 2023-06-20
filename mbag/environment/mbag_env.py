@@ -544,6 +544,8 @@ class MbagEnv(object):
                         ),
                     )
 
+                    time.sleep(0.2)
+
             # Convert players to survival mode.
             if not self.config["abilities"]["inf_blocks"]:
                 for player_index in range(self.config["num_players"]):
