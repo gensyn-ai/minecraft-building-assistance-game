@@ -234,12 +234,12 @@ class HumanActionDetector(object):
         )
         player_inventory_obs = self._get_simplified_inventory(player_inventory)
         for block_id in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
-            logger.warning(
-                f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
-                f"expected {player_inventory_obs[block_id]} "
-                f"but received {human_inventory_obs[block_id]} "
-                "from human action detector"
-            )
+            # logger.warning(
+            #     f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
+            #     f"expected {player_inventory_obs[block_id]} "
+            #     f"but received {human_inventory_obs[block_id]} "
+            #     "from human action detector"
+            # )
             if human_inventory_obs[block_id] > player_inventory_obs[block_id]:
                 self.human_missing_blocks[player_index][block_id] += (
                     human_inventory_obs[block_id] - player_inventory_obs[block_id]

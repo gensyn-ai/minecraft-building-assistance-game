@@ -547,14 +547,14 @@ class MbagEnv(object):
                     time.sleep(0.2)
 
             # Convert players to survival mode.
-            if not self.config["abilities"]["inf_blocks"]:
-                for player_index in range(self.config["num_players"]):
-                    self.malmo_client.send_command(player_index, "chat /gamemode 0")
+            # if not self.config["abilities"]["inf_blocks"]:
+            for player_index in range(self.config["num_players"]):
+                self.malmo_client.send_command(player_index, "chat /gamemode 0")
 
-                    # Disable chat messages from the palette
-                    self.malmo_client.send_command(
-                        player_index, "chat /gamerule sendCommandFeedback false"
-                    )
+                # Disable chat messages from the palette
+                self.malmo_client.send_command(
+                    player_index, "chat /gamerule sendCommandFeedback false"
+                )
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -655,11 +655,10 @@ class MbagEnv(object):
         world_size = self.config["world_size"]
 
         goal_size = (world_size[0] - 2, world_size[1] - 2, world_size[2] - 2)
-        if self.config["abilities"]["inf_blocks"]:
-            self.palette_x = -1
-        else:
+        if not self.config["abilities"]["inf_blocks"]:
             goal_size = (world_size[0] - 3, world_size[1] - 2, world_size[2] - 2)
-            self.palette_x = world_size[0] - 1
+
+        self.palette_x = world_size[0] - 1
 
         small_goal = self.goal_generator.generate_goal(goal_size)
 
@@ -934,6 +933,16 @@ class MbagEnv(object):
                     self._try_take_player_block(action.block_id, player_index, True)
                     >= 0
                 )
+
+        if (
+            self.config["abilities"]["inf_blocks"]
+            and not self.config["players"][player_index]["is_human"]
+        ):
+            # Give the block back to the player in Malm
+            self._try_give_player_block(
+                action.block_id, player_index, give_in_malmo=True
+            )
+
         return True
 
     def _handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
@@ -1368,6 +1377,9 @@ class MbagEnv(object):
             for x in range(self.config["num_players"])
             if self.config["players"][x]["is_human"]
         ]
+
+        human_actions = []
+
         human_actions = self.human_action_detector.get_human_actions(
             human_players, infos
         )
