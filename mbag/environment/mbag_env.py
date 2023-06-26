@@ -936,12 +936,14 @@ class MbagEnv(object):
 
         if (
             self.config["abilities"]["inf_blocks"]
-            and not self.config["players"][player_index]["is_human"]
+            and self.config["players"][player_index]["is_human"]
         ):
+            print("HELLLOOOOOO")
             # Give the block back to the player in Malm
-            self._try_give_player_block(
+            result = self._try_give_player_block(
                 action.block_id, player_index, give_in_malmo=True
             )
+            print(result)
 
         return True
 
@@ -1095,7 +1097,7 @@ class MbagEnv(object):
         if (
             self.config["malmo"]["use_malmo"]
             and give_in_malmo
-            and not self.config["players"][player_index]["is_human"]
+            # and not self.config["players"][player_index]["is_human"]
         ):
             player_name = self.malmo_client.get_player_name(player_index, self.config)
             block_name = MinecraftBlocks.ID2NAME[block_id]
