@@ -5,7 +5,7 @@ from datetime import datetime
 from subprocess import Popen
 from typing import Optional
 
-# from malmo import minecraft
+from malmo import minecraft
 from sacred import Experiment
 from sacred.observers import FileStorageObserver
 
@@ -117,7 +117,7 @@ def make_human_action_config():
             }
             for _ in range(num_players)
         ],
-        "abilities": {"teleportation": False, "flying": True, "inf_blocks": True},
+        "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
     }
 
     result_dir = os.path.join(data_path, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))

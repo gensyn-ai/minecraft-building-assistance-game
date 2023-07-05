@@ -938,8 +938,7 @@ class MbagEnv(object):
             self.config["abilities"]["inf_blocks"]
             and self.config["players"][player_index]["is_human"]
         ):
-            print("HELLLOOOOOO")
-            # Give the block back to the player in Malm
+            # Give the block back to the player in Malmo
             result = self._try_give_player_block(
                 action.block_id, player_index, give_in_malmo=True
             )
