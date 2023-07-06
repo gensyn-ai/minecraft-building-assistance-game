@@ -475,6 +475,16 @@ class MbagEnv(object):
             for _ in range(self.config["num_players"])
         ]
 
+        # Set initial inventory if the user has infinite blocks
+        if self.config["abilities"]["inf_blocks"]:
+            for i in range(self.config["num_players"]):
+                if not self.config["players"][i]["is_human"]:
+                    continue
+
+                for j in range(2, 10):
+                    self.player_inventories[i][j][0] = j
+                    self.player_inventories[i][j][1] = 1
+
         self.human_action_detector.reset(
             self.player_locations,
             self.current_blocks,
@@ -809,8 +819,8 @@ class MbagEnv(object):
 
         if (
             not self.config["abilities"]["inf_blocks"]
-            and action.action_type == MbagAction.PLACE_BLOCK
-        ):
+            or self.config["players"][player_index]["is_human"]
+        ) and action.action_type == MbagAction.PLACE_BLOCK:
             inventory_slot = self._try_take_player_block(
                 action.block_id, player_index, False
             )
@@ -916,7 +926,10 @@ class MbagEnv(object):
                 time.sleep(0.1)  # Give time to teleport.
                 self.malmo_client.send_command(player_index, "attack 1")
 
-        if not self.config["abilities"]["inf_blocks"]:
+        if (
+            not self.config["abilities"]["inf_blocks"]
+            or self.config["players"][player_index]["is_human"]
+        ):
             if action.action_type == MbagAction.BREAK_BLOCK:
                 # Give the block to the player. It looks like Malmo
                 # automatically gives broken blocks to the player
@@ -934,15 +947,16 @@ class MbagEnv(object):
                     >= 0
                 )
 
-        if (
-            self.config["abilities"]["inf_blocks"]
-            and self.config["players"][player_index]["is_human"]
-        ):
-            # Give the block back to the player in Malmo
-            result = self._try_give_player_block(
-                action.block_id, player_index, give_in_malmo=True
-            )
-            print(result)
+        # if (
+        #     self.config["abilities"]["inf_blocks"]
+        #     and self.config["players"][player_index]["is_human"]
+        #     and action.action_type == MbagAction.PLACE_BLOCK
+        # ):
+        #     # Give the block back to the player in Malmo
+        #     result = self._try_give_player_block(
+        #         action.block_id, player_index, give_in_malmo=True
+        #     )
+        #     print(result)
 
         return True
 
@@ -1096,7 +1110,7 @@ class MbagEnv(object):
         if (
             self.config["malmo"]["use_malmo"]
             and give_in_malmo
-            # and not self.config["players"][player_index]["is_human"]
+            and not self.config["players"][player_index]["is_human"]
         ):
             player_name = self.malmo_client.get_player_name(player_index, self.config)
             block_name = MinecraftBlocks.ID2NAME[block_id]

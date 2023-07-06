@@ -104,6 +104,13 @@ class HumanActionDetector(object):
             for _ in range(self.env_config["num_players"])
         ]
 
+        # Set initial inventory if the user has infinite blocks
+        if self.env_config["abilities"]["inf_blocks"]:
+            for i in range(self.env_config["num_players"]):
+                for j in range(2, 10):
+                    self.malmo_inventories[i][j][0] = j
+                    self.malmo_inventories[i][j][1] = 1
+
         self.num_pending_human_interactions = np.zeros(
             self.env_config["world_size"], dtype=np.int8
         )
@@ -232,14 +239,15 @@ class HumanActionDetector(object):
         human_inventory_obs = self._get_simplified_inventory(
             self.malmo_inventories[player_index]
         )
+
         player_inventory_obs = self._get_simplified_inventory(player_inventory)
         for block_id in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
-            # logger.warning(
-            #     f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
-            #     f"expected {player_inventory_obs[block_id]} "
-            #     f"but received {human_inventory_obs[block_id]} "
-            #     "from human action detector"
-            # )
+            logger.warning(
+                f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
+                f"expected {player_inventory_obs[block_id]} "
+                f"but received {human_inventory_obs[block_id]} "
+                "from human action detector"
+            )
             if human_inventory_obs[block_id] > player_inventory_obs[block_id]:
                 self.human_missing_blocks[player_index][block_id] += (
                     human_inventory_obs[block_id] - player_inventory_obs[block_id]
