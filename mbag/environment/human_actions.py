@@ -567,22 +567,23 @@ class HumanActionDetector(object):
                     player_tag = player_index + 1
                     if player_index < other_player_index:
                         player_tag += 1
-                    actions.extend(
-                        [
-                            (
-                                other_player_index,
+                    if picked_block_id != MinecraftBlocks.AIR:
+                        actions.extend(
+                            [
                                 (
-                                    MbagAction.GIVE_BLOCK,
-                                    player_tag,
-                                    picked_block_id,
-                                ),
-                            )
-                            for _ in range(player_picked_blocks)
-                        ]
-                    )
-                    self.num_pending_give_actions[
-                        other_player_index
-                    ] += player_picked_blocks
+                                    other_player_index,
+                                    (
+                                        MbagAction.GIVE_BLOCK,
+                                        player_tag,
+                                        picked_block_id,
+                                    ),
+                                )
+                                for _ in range(player_picked_blocks)
+                            ]
+                        )
+                        self.num_pending_give_actions[
+                            other_player_index
+                        ] += player_picked_blocks
 
         return actions
 
