@@ -953,10 +953,9 @@ class MbagEnv(object):
             and action.action_type == MbagAction.PLACE_BLOCK
         ):
             # Give the block back to the player in Malmo
-            result = self._try_give_player_block(
+            self._try_give_player_block(
                 action.block_id, player_index, give_in_malmo=True
             )
-            print(result)
 
         return True
 
