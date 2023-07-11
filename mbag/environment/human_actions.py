@@ -242,12 +242,13 @@ class HumanActionDetector(object):
 
         player_inventory_obs = self._get_simplified_inventory(player_inventory)
         for block_id in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
-            logger.warning(
-                f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
-                f"expected {player_inventory_obs[block_id]} "
-                f"but received {human_inventory_obs[block_id]} "
-                "from human action detector"
-            )
+            if not self.env_config["abilities"]["inf_blocks"]:
+                logger.warning(
+                    f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
+                    f"expected {player_inventory_obs[block_id]} "
+                    f"but received {human_inventory_obs[block_id]} "
+                    "from human action detector"
+                )
             if human_inventory_obs[block_id] > player_inventory_obs[block_id]:
                 self.human_missing_blocks[player_index][block_id] += (
                     human_inventory_obs[block_id] - player_inventory_obs[block_id]
@@ -447,7 +448,10 @@ class HumanActionDetector(object):
                 del block_discrepancies[block_location]
                 self.num_pending_human_interactions[block_location] += 1
 
-        place_break_actions.extend(self._get_missing_blocks_break_actions(player_index))
+        if not self.env_config["abilities"]["inf_blocks"]:
+            place_break_actions.extend(
+                self._get_missing_blocks_break_actions(player_index)
+            )
 
         return place_break_actions
 
@@ -571,26 +575,27 @@ class HumanActionDetector(object):
                     picked_block_id
                 ] -= player_picked_blocks
 
-                if other_player_index != player_index:
-                    player_tag = player_index + 1
-                    if player_index < other_player_index:
-                        player_tag += 1
-                    actions.extend(
-                        [
-                            (
-                                other_player_index,
+                if not self.env_config["abilities"]["inf_blocks"]:
+                    if other_player_index != player_index:
+                        player_tag = player_index + 1
+                        if player_index < other_player_index:
+                            player_tag += 1
+                        actions.extend(
+                            [
                                 (
-                                    MbagAction.GIVE_BLOCK,
-                                    player_tag,
-                                    picked_block_id,
-                                ),
-                            )
-                            for _ in range(player_picked_blocks)
-                        ]
-                    )
-                    self.num_pending_give_actions[
-                        other_player_index
-                    ] += player_picked_blocks
+                                    other_player_index,
+                                    (
+                                        MbagAction.GIVE_BLOCK,
+                                        player_tag,
+                                        picked_block_id,
+                                    ),
+                                )
+                                for _ in range(player_picked_blocks)
+                            ]
+                        )
+                        self.num_pending_give_actions[
+                            other_player_index
+                        ] += player_picked_blocks
 
         return actions
 
