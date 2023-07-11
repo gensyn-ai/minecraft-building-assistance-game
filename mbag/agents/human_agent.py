@@ -59,19 +59,27 @@ class HumanAgent(MbagAgent):
             action_type, location_id, block_id = action_tuple
             if action_type == MbagAction.GIVE_BLOCK:
                 player_tag = location_id
-                given_player_location = np.transpose(
+                given_player_locations = np.transpose(
                     (player_locations == player_tag).nonzero()
-                )[0]
-                action_tuple = (
-                    action_tuple[0],
-                    int(
-                        np.ravel_multi_index(
-                            given_player_location,
-                            self.env_config["world_size"],
-                        )
-                    ),
-                    action_tuple[2],
                 )
+                if given_player_locations.shape[0] > 0:
+                    given_player_location = given_player_locations[0]
+                    action_tuple = (
+                        action_tuple[0],
+                        int(
+                            np.ravel_multi_index(
+                                given_player_location,
+                                self.env_config["world_size"],
+                            )
+                        ),
+                        action_tuple[2],
+                    )
+                else:
+                    logger.warning(
+                        f"player with tag {player_tag} not found in player locations"
+                    )
+                    self.actions_queue.insert(0, action_tuple)
+                    action_tuple = MbagAction.NOOP, 0, 0
 
             action = MbagAction(action_tuple, self.env_config["world_size"])
 
