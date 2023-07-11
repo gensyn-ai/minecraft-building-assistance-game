@@ -4,6 +4,7 @@ import pytest
 
 from mbag.agents.hardcoded_agents import (
     HardcodedInventoryDonator,
+    HardcodedInventoryReceiver,
     HardcodedResourceAgent,
 )
 from mbag.agents.heuristic_agents import NoopAgent
@@ -184,3 +185,56 @@ def test_give_in_malmo():
     )
     episode_info = evaluator.rollout()
     assert episode_info.cumulative_reward == 0
+
+
+def test_give_with_moving_agents():
+    """
+    Make sure agents can give each other resources
+    """
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 6, 5),
+            "num_players": 2,
+            "horizon": 50,
+            "goal_generator": BasicGoalGenerator,
+            "players": [{}, {}],
+            "malmo": {
+                "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (HardcodedInventoryDonator, {}),
+            (HardcodedInventoryReceiver, {}),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 5
+
+
+@pytest.mark.uses_malmo
+def test_give_with_moving_agents_in_malmo():
+    """
+    Make sure agents can give each other resources
+    """
+
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 6, 5),
+            "num_players": 2,
+            "horizon": 50,
+            "goal_generator": BasicGoalGenerator,
+            "players": [{}, {}],
+            "malmo": {"use_malmo": True, "use_spectator": False, "video_dir": None},
+            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
+        },
+        [
+            (HardcodedInventoryDonator, {}),
+            (HardcodedInventoryReceiver, {}),
+        ],
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward > 0

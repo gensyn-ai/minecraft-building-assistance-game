@@ -109,6 +109,7 @@ class MbagAction(object):
     }
 
     action_type: MbagActionType
+    block_location_index: int
     block_location: BlockLocation
     block_id: int
 
@@ -125,9 +126,10 @@ class MbagAction(object):
     ]
 
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
-        self.action_type, block_location_index, self.block_id = action_tuple
+        self.action_type, self.block_location_index, self.block_id = action_tuple
         self.block_location = cast(
-            BlockLocation, tuple(np.unravel_index(block_location_index, world_size))
+            BlockLocation,
+            tuple(np.unravel_index(self.block_location_index, world_size)),
         )
 
     def __str__(self):
@@ -143,46 +145,21 @@ class MbagAction(object):
     def __repr__(self):
         return f"MbagAction<{self}>"
 
+    def to_tuple(self) -> MbagActionTuple:
+        return (self.action_type, self.block_location_index, self.block_id)
+
+    def __eq__(self, other_action: object):
+        if not isinstance(other_action, MbagAction):
+            return False
+        return self.to_tuple() == other_action.to_tuple()
+
+    def to_json(self):
+        print("Serializing JSON")
+        return self.__str__()
+
     @classmethod
     def noop_action(cls):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
-
-
-class MbagHumanAction:
-    time: int
-    """
-    At what time in the step the human did the action, measured in milliseconds (or ticks?)
-    """
-
-    type: MbagHumanCommandType
-    """
-    What type of command was logged from the human
-    """
-
-    command: MbagHumanCommand
-    """
-    What the human's action meant in Minecraft
-    """
-
-    pressed: bool
-    """
-    Whether the human pressed or released
-    """
-
-    deltaX: int  # noqa: N815
-    """
-    The X-axis difference between the player's location and the location of the block clicked
-    """
-
-    deltaY: int  # noqa: N815
-    """
-    The Y-axis difference between the player's location and the location of the block clicked
-    """
-
-    deltaZ: int  # noqa: N815
-    """
-    The Z-axis difference between the player's location and the location of the block clicked
-    """
 
 
 class MbagInfoDict(TypedDict):
@@ -241,7 +218,7 @@ class MbagInfoDict(TypedDict):
     observations from Malmo since the last timestep.
     """
 
-    human_actions: List[MbagHumanAction]
+    human_actions: List[MbagActionTuple]
     """
     If this player is a human agent, then this is a list of actions that have been
     deduced from what the human is doing in Malmo.

@@ -79,6 +79,20 @@ class MalmoConfigDict(TypedDict, total=False):
     Optional directory to record video from the game into.
     """
 
+    ssh_args: Optional[List[Optional[List[str]]]]
+    """
+    If one of the Malmo instances is running over an SSH tunnel, then the entry in this
+    list of the corresponding player should be set to a list of arguments that are
+    passed to ssh in order to access the remote machine. This will be used to
+    automatically set up necessary port forwarding.
+    """
+
+    action_delay: float
+    """
+    The number of seconds to wait after each step to allow actions to complete
+    in Malmo.
+    """
+
 
 class RewardsConfigDict(TypedDict, total=False):
     noop: float
@@ -139,7 +153,7 @@ class AbilitiesConfigDict(TypedDict):
     """
 
 
-class Item(TypedDict):
+class ItemDict(TypedDict):
     id: str
     """
     String id of a Minecraft item.
@@ -148,6 +162,20 @@ class Item(TypedDict):
     count: int
     """
     The number of this item to place in the player inventory
+    """
+
+    enchantments: List[EnchantmentDict]
+
+
+class EnchantmentDict(TypedDict, total=False):
+    id: int
+    """
+    String id of Enchantment
+    """
+
+    level: int
+    """
+    The level of the enchantment to give to the item
     """
 
 
@@ -176,7 +204,7 @@ class MbagPlayerConfigDict(TypedDict, total=False):
     values from the overall rewards config dict.
     """
 
-    give_items: List[Item]
+    give_items: List[ItemDict]
     """
     A list of items to give to the player at the beginning of the game.
     """
@@ -239,6 +267,8 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "use_spectator": False,
         "restrict_players": False,
         "video_dir": None,
+        "ssh_args": None,
+        "action_delay": 0.3,
     },
     "rewards": {
         "noop": 0.0,
@@ -248,7 +278,11 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "own_reward_prop_horizon": None,
         "get_resources": 0,
     },
-    "abilities": {"teleportation": True, "flying": True, "inf_blocks": True},
+    "abilities": {
+        "teleportation": True,
+        "flying": True,
+        "inf_blocks": True,
+    },
 }
 
 NO_ONE = 0
@@ -441,9 +475,20 @@ class MbagEnv(object):
             for _ in range(self.config["num_players"])
         ]
 
+        # Set initial inventory if the user has infinite blocks
+        if self.config["abilities"]["inf_blocks"]:
+            for i in range(self.config["num_players"]):
+                if not self.config["players"][i]["is_human"]:
+                    continue
+
+                for j in range(2, 10):
+                    self.player_inventories[i][j][0] = j
+                    self.player_inventories[i][j][1] = 1
+
         self.human_action_detector.reset(
             self.player_locations,
             self.current_blocks,
+            self.palette_x,
         )
 
         if self.config["malmo"]["use_malmo"]:
@@ -454,12 +499,14 @@ class MbagEnv(object):
 
             # Pre-episode setup in Malmo.
             for player_index in range(self.config["num_players"]):
-                # Make players fly.
-                for _ in range(2):
-                    self.malmo_client.send_command(player_index, "jump 1")
-                    time.sleep(0.1)
-                    self.malmo_client.send_command(player_index, "jump 0")
-                    time.sleep(0.1)
+                player_config = self.config["players"][player_index]
+                if not player_config["is_human"]:
+                    # Make players fly.
+                    for _ in range(2):
+                        self.malmo_client.send_command(player_index, "jump 1")
+                        time.sleep(0.1)
+                        self.malmo_client.send_command(player_index, "jump 0")
+                        time.sleep(0.1)
                 self.malmo_client.send_command(
                     player_index,
                     "tp " + " ".join(map(str, self.player_locations[player_index])),
@@ -467,25 +514,64 @@ class MbagEnv(object):
 
                 # Give items to players.
                 for item in self.config["players"][player_index]["give_items"]:
-                    self.malmo_client.send_command(
-                        player_index,
-                        "chat /give {} {} {}".format(
-                            self.config["players"][player_index]["player_name"],
+                    if "enchantments" not in item:
+                        item["enchantments"] = []
+
+                    for enchantment in item["enchantments"]:
+                        assert "id" in enchantment
+                        if "level" not in enchantment:
+                            enchantment["level"] = 32767
+
+                    enchantments_str = ",".join(
+                        [
+                            "{{id: {}, lvl: {}}}".format(
+                                enchantment["id"], enchantment["level"]
+                            )
+                            for enchantment in item["enchantments"]
+                        ]
+                    )
+
+                    print(enchantments_str)
+                    print("{{ench: [{}]}}".format(enchantments_str))
+                    print(
+                        "chat /give {} {} {} {} {}".format(
+                            "@p",
                             item["id"],
                             item["count"],
+                            0,
+                            "{{ench: [{}]}}".format(enchantments_str),
+                        )
+                    )
+
+                    self.malmo_client.send_command(
+                        player_index,
+                        "chat /give {} {} {} {} {}".format(
+                            "@p",
+                            item["id"],
+                            item["count"],
+                            0,
+                            "{{ench: [{}]}}".format(enchantments_str),
                         ),
                     )
 
+                    time.sleep(0.2)
+
             # Convert players to survival mode.
-            if not self.config["abilities"]["inf_blocks"]:
-                self.malmo_client.send_command(0, "chat /gamemode 0")
+            # if not self.config["abilities"]["inf_blocks"]:
+            for player_index in range(self.config["num_players"]):
+                self.malmo_client.send_command(player_index, "chat /gamemode 0")
+
+                # Disable chat messages from the palette
+                self.malmo_client.send_command(
+                    player_index, "chat /gamerule sendCommandFeedback false"
+                )
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
 
         if self.config["malmo"]["use_malmo"]:
             # Let everything load in Malmo.
-            time.sleep(self.malmo_client.ACTION_DELAY)
+            time.sleep(self.config["malmo"]["action_delay"])
 
         return [
             self._get_player_obs(player_index)
@@ -500,10 +586,20 @@ class MbagEnv(object):
         ), "Wrong number of actions."
 
         reward: float = 0
-        own_rewards: List[float] = []
-        infos: List[MbagInfoDict] = []
+        own_rewards: List[float] = [0 for _ in range(self.config["num_players"])]
+        optional_infos: List[Optional[MbagInfoDict]] = [
+            None for _ in range(self.config["num_players"])
+        ]
 
-        for player_index, player_action_tuple in enumerate(action_tuples):
+        # Process give block actions before movement actions
+        action_tuples_sorted_labeled = sorted(
+            list(enumerate(action_tuples)),
+            key=lambda player_index_action_tuple: 0
+            if player_index_action_tuple[1][0] == MbagAction.GIVE_BLOCK
+            else 1,
+        )
+
+        for player_index, player_action_tuple in action_tuples_sorted_labeled:
             # For each player, if they are acting this timestep, step the player,
             # otherwise execute NOOP.
             if (
@@ -518,16 +614,30 @@ class MbagEnv(object):
                     player_index,
                     (MbagAction.NOOP, 0, 0),
                 )
+            # print(player_index, player_action_tuple, player_info)
             reward += player_reward
-            own_rewards.append(player_reward)
-            infos.append(player_info)
+            own_rewards[player_index] = player_reward
+            optional_infos[player_index] = player_info
+
+        infos: List[MbagInfoDict] = []
+        for info in optional_infos:
+            assert info is not None
+            infos.append(info)
 
         self.timestep += 1
 
+        if (
+            self.current_blocks.blocks[self.palette_x]
+            != self.goal_blocks.blocks[self.palette_x]
+        ).any() and not self.config["abilities"]["inf_blocks"]:
+            logger.info("Copying palette from goal ")
+            self._copy_palette_from_goal()
+            if self.config["malmo"]["use_malmo"]:
+                self._copy_palette_from_goal_in_malmo()
+
         if self.config["malmo"]["use_malmo"]:
-            time.sleep(self.malmo_client.ACTION_DELAY)
+            time.sleep(self.config["malmo"]["action_delay"])
             infos = self._update_state_from_malmo(infos)
-            self._copy_palette_from_goal_in_malmo()
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -537,6 +647,11 @@ class MbagEnv(object):
             for player_index, own_reward in enumerate(own_rewards)
         ]
         dones = [self._done()] * self.config["num_players"]
+
+        # Copy over the goal palette
+
+        # logger.info(self.current_blocks.blocks[self.palette_x])
+        # logger.info(self.goal_blocks.blocks[self.palette_x])
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
             # Wait for a second for the final block to place and then end mission.
@@ -550,11 +665,10 @@ class MbagEnv(object):
         world_size = self.config["world_size"]
 
         goal_size = (world_size[0] - 2, world_size[1] - 2, world_size[2] - 2)
-        if self.config["abilities"]["inf_blocks"]:
-            self.palette_x = -1
-        else:
+        if not self.config["abilities"]["inf_blocks"]:
             goal_size = (world_size[0] - 3, world_size[1] - 2, world_size[2] - 2)
-            self.palette_x = world_size[0] - 1
+
+        self.palette_x = world_size[0] - 1
 
         small_goal = self.goal_generator.generate_goal(goal_size)
 
@@ -580,13 +694,14 @@ class MbagEnv(object):
         return goal
 
     def _copy_palette_from_goal(self):
-        # Copy over the palette from the goal generator.
-        self.current_blocks.blocks[self.palette_x] = self.goal_blocks.blocks[
-            self.palette_x
-        ]
-        self.current_blocks.block_states[
-            self.palette_x
-        ] = self.goal_blocks.block_states[self.palette_x]
+        # Copy over the palette from the goal generator
+        palette_blocks = self.goal_blocks.blocks[self.palette_x]
+        palette_block_states = self.goal_blocks.block_states[self.palette_x]
+        self.current_blocks.blocks[self.palette_x] = palette_blocks
+        self.current_blocks.block_states[self.palette_x] = palette_block_states
+        self.human_action_detector._copy_palette(
+            self.palette_x, palette_blocks, palette_block_states
+        )
 
     def _copy_palette_from_goal_in_malmo(self):
         # Sync with Malmo.
@@ -600,6 +715,7 @@ class MbagEnv(object):
                 f"{goal_palette_x} {height - 1} {depth - 1} "
                 f"{self.palette_x} 0 0",
             )
+            time.sleep(0.3)
 
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple
@@ -679,9 +795,6 @@ class MbagEnv(object):
 
         reward = goal_dependent_reward + goal_independent_reward
 
-        if not self.config["abilities"]["inf_blocks"]:
-            self._copy_palette_from_goal()
-
         info: MbagInfoDict = {
             "goal_similarity": self._get_goal_similarity(
                 self.current_blocks[:],
@@ -706,8 +819,8 @@ class MbagEnv(object):
 
         if (
             not self.config["abilities"]["inf_blocks"]
-            and action.action_type == MbagAction.PLACE_BLOCK
-        ):
+            or self.config["players"][player_index]["is_human"]
+        ) and action.action_type == MbagAction.PLACE_BLOCK:
             inventory_slot = self._try_take_player_block(
                 action.block_id, player_index, False
             )
@@ -723,7 +836,9 @@ class MbagEnv(object):
                 action.block_id,
             )
         else:
-            if self._collides_with_players(action.block_location, player_index):
+            if self._collides_with_players(
+                action.block_location, player_index, check_below_feet=False
+            ):
                 place_break_result = None
             else:
                 place_break_result = self.current_blocks.try_break_place(
@@ -733,6 +848,7 @@ class MbagEnv(object):
                     player_location=self.player_locations[player_index],
                     other_player_locations=self.player_locations[:player_index]
                     + self.player_locations[player_index + 1 :],
+                    is_human=self.config["players"][player_index]["is_human"],
                 )
 
         if place_break_result is None:
@@ -810,7 +926,10 @@ class MbagEnv(object):
                 time.sleep(0.1)  # Give time to teleport.
                 self.malmo_client.send_command(player_index, "attack 1")
 
-        if not self.config["abilities"]["inf_blocks"]:
+        if (
+            not self.config["abilities"]["inf_blocks"]
+            or self.config["players"][player_index]["is_human"]
+        ):
             if action.action_type == MbagAction.BREAK_BLOCK:
                 # Give the block to the player. It looks like Malmo
                 # automatically gives broken blocks to the player
@@ -827,6 +946,17 @@ class MbagEnv(object):
                     self._try_take_player_block(action.block_id, player_index, True)
                     >= 0
                 )
+
+        if (
+            self.config["abilities"]["inf_blocks"]
+            and self.config["players"][player_index]["is_human"]
+            and action.action_type == MbagAction.PLACE_BLOCK
+        ):
+            # Give the block back to the player in Malmo
+            self._try_give_player_block(
+                action.block_id, player_index, give_in_malmo=True
+            )
+
         return True
 
     def _handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
@@ -834,6 +964,9 @@ class MbagEnv(object):
         Handle a move action.
         Returns whether the action was successful or not
         """
+
+        if self.config["players"][player_index]["is_human"]:
+            self.human_action_detector.record_human_movement(player_index)
 
         player_location = self.player_locations[player_index]
 
@@ -852,7 +985,11 @@ class MbagEnv(object):
             player_location[2] + dz,
         )
 
-        if not self._is_valid_player_space(new_player_location, player_index):
+        if not self._is_valid_player_space(
+            new_player_location,
+            player_index,
+            ignore_other_players=self.config["players"][player_index]["is_human"],
+        ):
             return False
 
         player_location = new_player_location
@@ -886,45 +1023,57 @@ class MbagEnv(object):
             receiver_location[1],
             receiver_location[2] + 0.5,
         )
-        logger.debug(self.player_locations)
-        logger.debug(receiver_player_location)
 
-        # Check if player can reach the location specified (has to be within one block
+        # Check if non-human players can reach the location specified (has to be within one block
         # in all directions).
-        gx, gy, gz = self.player_locations[giver_player_index]
-        rx, ry, rz = receiver_player_location
-        if not self.config["abilities"]["teleportation"] and (
-            abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1
-        ):
-            return 0
+        if not self.config["players"][giver_player_index]["is_human"]:
+            gx, gy, gz = self.player_locations[giver_player_index]
+            rx, ry, rz = receiver_player_location
+            if not self.config["abilities"]["teleportation"] and (
+                abs(gx - rx) > 1 or abs(gy - ry) > 1 or abs(gz - rz) > 1
+            ):
+                return 0
 
-        logger.debug("Finding player index")
         # Find player index at the location specified
         try:
             receiver_player_index = self.player_locations.index(
                 receiver_player_location
             )
         except ValueError:
+            logger.warn(
+                f"give Block could not find player at {receiver_player_location}"
+            )
             return 0
 
         logger.debug(self.player_inventories[giver_player_index])
         # Give the blocks
-        for block_index in range(self.BLOCKS_TO_GIVE):
+
+        given_blocks = self.BLOCKS_TO_GIVE
+        if self.config["players"][giver_player_index]["is_human"]:
+            given_blocks = 1
+
+        for block_index in range(given_blocks):
             success = False
             inventory_taken = self._try_take_player_block(
                 block_id, giver_player_index, True
             )
-            if inventory_taken >= 0:
+
+            if inventory_taken < 0:
+                logger.error("Block to be given does not exist in giver's inventory")
+            else:
                 success = self._try_give_player_block(
                     block_id, receiver_player_index, True
                 )
+                if not success:
+                    logger.error("Receiver could not pick up block to their inventory")
+
+            if success and self.config["players"][giver_player_index]["is_human"]:
+                self.human_action_detector.record_human_give_action(giver_player_index)
 
             if not success:
                 return block_index
-        logger.debug("Successfully gave block to player")
-        logger.debug(self.player_inventories[giver_player_index])
 
-        return self.BLOCKS_TO_GIVE
+        return given_blocks
 
     def _try_give_player_block(
         self, block_id: int, player_index: int, give_in_malmo: bool = True
@@ -960,7 +1109,10 @@ class MbagEnv(object):
         if (
             self.config["malmo"]["use_malmo"]
             and give_in_malmo
-            and not self.config["players"][player_index]["is_human"]
+            and (
+                not self.config["players"][player_index]["is_human"]
+                or self.config["abilities"]["inf_blocks"]
+            )
         ):
             player_name = self.malmo_client.get_player_name(player_index, self.config)
             block_name = MinecraftBlocks.ID2NAME[block_id]
@@ -1026,7 +1178,10 @@ class MbagEnv(object):
         return selected_slot
 
     def _is_valid_player_space(
-        self, player_location: WorldLocation, player_index: int
+        self,
+        player_location: WorldLocation,
+        player_index: int,
+        ignore_other_players: bool = False,
     ) -> bool:
         proposed_block: BlockLocation = (
             int(np.floor(player_location[0])),
@@ -1053,18 +1208,27 @@ class MbagEnv(object):
             ):
                 return False
 
-        return not self._collides_with_players(proposed_block, player_index)
+        if ignore_other_players:
+            return True
+        else:
+            return not self._collides_with_players(proposed_block, player_index)
 
-    def _collides_with_players(self, proposed_block, player_id: int) -> bool:
+    def _collides_with_players(
+        self, proposed_block, player_id: int, check_below_feet: bool = True
+    ) -> bool:
         for i in range(len(self.player_locations)):
             if i == player_id:
                 continue
 
-            player = self.player_locations[i]
+            player_x, player_y, player_z = self.player_locations[i]
+            block_x, block_y, block_z = proposed_block
+            colliding_y_locations = [player_y, player_y + 1]
+            if check_below_feet:
+                colliding_y_locations.append(player_y - 1)
             if (
-                proposed_block[0] == player[0] - 0.5
-                and proposed_block[2] == player[2] - 0.5
-                and (proposed_block[1] in (player[1] - 1, player[1], player[1] + 1))
+                block_x == player_x - 0.5
+                and block_z == player_z - 0.5
+                and block_y in colliding_y_locations
             ):
                 return True
 
@@ -1130,6 +1294,10 @@ class MbagEnv(object):
                     world_obs,
                     other_player_location,
                     player_marker_map[other_player_index],
+                    check_for_overlap=not (
+                        self.config["players"][player_index]["is_human"]
+                        or self.config["players"][other_player_index]["is_human"]
+                    ),
                 )
 
         for other_player_index in range(self.config["num_players"]):
@@ -1144,7 +1312,11 @@ class MbagEnv(object):
         )
 
     def _add_player_location_to_world_obs(
-        self, world_obs: MbagWorldObsArray, player_location: WorldLocation, marker: int
+        self,
+        world_obs: MbagWorldObsArray,
+        player_location: WorldLocation,
+        marker: int,
+        check_for_overlap: bool = True,
     ):
         x, y_feet, z = player_location
         x, y_feet, z = int(np.floor(x)), int(np.floor(y_feet)), int(np.floor(z))
@@ -1153,7 +1325,10 @@ class MbagEnv(object):
             if y_feet + 1 < self.config["world_size"][1]
             else [y_feet]
         ):
-            assert world_obs[PLAYER_LOCATIONS, x, y, z] == 0, "players are overlapping"
+            if check_for_overlap:
+                assert (
+                    world_obs[PLAYER_LOCATIONS, x, y, z] == 0
+                ), "players are overlapping"
             world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
@@ -1175,9 +1350,9 @@ class MbagEnv(object):
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
-    def _update_state_from_malmo(self, infos):
+    def _update_state_from_malmo(self, infos: List[MbagInfoDict]) -> List[MbagInfoDict]:
         """
-        Resolve any discrepencies between the environment state and the state of the
+        Resolve any discrepancies between the environment state and the state of the
         Minecraft game via Malmo. This generates human actions for human players.
         """
 
@@ -1189,7 +1364,6 @@ class MbagEnv(object):
         _, latest_malmo_observation = sorted(malmo_observations)[-1]
 
         human_actions: List[Tuple[int, MbagActionTuple]] = []
-
         for player_index in range(self.config["num_players"]):
             malmo_player_observations = []
             if player_index == 0:
@@ -1205,84 +1379,34 @@ class MbagEnv(object):
             _, latest_malmo_player_observation = sorted(malmo_player_observations)[-1]
 
             if self.config["players"][player_index]["is_human"]:
-                human_actions.extend(
-                    self.human_action_detector.get_human_actions(
-                        player_index,
-                        malmo_player_observations,
-                    )
-                )
                 infos[player_index]["malmo_observations"] = malmo_player_observations
 
-            malmo_inventory: Optional[MbagInventory] = None
-            if "InventorySlot_0_item" in latest_malmo_player_observation:
-                malmo_inventory = np.zeros((self.INVENTORY_NUM_SLOTS, 2), dtype=int)
-                for slot in range(self.INVENTORY_NUM_SLOTS):
-                    item_name = latest_malmo_player_observation[f"InventorySlot_{slot}_item"]  # type: ignore
-                    malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
-                    malmo_inventory[slot, 1] = latest_malmo_player_observation[f"InventorySlot_{slot}_size"]  # type: ignore
-            else:
-                logger.warn(
-                    "missing inventory information from Malmo observation "
-                    f"(keys = {latest_malmo_player_observation.keys()})"
+            if not self.config["players"][player_index]["is_human"]:
+                self._update_player_inventory_from_malmo(
+                    player_index, latest_malmo_player_observation
+                )
+                self._update_player_location_from_malmo(
+                    player_index, latest_malmo_player_observation
                 )
 
-            if not self.config["players"][player_index]["is_human"]:
-                if self.config["abilities"]["inf_blocks"]:
-                    if malmo_inventory is not None:
-                        # Make sure inventory is organized as expected.
-                        for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
-                            if malmo_inventory[block_id, 0] != block_id:
-                                logger.warning(
-                                    f"inventory discrepancy at slot {block_id}: "
-                                    f"expected {MinecraftBlocks.ID2NAME[block_id]} "
-                                    "but received "
-                                    f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
-                                    "from Malmo"
-                                )
-                                swap_slot = (
-                                    malmo_inventory[:, 0].tolist().index(block_id)
-                                )
-                                self.malmo_client.send_command(
-                                    player_index,
-                                    f"swapInventoryItems {block_id} {swap_slot}",
-                                )
-                                time.sleep(0.1)
-                else:
-                    if malmo_inventory is not None:
-                        # Make sure inventory in Malmo matches up with what's in our inventory.
-                        player_inventory = self.player_inventories[player_index]
-                        for slot in np.nonzero(
-                            np.any(malmo_inventory != player_inventory, axis=1)
-                        )[0]:
-                            logger.warning(
-                                f"inventory discrepancy at slot {slot}: "
-                                f"expected {player_inventory[slot, 1]} x "
-                                f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
-                                f"but received {malmo_inventory[slot, 1]} x "
-                                f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
-                                "from Malmo"
-                            )
-                            player_inventory[slot] = malmo_inventory[slot]
+        human_players = [
+            x
+            for x in range(self.config["num_players"])
+            if self.config["players"][x]["is_human"]
+        ]
 
-                    if not self.config["abilities"]["teleportation"]:
-                        # Make sure position is as expected.
-                        malmo_location = (
-                            latest_malmo_player_observation["XPos"],
-                            latest_malmo_player_observation["YPos"],
-                            latest_malmo_player_observation["ZPos"],
-                        )
-                        if any(
-                            abs(malmo_coord - stored_coord) > 1e-4
-                            for malmo_coord, stored_coord in zip(
-                                malmo_location, self.player_locations[player_index]
-                            )
-                        ):
-                            logger.warning(
-                                f"location discrepancy for player {player_index}: "
-                                f"expected {self.player_locations[player_index]} but received "
-                                f"{malmo_location} from Malmo"
-                            )
-                            self.player_locations[player_index] = malmo_location
+        human_actions = []
+
+        human_actions = self.human_action_detector.get_human_actions(
+            human_players, infos
+        )
+
+        for player_index in human_players:
+            self.human_action_detector.sync_human_state(
+                player_index,
+                self.player_locations[player_index],
+                self.player_inventories[player_index],
+            )
 
         self._update_blocks_from_malmo(latest_malmo_observation)
 
@@ -1295,6 +1419,10 @@ class MbagEnv(object):
     def _update_blocks_from_malmo(
         self, latest_malmo_observation: "MalmoObservationDict"
     ):
+        """
+        Compares blocks in the env and Malmo. Updates blocks with human action detector
+        """
+
         if "world" in latest_malmo_observation and "goal" in latest_malmo_observation:
             self.malmo_blocks = MinecraftBlocks.from_malmo_grid(
                 self.config["world_size"], latest_malmo_observation["world"]
@@ -1340,6 +1468,82 @@ class MbagEnv(object):
         ] = self.malmo_blocks.blocks[
             self.human_action_detector.blocks_with_no_pending_human_interactions
         ]
+
+    def _update_player_inventory_from_malmo(
+        self,
+        player_index: int,
+        latest_malmo_player_observation: MalmoObservationDict,
+    ):
+        if "InventorySlot_0_item" in latest_malmo_player_observation:
+            malmo_inventory: MbagInventory = np.zeros(
+                (self.INVENTORY_NUM_SLOTS, 2), dtype=int
+            )
+            for slot in range(self.INVENTORY_NUM_SLOTS):
+                item_name = latest_malmo_player_observation[f"InventorySlot_{slot}_item"]  # type: ignore
+                malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
+                malmo_inventory[slot, 1] = latest_malmo_player_observation[f"InventorySlot_{slot}_size"]  # type: ignore
+        else:
+            logger.warn(
+                "missing inventory information from Malmo observation "
+                f"(keys = {latest_malmo_player_observation.keys()})"
+            )
+            return
+
+        if self.config["abilities"]["inf_blocks"]:
+            # Make sure inventory is organized as expected.
+            for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                if malmo_inventory[block_id, 0] != block_id:
+                    logger.warning(
+                        f"inventory discrepancy at slot {block_id}: "
+                        f"expected {MinecraftBlocks.ID2NAME[block_id]} "
+                        "but received "
+                        f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
+                        "from Malmo"
+                    )
+                    swap_slot = malmo_inventory[:, 0].tolist().index(block_id)
+                    self.malmo_client.send_command(
+                        player_index,
+                        f"swapInventoryItems {block_id} {swap_slot}",
+                    )
+                    time.sleep(0.1)
+        else:
+            # Make sure inventory in Malmo matches up with what's in our inventory.
+            player_inventory = self.player_inventories[player_index]
+            for slot in np.nonzero(np.any(malmo_inventory != player_inventory, axis=1))[
+                0
+            ]:
+                logger.warning(
+                    f"inventory discrepancy at slot {slot}: "
+                    f"expected {player_inventory[slot, 1]} x "
+                    f"{MinecraftBlocks.ID2NAME[player_inventory[slot, 0]]} "
+                    f"but received {malmo_inventory[slot, 1]} x "
+                    f"{MinecraftBlocks.ID2NAME[malmo_inventory[slot, 0]]} "
+                    "from Malmo"
+                )
+                player_inventory[slot] = malmo_inventory[slot]
+
+    def _update_player_location_from_malmo(
+        self, player_index: int, latest_malmo_player_observation: MalmoObservationDict
+    ):
+        if not self.config["abilities"]["teleportation"]:
+            # Make sure position is as expected.
+            malmo_location = (
+                latest_malmo_player_observation["XPos"],
+                latest_malmo_player_observation["YPos"],
+                latest_malmo_player_observation["ZPos"],
+            )
+            if any(
+                abs(malmo_coord - stored_coord) > 1e-4
+                for malmo_coord, stored_coord in zip(
+                    malmo_location, self.player_locations[player_index]
+                )
+            ):
+                logger.warning(
+                    f"location discrepancy for player {player_index}: "
+                    f"expected {self.player_locations[player_index]} but received "
+                    f"{malmo_location} from Malmo"
+                )
+                self.player_locations[player_index] = malmo_location
 
     def _done(self) -> bool:
         return (

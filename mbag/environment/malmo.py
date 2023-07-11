@@ -2,10 +2,14 @@
 Code to interface with Project Malmo.
 """
 
+import atexit
 import json
 import logging
 import os
 import shutil
+import signal
+import socket
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -51,16 +55,18 @@ class MalmoObservationDict(TypedDict, total=False):
 
 
 class MalmoClient(object):
-    ACTION_DELAY = 0.3
-
     agent_hosts: List[MalmoPython.AgentHost]
     experiment_id: str
     record_fname: Optional[str]
+    ssh_processes: List[subprocess.Popen]
 
     def __init__(self):
         self.client_pool = MalmoPython.ClientPool()
         self.client_pool_size = 0
         self.record_fname = None
+
+        self.ssh_processes = []
+        atexit.register(self._cleanup_ssh_processes)
 
     def get_player_name(self, player_index: int, env_config: "MbagConfigDict") -> str:
         player_name = env_config["players"][player_index].get("player_name")
@@ -348,7 +354,9 @@ class MalmoClient(object):
         mission: MalmoPython.MissionSpec,
         mission_record: MalmoPython.MissionRecordSpec,
         player_index: int,
+        *,
         max_attempts: int = 1 if "pytest" in sys.modules else 5,
+        ssh_args: Optional[List[str]] = None,
     ):
         used_attempts = 0
         logger.info(f"starting Malmo mission for player {player_index}")
@@ -400,7 +408,70 @@ class MalmoClient(object):
                         f"failed to start mission after {max_attempts} attempts"
                     )
                     raise error
+
         logger.info(f"Malmo mission successfully started for player {player_index}")
+
+    def _try_get_minecraft_server_port(
+        self,
+        client_host: str,
+        client_port: int,
+    ) -> Optional[int]:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((client_host, client_port))
+        client_socket.sendall(
+            b"MALMO_FIND_SERVER" + self.experiment_id.encode("ascii") + b"\n"
+        )
+
+        message_len = 1024
+        reply_with_header = b""
+        while len(reply_with_header) < 4 + message_len:
+            reply_with_header += client_socket.recv(1024)
+            if len(reply_with_header) > 4:
+                message_len = int.from_bytes(reply_with_header[:4], byteorder="big")
+
+        reply = reply_with_header[4:]
+
+        client_socket.close()
+
+        if reply.startswith(b"MALMOS"):
+            return int(reply.split(b":")[-1])
+        else:
+            return None
+
+    def _open_ssh_tunnels(
+        self, ssh_args: List[str], ports_to_forward: List[Tuple[str, int]]
+    ):
+        # Split across multiple SSH processes since it seems like SSH can't handle many more
+        # than about 500 forwarded ports.
+        while ports_to_forward:
+            ports_to_forward_section = ports_to_forward[:500]
+            ports_to_forward = ports_to_forward[500:]
+
+            ssh_command = ["ssh", "-T"] + ssh_args
+            for flag, port in ports_to_forward_section:
+                ssh_command.extend([flag, f"{port}:localhost:{port}"])
+            logger.info(
+                f"opening SSH tunnels with command: {' '.join(ssh_command)[:200]}..."
+            )
+            ssh_process = subprocess.Popen(
+                ssh_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                # This prevents the processes from getting killed on Ctrl+C, since
+                # at that point we want to send a quit command before stopping SSH.
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+            )
+            self.ssh_processes.append(ssh_process)
+
+    def _cleanup_ssh_processes(self):
+        while len(self.ssh_processes) > 0:
+            ssh_process = self.ssh_processes.pop()
+            ssh_process.terminate()
+            if ssh_process.poll() is None:
+                time.sleep(1)
+            if ssh_process.poll() is None:
+                ssh_process.kill()
 
     # This method based on code from multi_agent_test.py in the Project Malmo examples.
     def _safe_wait_for_start(self, agent_hosts: List[MalmoPython.AgentHost]):
@@ -434,6 +505,17 @@ class MalmoClient(object):
         else:
             return None
 
+    def _get_player_ssh_args(
+        self, env_config: "MbagConfigDict", player_index: int
+    ) -> Optional[List[str]]:
+        all_ssh_args = env_config["malmo"].get("ssh_args")
+        player_ssh_args: Optional[List[str]] = None
+        if all_ssh_args is not None:
+            player_ssh_args = all_ssh_args[player_index]
+        if player_index == 0 and player_ssh_args is not None:
+            raise ValueError("player 0 must be running locally")
+        return player_ssh_args
+
     def _generate_record_fname(self, env_config: "MbagConfigDict"):
         video_dir = env_config["malmo"]["video_dir"]
         assert video_dir is not None
@@ -450,9 +532,21 @@ class MalmoClient(object):
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
     ):
+        # Set up SSH forwarding.
+        for player_index in range(env_config["num_players"]):
+            player_ssh_args = self._get_player_ssh_args(env_config, player_index)
+            if player_ssh_args is not None:
+                ports_to_forward: List[Tuple[str, int]] = []
+                ports_to_forward.append(("-L", 10000 + player_index))
+                for port in range(10000 + self._get_num_agents(env_config), 11000):
+                    ports_to_forward.append(("-R", port))
+                ports_to_forward.append(("-L", 11000 + player_index))
+                self._open_ssh_tunnels(player_ssh_args, ports_to_forward)
+
         self._expand_client_pool(self._get_num_agents(env_config))
         self.experiment_id = str(uuid.uuid4())
         self.record_fname = None
+        minecraft_server_port: Optional[int] = None
 
         self.agent_hosts = []
         for player_index in range(self._get_num_agents(env_config)):
@@ -472,16 +566,41 @@ class MalmoClient(object):
                     record_spec.recordMP4(
                         MalmoPython.FrameType.VIDEO, 20, 400000, False
                     )
+
+            # Open up another tunnel for the Minecraft server once the first player's
+            # game is started.
+            player_ssh_args = self._get_player_ssh_args(env_config, player_index)
+            if player_ssh_args is not None:
+                assert minecraft_server_port is not None
+                self._open_ssh_tunnels(player_ssh_args, [("-R", minecraft_server_port)])
+                # Give some time for SSH to start.
+                time.sleep(2)
+
             self._safe_start_mission(
                 agent_host,
                 MalmoPython.MissionSpec(mission_spec_xml, True),
                 record_spec,
                 player_index,
+                ssh_args=player_ssh_args,
             )
-            if player_index == 0:
-                # Seems important to give some time before trying to start the other
-                # agent hosts.
-                time.sleep(5)
+            if player_index == 0 and self._get_num_agents(env_config) > 1:
+                # Wait for the Minecraft server to start and get its port.
+                timeout_seconds_left = 60
+                logger.info("waiting for the Minecraft server to start...")
+                while minecraft_server_port is None:
+                    time.sleep(2)
+                    timeout_seconds_left -= 2
+                    minecraft_server_port = self._try_get_minecraft_server_port(
+                        "localhost",
+                        10000,
+                    )
+                    if timeout_seconds_left <= 0:
+                        break
+
+                if minecraft_server_port is None:
+                    raise RuntimeError(
+                        "timed out waiting for Minecraft server to start"
+                    )
 
         self._safe_wait_for_start(self.agent_hosts)
 
@@ -519,11 +638,15 @@ class MalmoClient(object):
         for player_index in range(len(self.agent_hosts)):
             self.send_command(player_index, "quit")
 
+        time.sleep(1)
+
         # Important to get rid of agent hosts, which triggers video writing for some
         # reason.
         self.agent_hosts = []
 
         self._save_specatator_video()
+
+        self._cleanup_ssh_processes()
 
     def _save_specatator_video(self):
         if self.record_fname is None:

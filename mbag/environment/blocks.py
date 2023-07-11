@@ -25,7 +25,8 @@ def cartesian_product(*arrays):
     return arr.reshape(-1, la)
 
 
-MAX_PLAYER_REACH = 3
+MAX_PLAYER_REACH = 4.5
+PLAYER_EDGE = 0.3
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
@@ -126,7 +127,57 @@ class MinecraftBlocks(object):
             & (locations[:, 2] < self.size[2]),
         )
 
-    def try_break_place(
+    def generate_block_edges(self, player_location: WorldLocation) -> np.ndarray:
+        player_x, player_y, player_z = [int(i) for i in player_location]
+
+        # Make blocks array with two layers of air above to make calculations easier.
+        blocks = np.concatenate(
+            [self.blocks, np.zeros((self.size[0], 2, self.size[2]), np.uint8)], axis=1
+        )
+
+        x_bound = [PLAYER_EDGE, 1 - PLAYER_EDGE]
+        z_bound = [PLAYER_EDGE, 1 - PLAYER_EDGE]
+
+        if (
+            player_x > 0
+            and blocks[(player_x - 1, player_y, player_z)] == MinecraftBlocks.AIR
+            and blocks[(player_x - 1, player_y + 1, player_z)]
+        ):
+            x_bound[0] = 0
+
+        if (
+            player_x < self.size[0] - 1
+            and blocks[(player_x + 1, player_y, player_z)] == MinecraftBlocks.AIR
+            and blocks[(player_x + 1, player_y + 1, player_z)]
+        ):
+            x_bound[1] = 0.999
+
+        if (
+            player_z > 0
+            and blocks[(player_x, player_y, player_z - 1)] == MinecraftBlocks.AIR
+            and blocks[(player_x, player_y + 1, player_z - 1)]
+        ):
+            z_bound[0] = 0
+
+        if (
+            player_z < self.size[0] - 1
+            and blocks[(player_x, player_y, player_z + 1)] == MinecraftBlocks.AIR
+            and blocks[(player_x, player_y + 1, player_z + 1)]
+        ):
+            z_bound[1] = 0.999
+
+        player_locations = np.array(
+            [
+                player_location,
+                (player_x + x_bound[0], player_location[1], player_z + z_bound[0]),
+                (player_x + x_bound[0], player_location[1], player_z + z_bound[1]),
+                (player_x + x_bound[1], player_location[1], player_z + z_bound[0]),
+                (player_x + x_bound[1], player_location[1], player_z + z_bound[1]),
+            ]
+        )
+        return player_locations
+
+    def try_break_place(  # noqa: C901
         self,
         action_type: MbagActionType,
         block_location: BlockLocation,
@@ -135,6 +186,7 @@ class MinecraftBlocks(object):
         player_location: Optional[WorldLocation] = None,
         other_player_locations: List[WorldLocation] = [],
         update_blocks: bool = True,
+        is_human: bool = False,
     ) -> Optional[Tuple[WorldLocation, WorldLocation]]:
         """
         Try to place or break a block (depending on action_type) at the given
@@ -143,6 +195,18 @@ class MinecraftBlocks(object):
         If the block can be placed or broken, then returns a tuple with the successful
         player location and click location, and updates the blocks accordingly.
         """
+
+        if is_human:
+            # Just assume human actions are valid.
+            assert player_location is not None
+            if update_blocks:
+                if action_type == MbagAction.BREAK_BLOCK:
+                    self.blocks[block_location] = MinecraftBlocks.AIR
+                    self.block_states[block_location] = 0
+                else:
+                    self.blocks[block_location] = block_id
+                    self.block_states[block_location] = 0
+            return player_location, (-1, -1, -1)
 
         if action_type not in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             raise ValueError(f"Invalid action_type: {action_type}")
@@ -197,7 +261,11 @@ class MinecraftBlocks(object):
 
         player_locations: NDArray[np.float_]
         if player_location is not None:
-            player_locations = np.array([player_location])
+            player_locations = (
+                self.generate_block_edges(player_location)
+                if is_human
+                else np.array([player_location])
+            )
         else:
             player_deltas = cartesian_product(
                 np.linspace(-4, 4, 9),
@@ -331,7 +399,6 @@ class MinecraftBlocks(object):
             else:
                 self.blocks[block_location] = block_id
                 self.block_states[block_location] = 0
-            # TODO: add block to inventory?
 
         # Make choice of viewpoint/click location deterministic by seeding with the
         # current blocks.

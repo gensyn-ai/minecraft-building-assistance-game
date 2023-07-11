@@ -11,7 +11,9 @@ from .types import (
     MbagAction,
     MbagActionTuple,
     MbagActionType,
+    MbagInfoDict,
     MbagInventory,
+    MbagInventoryObs,
     WorldLocation,
 )
 
@@ -28,6 +30,12 @@ class HumanActionDetector(object):
     """For each player, which block they are currently looking at."""
     human_blocks_on_ground: List[Dict[int, int]]
     """For each player, number of blocks of each inventory type that is on the ground"""
+    human_missing_blocks: List[Dict[int, int]]
+    """
+    For each player, number of blocks of each type that are present in Minecraft but not
+    in the MbagEnv. This discrepancy is resolved by adding extra palette BREAK_BLOCK
+    actions.
+    """
     human_is_breaking: List[bool]
     human_is_placing: List[bool]
     """For each player, whether they are currently holding the place/break keys."""
@@ -44,7 +52,7 @@ class HumanActionDetector(object):
     """
     malmo_inventories: List[MbagInventory]
     """The last inventories from Malmo"""
-    num_pending_human_iteractions: np.ndarray
+    num_pending_human_interactions: np.ndarray
     """
     How many human interactions have occurred with each block that have yet to be
     reflected in the Python env. This is incremented each time a new human action is
@@ -60,6 +68,7 @@ class HumanActionDetector(object):
         self,
         initial_player_locations: List[WorldLocation],
         initial_blocks: MinecraftBlocks,
+        palette_x: int,
     ):
         """
         This should be called at the beginning of a new episode.
@@ -71,6 +80,9 @@ class HumanActionDetector(object):
             None for _ in range(self.env_config["num_players"])
         ]
         self.human_blocks_on_ground = [
+            defaultdict(int) for _ in range(self.env_config["num_players"])
+        ]
+        self.human_missing_blocks = [
             defaultdict(int) for _ in range(self.env_config["num_players"])
         ]
         self.human_is_breaking = [False for _ in range(self.env_config["num_players"])]
@@ -92,15 +104,74 @@ class HumanActionDetector(object):
             for _ in range(self.env_config["num_players"])
         ]
 
-        self.num_pending_human_iteractions = np.zeros(
+        # Set initial inventory if the user has infinite blocks
+        if self.env_config["abilities"]["inf_blocks"]:
+            for i in range(self.env_config["num_players"]):
+                for j in range(2, 10):
+                    self.malmo_inventories[i][j][0] = j
+                    self.malmo_inventories[i][j][1] = 1
+
+        self.num_pending_human_interactions = np.zeros(
             self.env_config["world_size"], dtype=np.int8
         )
+        self.num_pending_human_movements = np.zeros(self.env_config["num_players"])
+        self.num_pending_give_actions = np.zeros(self.env_config["num_players"])
+
+        self.palette_x = palette_x
 
     def get_human_actions(
         self,
+        human_players: List[int],
+        infos: List[MbagInfoDict],
+    ) -> List[Tuple[int, MbagActionTuple]]:
+        actions = []
+        human_actions = {}
+        timestamps: List[datetime] = []
+
+        for player_index in human_players:
+            one_human_action = self.get_one_human_actions(
+                player_index, infos[player_index]["malmo_observations"]
+            )
+            timestamps.extend(one_human_action.keys())
+            human_actions[player_index] = one_human_action
+
+        timestamps = sorted([*set(timestamps)])
+
+        # For each timestamp, pad each category of movement
+        for time in timestamps:
+            for index in range(3):
+                largest_size = max(
+                    [
+                        len(human_actions[player_index][time][index])
+                        for player_index in human_players
+                    ]
+                )
+                for player_index in human_players:
+                    total_actions = human_actions[player_index][time][index] + [
+                        (player_index, (MbagAction.NOOP, 0, 0))
+                        for _ in range(
+                            largest_size - len(human_actions[player_index][time][index])
+                        )
+                    ]
+                    actions.extend(total_actions)
+                    # actions.extend(human_actions[player_index][time][index])
+
+        for player_index, action_tuple in actions:
+            if action_tuple[0] == MbagAction.NOOP:
+                logger.info(f"padding action from player {player_index}")
+            else:
+                logger.info(
+                    f"human action from player {player_index}: "
+                    + str(MbagAction(action_tuple, self.env_config["world_size"]))
+                )
+
+        return actions
+
+    def get_one_human_actions(
+        self,
         player_index: int,
         malmo_observations: List[Tuple[datetime, "MalmoObservationDict"]],
-    ) -> List[Tuple[int, MbagActionTuple]]:
+    ) -> Dict[datetime, List[List[Tuple[int, MbagActionTuple]]]]:
         """
         Given a player index and a list of observation dictionaries from Malmo,
         determines which human actions have taken place since the last time the
@@ -110,36 +181,112 @@ class HumanActionDetector(object):
         a GIVE_BLOCK action for the other player.
         """
 
-        actions: List[Tuple[int, MbagActionTuple]] = []
+        actions: Dict[datetime, List[List[Tuple[int, MbagActionTuple]]]] = defaultdict(
+            lambda: [[], [], []]
+        )
 
         for observation_time, malmo_observation in sorted(malmo_observations):
+            timestamp_actions: List[List[Tuple[int, MbagActionTuple]]] = [[], [], []]
             block_discrepancies = self._get_block_discrepancies(
                 player_index, malmo_observation
             )
             dropped_blocks, picked_up_blocks = self._get_dropped_picked_up_blocks(
                 player_index, malmo_observation
             )
-            actions.extend(self._get_movement_actions(player_index, malmo_observation))
-            actions.extend(
-                self._get_place_break_actions(
-                    player_index,
-                    malmo_observation,
-                    block_discrepancies,
-                    dropped_blocks,
-                )
+            timestamp_actions[0] = self._get_movement_actions(
+                player_index, malmo_observation
             )
-            actions.extend(
-                self._handle_dropped_picked_up_blocks(
-                    player_index, dropped_blocks, picked_up_blocks
-                )
+            timestamp_actions[1] = self._get_place_break_actions(
+                player_index,
+                malmo_observation,
+                block_discrepancies,
+                dropped_blocks,
             )
 
-        for _, action_tuple in actions:
-            logger.info(
-                f"human action from player {player_index}: "
-                + str(MbagAction(action_tuple, self.env_config["world_size"]))
+            timestamp_actions[2] = self._handle_dropped_picked_up_blocks(
+                player_index, dropped_blocks, picked_up_blocks
             )
+
+            actions[observation_time] = timestamp_actions
+
         return actions
+
+    def _copy_palette(
+        self,
+        palette_x: int,
+        palette_blocks: np.ndarray,
+        palette_block_states: np.ndarray,
+    ):
+        pass
+
+    def sync_human_state(self, player_index, player_location, player_inventory):
+        if (
+            self.num_pending_human_interactions.sum() > 0
+            or self.num_pending_human_movements.sum() > 0
+            or self.num_pending_give_actions.sum() > 0
+        ):
+            logger.info(
+                "Skipping human action detector sync because of outstanding human actions"
+            )
+            print(
+                self.num_pending_human_interactions.sum(),
+                self.num_pending_human_movements,
+                self.num_pending_give_actions,
+            )
+            return
+
+        # Make sure inventory has the same number of blocks as the environment's env
+        human_inventory_obs = self._get_simplified_inventory(
+            self.malmo_inventories[player_index]
+        )
+
+        player_inventory_obs = self._get_simplified_inventory(player_inventory)
+        for block_id in np.nonzero(human_inventory_obs != player_inventory_obs)[0]:
+            if not self.env_config["abilities"]["inf_blocks"]:
+                logger.warning(
+                    f"inventory discrepancy for player {player_index} for {MinecraftBlocks.ID2NAME[block_id]}: "
+                    f"expected {player_inventory_obs[block_id]} "
+                    f"but received {human_inventory_obs[block_id]} "
+                    "from human action detector"
+                )
+            if human_inventory_obs[block_id] > player_inventory_obs[block_id]:
+                self.human_missing_blocks[player_index][block_id] += (
+                    human_inventory_obs[block_id] - player_inventory_obs[block_id]
+                )
+
+        # Make sure position is the same as the environment
+        human_location = self.human_locations[player_index]
+        player_location = (
+            int(player_location[0]),
+            int(player_location[1]),
+            int(player_location[2]),
+        )
+        if any(
+            abs(malmo_coord - stored_coord) > 1e-4
+            for malmo_coord, stored_coord in zip(human_location, player_location)
+        ):
+            logger.warning(
+                f"location discrepancy for player {player_index}: "
+                f"expected {player_location} but received "
+                f"{human_location} from human action detector"
+            )
+            self.human_locations[player_index] = player_location
+
+    def _get_simplified_inventory(
+        self, player_inventory: MbagInventory
+    ) -> MbagInventoryObs:
+        """
+        Gets the array representation of the given player's inventory.
+        """
+
+        inventory_obs: MbagInventoryObs = np.zeros(
+            MinecraftBlocks.NUM_BLOCKS, dtype=int
+        )  # 10 total blocks
+        for i in range(player_inventory.shape[0]):
+            inventory_obs[player_inventory[i][0]] += player_inventory[i][1]
+
+        inventory_obs[MinecraftBlocks.AIR] = 0
+        return inventory_obs
 
     def _get_block_discrepancies(
         self, player_index: int, malmo_observation: "MalmoObservationDict"
@@ -169,7 +316,7 @@ class HumanActionDetector(object):
                     current_malmo_blocks.blocks[location],
                     prev_malmo_blocks.blocks[location],
                 )
-        self.malmo_blocks[player_index] = current_malmo_blocks
+            self.malmo_blocks[player_index] = current_malmo_blocks
         return block_discrepancies
 
     def _get_movement_actions(
@@ -204,6 +351,7 @@ class HumanActionDetector(object):
             movement_actions.append((player_index, (MbagAction.MOVE_NEG_Z, 0, 0)))
             current_z -= 1
         self.human_locations[player_index] = (current_x, current_y, current_z)
+        self.num_pending_human_movements[player_index] += len(movement_actions)
         return movement_actions
 
     def _get_place_break_actions(
@@ -270,6 +418,7 @@ class HumanActionDetector(object):
             if (
                 self.human_last_placing[block_location] == player_index
                 and new_block_id != MinecraftBlocks.AIR
+                and block_location[0] != self.palette_x
             ):
                 action_type = MbagAction.PLACE_BLOCK
                 dropped_blocks[new_block_id] -= 1
@@ -297,9 +446,46 @@ class HumanActionDetector(object):
                 )
 
                 del block_discrepancies[block_location]
-                self.num_pending_human_iteractions[block_location] += 1
+                self.num_pending_human_interactions[block_location] += 1
+
+        if not self.env_config["abilities"]["inf_blocks"]:
+            place_break_actions.extend(
+                self._get_missing_blocks_break_actions(player_index)
+            )
 
         return place_break_actions
+
+    def _get_missing_blocks_break_actions(
+        self, player_index: int
+    ) -> List[Tuple[int, MbagActionTuple]]:
+        actions: List[Tuple[int, MbagActionTuple]] = []
+
+        # Handle missing items by attempting to break palette blocks.
+        for block_id, num_missing in list(
+            self.human_missing_blocks[player_index].items()
+        ):
+            for _ in range(num_missing):
+                palette_z = sorted(MinecraftBlocks.PLACEABLE_BLOCK_IDS).index(block_id)
+                block_location = (self.palette_x, 2, palette_z)
+                actions.append(
+                    (
+                        player_index,
+                        (
+                            MbagAction.BREAK_BLOCK,
+                            int(
+                                np.ravel_multi_index(
+                                    block_location,
+                                    self.env_config["world_size"],
+                                )
+                            ),
+                            block_id,
+                        ),
+                    )
+                )
+                self.num_pending_human_interactions[block_location] += 1
+            self.human_missing_blocks[player_index][block_id] = 0
+
+        return actions
 
     def _get_dropped_picked_up_blocks(
         self, player_index: int, malmo_observation: "MalmoObservationDict"
@@ -311,6 +497,9 @@ class HumanActionDetector(object):
         of that type that have been dropped and picked up, respectively. Also
         updates malmo_inventories for the given player.
         """
+
+        if "InventorySlot_0_item" not in malmo_observation:
+            return {}, {}
 
         from .mbag_env import MbagEnv
 
@@ -386,36 +575,51 @@ class HumanActionDetector(object):
                     picked_block_id
                 ] -= player_picked_blocks
 
-                if other_player_index != player_index:
-                    actions.extend(
-                        [
-                            (
-                                other_player_index,
-                                (
-                                    MbagAction.GIVE_BLOCK,
-                                    int(
-                                        np.ravel_multi_index(
-                                            self.human_locations[player_index],
-                                            self.env_config["world_size"],
-                                        )
-                                    ),
-                                    picked_block_id,
-                                ),
+                if not self.env_config["abilities"]["inf_blocks"]:
+                    if other_player_index != player_index:
+                        player_tag = player_index + 1
+                        if player_index < other_player_index:
+                            player_tag += 1
+                        if picked_block_id != MinecraftBlocks.AIR:
+                            actions.extend(
+                                [
+                                    (
+                                        other_player_index,
+                                        (
+                                            MbagAction.GIVE_BLOCK,
+                                            player_tag,
+                                            picked_block_id,
+                                        ),
+                                    )
+                                    for _ in range(player_picked_blocks)
+                                ]
                             )
-                            for _ in range(player_picked_blocks)
-                        ]
-                    )
+                            self.num_pending_give_actions[
+                                other_player_index
+                            ] += player_picked_blocks
 
         return actions
 
+    def record_human_movement(self, player_id: int):
+        if self.num_pending_human_movements[player_id] > 0:
+            self.num_pending_human_movements[player_id] -= 1
+        else:
+            logger.error(f"unexpected movement action from human player {player_id}")
+
     def record_human_interaction(self, block_location: BlockLocation):
-        if self.num_pending_human_iteractions[block_location] > 0:
-            self.num_pending_human_iteractions[block_location] -= 1
+        if self.num_pending_human_interactions[block_location] > 0:
+            self.num_pending_human_interactions[block_location] -= 1
         else:
             logger.error(
-                f"unexpected action from human player at location {block_location}"
+                f"unexpected block action from human player at location {block_location}"
             )
+
+    def record_human_give_action(self, player_id: int):
+        if self.num_pending_give_actions[player_id] > 0:
+            self.num_pending_give_actions[player_id] -= 1
+        else:
+            logger.error(f"unexpected give action from human player {player_id}")
 
     @property
     def blocks_with_no_pending_human_interactions(self):
-        return self.num_pending_human_iteractions == 0
+        return self.num_pending_human_interactions == 0

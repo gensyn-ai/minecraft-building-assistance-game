@@ -1,11 +1,10 @@
 from abc import ABC
-from typing import Any, List, Tuple, cast
+from typing import Any, List, Optional, Tuple, cast
 
 import numpy as np
 
-from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.environment.types import MbagActionTuple, MbagObs
-
+from ..environment.mbag_env import MbagConfigDict, MbagEnv
+from ..environment.types import MbagActionTuple, MbagInfoDict, MbagObs
 from .action_distributions import MbagActionDistribution
 
 
@@ -55,6 +54,15 @@ class MbagAgent(ABC):
             MbagActionTuple, tuple(self.action_mapping[flat_action])
         )
         return action_tuple, action_distribution
+
+    def get_action_with_info(
+        self, obs: MbagObs, info: Optional[MbagInfoDict]
+    ) -> MbagActionTuple:
+        """
+        Allows for the info dict to be passed in getting an action.
+        If not overridden, ignores the info dict and calls get_action.
+        """
+        return self.get_action(obs)
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         """

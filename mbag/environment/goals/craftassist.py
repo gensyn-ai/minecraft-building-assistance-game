@@ -20,11 +20,13 @@ logger = logging.getLogger(__name__)
 class CraftAssistGoalConfig(TypedDict):
     data_dir: str
     subset: str
+    house_id: Optional[str]
 
 
 DEFAULT_CONFIG: CraftAssistGoalConfig = {
     "data_dir": "data/craftassist",
     "subset": "train",
+    "house_id": None,
 }
 
 
@@ -39,6 +41,7 @@ class CraftAssistStats(TypedDict):
 class CraftAssistGoalGenerator(GoalGenerator):
     config: CraftAssistGoalConfig
     house_ids: List[str]
+    last_house_id: Optional[str]
     block_map: Dict[str, Optional[Tuple[str, Optional[str]]]]
 
     def __init__(self, config: dict):
@@ -49,6 +52,7 @@ class CraftAssistGoalGenerator(GoalGenerator):
         super().__init__(config)
         self._load_block_map()
         self._load_house_ids()
+        self.last_house_id = None
 
     def _load_block_map(self):
         block_map_fname = os.path.join(
@@ -78,7 +82,8 @@ class CraftAssistGoalGenerator(GoalGenerator):
             )
         ):
             house_id = os.path.split(house_dir)[-1]
-            self.house_ids.append(house_id)
+            if self.config["house_id"] is None or self.config["house_id"] == house_id:
+                self.house_ids.append(house_id)
 
     @functools.lru_cache
     def _minecraft_ids_to_block_variant(
@@ -197,5 +202,6 @@ class CraftAssistGoalGenerator(GoalGenerator):
                 success = False
 
         logger.info(f"chose house {house_id}")
+        self.last_house_id = house_id
 
         return structure
