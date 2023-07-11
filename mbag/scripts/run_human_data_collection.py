@@ -28,11 +28,13 @@ def make_human_action_config():
     num_players = 2
     world_size: WorldSize = (11, 10, 10)
     goal_generator = TransformedGoalGenerator
+    house_id = None
     goal_generator_config = {
         "goal_generator": "craftassist",
         "goal_generator_config": {
             "data_dir": "data/craftassist",
             "subset": "train",
+            "house_id": house_id,
         },
         "transforms": [
             {
@@ -120,7 +122,12 @@ def make_human_action_config():
         "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
     }
 
-    result_dir = os.path.join(data_path, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    experiment_parts = []  # type: ignore
+    if house_id is not None:
+        experiment_parts.append(house_id)
+    result_dir = os.path.join(
+        data_path, *experiment_parts, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    )
     observer = FileStorageObserver(result_dir)
     ex.observers.append(observer)
 
