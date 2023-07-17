@@ -87,6 +87,11 @@ class MalmoConfigDict(TypedDict, total=False):
     automatically set up necessary port forwarding.
     """
 
+    start_port: int
+    """
+    Port to start looking for Malmo instances at (default 10000).
+    """
+
     action_delay: float
     """
     The number of seconds to wait after each step to allow actions to complete
@@ -268,6 +273,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "restrict_players": False,
         "video_dir": None,
         "ssh_args": None,
+        "start_port": 10000,
         "action_delay": 0.3,
     },
     "rewards": {

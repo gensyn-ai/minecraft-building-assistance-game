@@ -340,10 +340,10 @@ class MalmoClient(object):
         </Mission>
         """
 
-    def _expand_client_pool(self, num_clients):
+    def _expand_client_pool(self, num_clients, start_port=10000):
         while self.client_pool_size < num_clients:
             self.client_pool.add(
-                MalmoPython.ClientInfo("127.0.0.1", self.client_pool_size + 10000)
+                MalmoPython.ClientInfo("127.0.0.1", self.client_pool_size + start_port)
             )
             self.client_pool_size += 1
 
@@ -533,17 +533,23 @@ class MalmoClient(object):
         goal_blocks: MinecraftBlocks,
     ):
         # Set up SSH forwarding.
+        start_port = env_config["malmo"]["start_port"]
         for player_index in range(env_config["num_players"]):
             player_ssh_args = self._get_player_ssh_args(env_config, player_index)
             if player_ssh_args is not None:
                 ports_to_forward: List[Tuple[str, int]] = []
-                ports_to_forward.append(("-L", 10000 + player_index))
-                for port in range(10000 + self._get_num_agents(env_config), 11000):
+                ports_to_forward.append(("-L", start_port + player_index))
+                for port in range(
+                    start_port + self._get_num_agents(env_config), start_port + 1000
+                ):
                     ports_to_forward.append(("-R", port))
-                ports_to_forward.append(("-L", 11000 + player_index))
+                ports_to_forward.append(("-L", start_port + 1000 + player_index))
                 self._open_ssh_tunnels(player_ssh_args, ports_to_forward)
 
-        self._expand_client_pool(self._get_num_agents(env_config))
+        self._expand_client_pool(
+            self._get_num_agents(env_config),
+            start_port=env_config["malmo"]["start_port"],
+        )
         self.experiment_id = str(uuid.uuid4())
         self.record_fname = None
         minecraft_server_port: Optional[int] = None
@@ -592,7 +598,7 @@ class MalmoClient(object):
                     timeout_seconds_left -= 2
                     minecraft_server_port = self._try_get_minecraft_server_port(
                         "localhost",
-                        10000,
+                        start_port,
                     )
                     if timeout_seconds_left <= 0:
                         break
