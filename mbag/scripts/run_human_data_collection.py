@@ -84,6 +84,7 @@ def make_human_action_config():
             "video_dir": None,
             "restrict_players": True,
             "ssh_args": [None for _ in range(num_players)],
+            "start_port": 10000,
             "action_delay": 0.001,
         },
         "players": [
