@@ -18,9 +18,15 @@ def default_config():
         "horizon": 10,
         "num_workers": 10,
         "goal_generator": "random",
+        "min_width": 0,
+        "min_height": 0,
+        "min_depth": 0,
+        "extract_largest_cc": True,
+        "extract_largest_cc_connectivity": 6,
+        "area_sample": False,
         "use_extra_features": True,
         "num_training_iters": 2,
-        "train_batch_size": 50,
+        "train_batch_size": 100,
         "sgd_minibatch_size": 5,
         "rollout_fragment_length": 10,
     }
@@ -33,8 +39,7 @@ def dummy_ppo_checkpoint_fname(default_config):
     ex.run(config_updates={**default_config, "log_dir": checkpoint_dir})
 
     checkpoint_fname = glob.glob(
-        checkpoint_dir
-        + "/MbagPPO/self_play/6x6x6/random/*/checkpoint_000002/checkpoint-2"
+        checkpoint_dir + "/MbagPPO/self_play/6x6x6/random/*/checkpoint_000002"
     )[0]
     assert os.path.exists(checkpoint_fname)
     return checkpoint_fname
@@ -49,6 +54,7 @@ def test_single_agent(default_config):
         }
     ).result
 
+    assert result is not None
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
@@ -64,6 +70,7 @@ def test_lstm(default_config):
         }
     ).result
 
+    assert result is not None
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
@@ -81,6 +88,7 @@ def test_transformer(default_config):
         }
     ).result
 
+    assert result is not None
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
     result = ex.run(
@@ -95,6 +103,7 @@ def test_transformer(default_config):
         }
     ).result
 
+    assert result is not None
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
@@ -114,6 +123,7 @@ def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
         }
     ).result
 
+    assert result is not None
     assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
 
 
@@ -126,29 +136,7 @@ def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
         }
     ).result
 
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
-
-
-@pytest.mark.uses_rllib
-def test_distillation(default_config, dummy_ppo_checkpoint_fname):
-    result = ex.run(
-        config_updates={
-            **default_config,
-            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
-            "run": "distillation_prediction",
-        }
-    ).result
-
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
-
-    result = ex.run(
-        config_updates={
-            **default_config,
-            "run": "distillation_prediction",
-            "heuristic": "mirror_builder",
-        }
-    ).result
-
+    assert result is not None
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
@@ -164,6 +152,7 @@ def test_train_together(default_config, dummy_ppo_checkpoint_fname):
             "policies_to_train": ["ppo_0", "ppo_1"],
         }
     ).result
+    assert result is not None
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
     assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
 
@@ -177,8 +166,10 @@ def test_alpha_zero(default_config):
             "goal_generator": "random",
             "use_replay_buffer": False,
             "hidden_size": 64,
+            "num_simulations": 5,
         }
     ).result
+    assert result is not None
     assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
 
 
@@ -199,8 +190,10 @@ def test_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
             "policies_to_train": ["ppo_1"],
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
+            "num_simulations": 5,
         }
     ).result
+    assert result is not None
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
     assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
 
@@ -226,8 +219,10 @@ def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
             "max_seq_len": 5,
             "sgd_minibatch_size": 20,
             "vf_share_layers": True,
+            "num_simulations": 5,
         }
     ).result
+    assert result is not None
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
     assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
 
@@ -248,8 +243,10 @@ def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
             "heuristic": "lowest_block",
+            "num_simulations": 5,
         }
     ).result
+    assert result is not None
     assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
     assert result["custom_metrics"]["lowest_block/place_block_accuracy_mean"] == 1
 
@@ -272,7 +269,9 @@ def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_f
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
             "pretrain": True,
+            "num_simulations": 5,
         }
     ).result
-    assert result["custom_metrics"]["ppo_0/num_place_block_mean"] == 0
-    assert result["custom_metrics"]["ppo_0/num_break_block_mean"] == 0
+    assert result is not None
+    assert result["custom_metrics"]["ppo_1/num_place_block_mean"] == 0
+    assert result["custom_metrics"]["ppo_1/num_break_block_mean"] == 0

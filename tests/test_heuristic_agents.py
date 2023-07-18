@@ -1,8 +1,11 @@
 import logging
+from typing import Any, Dict, cast
 
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+from ray.rllib.policy.policy import PolicySpec
+from ray.tune.registry import ENV_CREATOR, _global_registry
 
 from mbag.agents.heuristic_agents import (
     ALL_HEURISTIC_AGENTS,
@@ -167,7 +170,6 @@ def test_malmo_pq():
 def test_lowest_block_agent():
     for num_players in [1, 2]:
         for goal_generator in ["basic", "random", "simple_overhang", "grabcraft"]:
-            print(goal_generator)
             if goal_generator != "grabcraft":
                 transforms = []
             else:
@@ -213,8 +215,8 @@ def test_lowest_block_agent():
 
 @pytest.mark.timeout(30)
 def test_rllib_heuristic_agents():
-    from ray.rllib.algorithms.pg import PG
-    from ray.rllib.rollout import rollout
+    from ray.rllib.algorithms.pg import PGConfig
+    from ray.rllib.evaluate import rollout
 
     from mbag.rllib.policies import MbagAgentPolicy
 
@@ -237,24 +239,27 @@ def test_rllib_heuristic_agents():
         logger.info(f"Testing {heuristic_agent_id} agent...")
         heuristic_agent = heuristic_agent_cls({}, env_config)
         for env_id in ["MBAG-v1", "MBAGFlatActions-v1"]:
-            trainer = PG(
-                {
-                    "env": env_id,
-                    "env_config": env_config,
-                    "multiagent": {
-                        "policies": {
-                            "pq": (
-                                MbagAgentPolicy,
-                                None,
-                                None,
-                                {"mbag_agent": heuristic_agent},
-                            )
-                        },
-                        "policy_mapping_fn": lambda agent_id: "pq",
-                        "policies_to_train": [],
+            env = _global_registry.get(ENV_CREATOR, env_id)(env_config)
+            trainer = (
+                PGConfig()
+                .environment(
+                    env_id,
+                    env_config=cast(Dict[Any, Any], env_config),
+                )
+                .multi_agent(
+                    policies={
+                        "pq": PolicySpec(
+                            policy_class=MbagAgentPolicy,
+                            observation_space=env.observation_space,
+                            action_space=env.action_space,
+                            config={"mbag_agent": heuristic_agent},
+                        )
                     },
-                    "framework": "torch",
-                }
+                    policy_mapping_fn=lambda agent_id, **kwargs: "pq",
+                    policies_to_train=[],
+                )
+                .framework("torch")
+                .build()
             )
 
             rollout(

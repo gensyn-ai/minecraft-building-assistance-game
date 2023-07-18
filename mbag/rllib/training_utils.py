@@ -1,11 +1,13 @@
+import glob
 import os
 from datetime import datetime
 from typing import Any, Callable, Dict, Type, Union, cast
 
 import cloudpickle
-from ray.rllib.agents.trainer import Trainer
+from ray.rllib.algorithms import Algorithm, AlgorithmConfig
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
+from ray.rllib.utils.checkpoints import get_checkpoint_info
 from ray.rllib.utils.typing import PolicyID, TrainerConfigDict
 from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import get_trainable_cls
@@ -55,21 +57,22 @@ def load_trainer_config(checkpoint_path: str) -> TrainerConfigDict:
 
 def load_trainer(
     checkpoint_path: str,
-    run: Union[str, Type[Trainer]],
+    run: Union[str, Type[Algorithm]],
     config_updates: dict = {},
-) -> Trainer:
-    config = load_trainer_config(checkpoint_path)
+) -> Algorithm:
     config_updates.setdefault("num_workers", 0)
-    config = Trainer.merge_trainer_configs(
-        config, config_updates, _allow_unknown_configs=True
-    )
+
+    checkpoint_info = get_checkpoint_info(checkpoint_path)
+    state = Algorithm._checkpoint_info_to_algorithm_state(checkpoint_info)
+    config: AlgorithmConfig = state["config"]
+    config.update_from_dict(config_updates)
 
     # Create the Trainer from config.
     if isinstance(run, str):
-        cls = cast(Type[Trainer], get_trainable_cls(run))
+        cls = cast(Type[Algorithm], get_trainable_cls(run))
     else:
         cls = run
-    trainer: Trainer = cls(config=config)
+    trainer: Algorithm = cls.from_state(state)
     # Load state from checkpoint.
     trainer.restore(checkpoint_path)
 
@@ -77,8 +80,8 @@ def load_trainer(
 
 
 def load_policies_from_checkpoint(
-    checkpoint_fname: str,
-    trainer: Trainer,
+    checkpoint_dir: str,
+    trainer: Algorithm,
     policy_map: Callable[[PolicyID], PolicyID] = lambda policy_id: policy_id,
 ):
     """
@@ -86,11 +89,14 @@ def load_policies_from_checkpoint(
     trainer.
     """
 
-    with open(checkpoint_fname, "rb") as checkpoint_file:
-        checkpoint_data = cloudpickle.load(checkpoint_file)
-    policy_states: Dict[str, Any] = cloudpickle.loads(checkpoint_data["worker"])[
-        "state"
-    ]
+    policy_dirs = glob.glob(os.path.join(checkpoint_dir, "policies", "*"))
+    policy_states: Dict[str, Any] = {}
+    for policy_dir in policy_dirs:
+        policy_id = os.path.basename(policy_dir)
+        with open(
+            os.path.join(policy_dir, "policy_state.pkl"), "rb"
+        ) as policy_state_file:
+            policy_states[policy_id] = cloudpickle.load(policy_state_file)
 
     policy_weights = {
         policy_map(policy_id): policy_state["weights"]

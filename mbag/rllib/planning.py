@@ -1,8 +1,8 @@
-from typing import Dict, List, Optional, Sequence, TypedDict, Union
+from typing import Dict, List, Optional, Sequence, TypedDict, Union, cast
 
-import gym
+import gymnasium as gym
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
@@ -62,7 +62,6 @@ class MbagEnvModel(gym.Env):
         self.env = env
         self.config = config
         self.set_player_index(player_index)
-        self.agent_id = f"player_{player_index}"
         self.include_action_mask_in_obs = include_action_mask_in_obs
 
         assert isinstance(self.env.action_space, spaces.Discrete)
@@ -102,9 +101,9 @@ class MbagEnvModel(gym.Env):
         return self.last_obs
 
     def reset(self):
-        obs_dict = self.env.reset()
+        obs_dict, info_dict = self.env.reset()
         self._store_last_obs_dict(obs_dict)
-        return self._process_obs(obs_dict[self.agent_id])
+        return self._process_obs(cast(MbagObs, obs_dict[self.agent_id]))
 
     def step(
         self,
@@ -125,7 +124,13 @@ class MbagEnvModel(gym.Env):
             ):
                 action_dict[other_agent_id] = other_player_action
 
-        obs_dict, reward_dict, done_dict, info_dict = self.env.step(action_dict)
+        (
+            obs_dict,
+            reward_dict,
+            terminated_dict,
+            truncated_dict,
+            info_dict,
+        ) = self.env.step(action_dict)
         info: MbagEnvModelInfoDict = info_dict[self.agent_id]
         info["other_player_infos"] = [
             info_dict[other_agent_id] for other_agent_id in other_agent_ids
@@ -151,7 +156,8 @@ class MbagEnvModel(gym.Env):
         return (
             self._process_obs(obs_dict[self.agent_id]),
             reward,
-            done_dict.get(self.agent_id, done_dict["__all__"]),
+            terminated_dict.get(self.agent_id, terminated_dict["__all__"]),
+            truncated_dict.get(self.agent_id, truncated_dict["__all__"]),
             info,
         )
 

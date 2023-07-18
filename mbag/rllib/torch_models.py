@@ -7,7 +7,7 @@ from typing import Any, ContextManager, Dict, List, Tuple, cast
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
-from gym import spaces
+from gymnasium import spaces
 from ray.rllib.algorithms.alpha_zero.models.custom_torch_models import ActorCriticModel
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.modelv2 import restore_original_dimensions
@@ -16,6 +16,7 @@ from ray.rllib.policy.rnn_sequencing import add_time_dimension
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
+from ray.rllib.utils.typing import TensorType
 from torch import nn
 from typing_extensions import TypedDict
 
@@ -104,7 +105,9 @@ class MbagTorchModel(ActorCriticModel):
         if isinstance(obs_space, spaces.Dict):
             obs_space = obs_space.spaces["obs"]
         assert isinstance(obs_space, spaces.Tuple)
-        self.world_obs_space: spaces.Box = obs_space[0]
+        world_obs_space = obs_space[0]
+        assert isinstance(world_obs_space, spaces.Box)
+        self.world_obs_space: spaces.Box = world_obs_space
         self.world_size = self.world_obs_space.shape[-3:]
 
         extra_config = copy.deepcopy(DEFAULT_CONFIG)
@@ -855,9 +858,9 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
 
     def forward(
         self,
-        input_dict: Dict[str, torch.Tensor],
-        state: List[torch.Tensor],
-        seq_lens: torch.Tensor,
+        input_dict: Dict[str, TensorType],
+        state: List[TensorType],
+        seq_lens: TensorType,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         self.rnn.set_state_seq_lens(state, seq_lens)
         self._logits, _ = self.conv_model.forward(input_dict, state, seq_lens)

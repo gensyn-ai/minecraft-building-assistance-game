@@ -14,7 +14,13 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
         return self.mbag_env.reset()
 
     def step(self, action_dict):
-        obs_dict, reward_dict, done_dict, info_dict = self.mbag_env.step(action_dict)
+        (
+            obs_dict,
+            reward_dict,
+            terminated_dict,
+            truncated_dict,
+            info_dict,
+        ) = self.mbag_env.step(action_dict)
         (
             world_obs,
             inventory_obs,
@@ -24,7 +30,7 @@ class ChoiceRewardWrapper(MbagMultiAgentEnv):
             world_obs, inventory_obs, timestep, action_dict[self.mbag_env._agent_id(0)]
         )
 
-        return obs_dict, reward_dict, done_dict, info_dict
+        return obs_dict, reward_dict, terminated_dict, truncated_dict, info_dict
 
     def calculate_choices(self, world_obs, inventory_obs, timestep, action) -> int:
         obs_batch = world_obs[None], inventory_obs[None], timestep[None]

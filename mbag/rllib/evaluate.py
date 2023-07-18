@@ -10,7 +10,7 @@ import numpy as np
 import ray
 import torch
 import tqdm
-from ray.rllib.agents import Trainer
+from ray.rllib.algorithms import Algorithm
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
@@ -72,7 +72,7 @@ def main(
 
     env_config: Optional[MbagConfigDict] = None
     agent_config_dicts: List[RllibMbagAgentConfigDict] = []
-    trainers: List[Trainer] = []
+    trainers: List[Algorithm] = []
     for run, checkpoint, policy_id in zip(runs, checkpoints, policy_ids):
         _log.info(f"loading policy {policy_id} from {checkpoint}...")
         trainer = load_trainer(checkpoint, run, config_updates)
