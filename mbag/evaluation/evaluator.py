@@ -1,3 +1,4 @@
+import copy
 import logging
 import traceback
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ An MbagAgent subclass together with the agent config for that agent.
 
 @dataclass
 class EpisodeInfo:
+    env_config: MbagConfigDict
     reward_history: List[float]
     cumulative_reward: float
     length: int
@@ -24,20 +26,6 @@ class EpisodeInfo:
     last_obs: List[MbagObs]
     info_history: List[List[MbagInfoDict]]
     last_infos: List[MbagInfoDict]
-
-    def to_json(self) -> dict:
-        return {
-            "cumulative_reward": self.cumulative_reward,
-            "length": self.length,
-            "last_infos": self.last_infos,
-        }
-
-    def to_json_with_history(self) -> dict:  # noqa: N802
-        return {
-            "cumulative_reward": self.cumulative_reward,
-            "length": self.length,
-            "info_history": self.info_history,
-        }
 
 
 class MbagEvaluator(object):
@@ -122,6 +110,7 @@ class MbagEvaluator(object):
             self.env.malmo_client.end_mission()
 
         episode_info = EpisodeInfo(
+            env_config=copy.deepcopy(self.env.config),
             reward_history=reward_history,
             cumulative_reward=sum(reward_history),
             length=timestep,
