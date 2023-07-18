@@ -75,8 +75,7 @@ class MbagEvaluator(object):
         if self.force_get_set_state:
             agent_states = [agent.get_state() for agent in self.agents]
 
-        # should the initial setting be included?
-        reward_history = [0.0]
+        reward_history = []
         obs_history = [all_obs]
         info_history: List[List[MbagInfoDict]] = []
 
