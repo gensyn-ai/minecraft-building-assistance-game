@@ -228,11 +228,6 @@ class HumanActionDetector(object):
             logger.info(
                 "Skipping human action detector sync because of outstanding human actions"
             )
-            print(
-                self.num_pending_human_interactions.sum(),
-                self.num_pending_human_movements,
-                self.num_pending_give_actions,
-            )
             return
 
         # Make sure inventory has the same number of blocks as the environment's env

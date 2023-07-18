@@ -417,7 +417,7 @@ class MbagEnv(object):
             player_config["rewards"].update(partial_rewards_config)
 
             if player_config["is_human"] and not config["malmo"]["use_malmo"]:
-                raise ValueError(
+                logger.warning(
                     f"Player {player_index} is specified as human but Malmo is not "
                     "enabled"
                 )
@@ -537,18 +537,6 @@ class MbagEnv(object):
                         ]
                     )
 
-                    print(enchantments_str)
-                    print("{{ench: [{}]}}".format(enchantments_str))
-                    print(
-                        "chat /give {} {} {} {} {}".format(
-                            "@p",
-                            item["id"],
-                            item["count"],
-                            0,
-                            "{{ench: [{}]}}".format(enchantments_str),
-                        )
-                    )
-
                     self.malmo_client.send_command(
                         player_index,
                         "chat /give {} {} {} {} {}".format(
@@ -620,7 +608,6 @@ class MbagEnv(object):
                     player_index,
                     (MbagAction.NOOP, 0, 0),
                 )
-            # print(player_index, player_action_tuple, player_info)
             reward += player_reward
             own_rewards[player_index] = player_reward
             optional_infos[player_index] = player_info
@@ -653,11 +640,6 @@ class MbagEnv(object):
             for player_index, own_reward in enumerate(own_rewards)
         ]
         dones = [self._done()] * self.config["num_players"]
-
-        # Copy over the goal palette
-
-        # logger.info(self.current_blocks.blocks[self.palette_x])
-        # logger.info(self.goal_blocks.blocks[self.palette_x])
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
             # Wait for a second for the final block to place and then end mission.
@@ -1396,9 +1378,9 @@ class MbagEnv(object):
                 )
 
         human_players = [
-            x
-            for x in range(self.config["num_players"])
-            if self.config["players"][x]["is_human"]
+            player_index
+            for player_index in range(self.config["num_players"])
+            if self.config["players"][player_index]["is_human"]
         ]
 
         human_actions = []
