@@ -1,6 +1,6 @@
 from typing import Any, List, Optional, Tuple, cast
 
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
@@ -71,10 +71,10 @@ class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
 
-    def __init__(self, inputs: List[torch.Tensor], model: TorchModelV2):
+    def __init__(self, inputs: List[TensorType], model: TorchModelV2):
         super().__init__(inputs, model)
 
-        self._world_size = self.model.obs_space.original_space[0].shape[1:]
+        self._world_size = cast(Any, self.model.obs_space).original_space[0].shape[1:]
         self.inputs = self.inputs.reshape(self.inputs.size()[0], -1, *self._world_size)
 
         self._world_obs = getattr(self.model, "_world_obs", None)
@@ -372,19 +372,24 @@ class ActionTypeLocationDistribution(TorchCategorical):
 
         return location_action_type_logits
 
-    def sample(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self._index_to_tuple(super().sample())
+    def sample(self):
+        sample = super().sample()
+        assert isinstance(sample, torch.Tensor)
+        return self._index_to_tuple(sample)
 
-    def deterministic_sample(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self._index_to_tuple(super().deterministic_sample())
+    def deterministic_sample(self):
+        sample = super().deterministic_sample()
+        assert isinstance(sample, torch.Tensor)
+        return self._index_to_tuple(sample)
 
-    def logp(
+    def logp(  # type: ignore
         self, indices: Optional[torch.Tensor] = None, action_type=None, location=None
     ) -> torch.Tensor:
         if action_type is not None and location is not None:
             indices = self._tuple_to_index(action_type, location)
         assert indices is not None
-        logp: torch.Tensor = super().logp(indices)
+        logp = super().logp(indices)
+        assert isinstance(logp, torch.Tensor)
         # If for some reason some of the locations given to this method are invalid
         # (i.e., a block can't be placed/broken there), then just set the log probs
         # to 0.

@@ -1,7 +1,8 @@
-from typing import List, cast
+from typing import Iterable, List, cast
 
 import numpy as np
 from ray.rllib.policy import Policy
+from ray.rllib.utils.typing import TensorType
 from typing_extensions import TypedDict
 
 from mbag.agents.mbag_agent import MbagAgent
@@ -15,7 +16,7 @@ class RllibMbagAgentConfigDict(TypedDict):
 
 class RllibMbagAgent(MbagAgent):
     agent_config: RllibMbagAgentConfigDict
-    state: List[np.ndarray]
+    state: List[TensorType]
 
     def __init__(self, agent_config: MbagConfigDict, env_config: MbagConfigDict):
         super().__init__(agent_config, env_config)
@@ -28,6 +29,8 @@ class RllibMbagAgent(MbagAgent):
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         obs_batch = tuple(obs_piece[None] for obs_piece in obs)
         state_batch = [state_piece[None] for state_piece in self.state]
+        state_out_batch: List[TensorType]
+        action_batch: Iterable[np.ndarray]
         action_batch, state_out_batch, info = self.policy.compute_actions(
             obs_batch, state_batch, explore=False
         )
@@ -38,7 +41,7 @@ class RllibMbagAgent(MbagAgent):
         )
 
     def get_state(self) -> List[np.ndarray]:
-        return self.state
+        return [np.array(state_part) for state_part in self.state]
 
     def set_state(self, state: List[np.ndarray]) -> None:
-        self.state = state
+        self.state = [state_part for state_part in state]

@@ -4,7 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 import numpy as np
 import torch
-from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero
+from gymnasium import spaces
+from ray.rllib.algorithms.algorithm_config import NotProvided
+from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero, AlphaZeroConfig
 from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
 from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
 from ray.rllib.evaluation import SampleBatch
@@ -26,7 +28,7 @@ from ray.rllib.utils.metrics import (
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
 from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
-from ray.rllib.utils.typing import AgentID, ResultDict, TensorType
+from ray.rllib.utils.typing import AgentID, PolicyID, ResultDict, TensorType
 from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
 from torch import nn
 
@@ -242,7 +244,7 @@ class MbagMCTSNode(Node):
         if all_actions not in self.children:
             self.env.set_state(self.state)
             assert self.goal_logits is not None
-            obs, reward, done, info = self.env.step(
+            obs, reward, terminated, truncated, info = self.env.step(
                 action,
                 goal_logits=self.goal_logits,
                 other_player_actions=other_agent_actions,
@@ -253,7 +255,7 @@ class MbagMCTSNode(Node):
                 action=action,
                 parent=self,
                 reward=reward,
-                done=done,
+                done=terminated,
                 info=info,
                 obs=obs,
                 mcts=self.mcts,
@@ -395,6 +397,7 @@ class MbagMCTS(MCTS):
 class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     mcts: MbagMCTS
     env: MbagEnvModel
+    config: Dict[str, Any]
 
     def __init__(self, obs_space, action_space, config):
         model = ModelCatalog.get_model_v2(
@@ -460,6 +463,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                     actions.append(0)
                     expected_rewards.append(0)
                     expected_own_rewards.append(0)
+                    assert isinstance(self.action_space, spaces.Discrete)
                     mcts_policy = np.zeros((self.action_space.n,))
                     mcts_policy[0] = 1
                     episode.user_data[MCTS_POLICIES].append(mcts_policy)
@@ -502,6 +506,16 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 else:
                     expected_own_rewards.append(np.nan)
 
+                policy_id = self.config["__policy_id"]
+                for metric_id, metric_value in [
+                    ("expected_reward", expected_rewards[-1]),
+                    ("expected_own_reward", expected_own_rewards[-1]),
+                ]:
+                    metric_key = f"{policy_id}/{metric_id}"
+                    if metric_key not in episode.custom_metrics:
+                        episode.custom_metrics[metric_key] = 0
+                    episode.custom_metrics[metric_key] += metric_value
+
                 for state_index, state in enumerate(tree_node.model_state_out):
                     state_out[state_index][episode_index] = state
 
@@ -524,7 +538,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         self,
         sample_batch: SampleBatch,
         other_agent_batches: Optional[
-            Dict[AgentID, Tuple[Type[TorchPolicy], SampleBatch]]
+            Dict[AgentID, Tuple[PolicyID, Type[TorchPolicy], SampleBatch]]
         ] = None,
         episode=None,
     ):
@@ -549,7 +563,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                     "Training with multiple other agents is not supported."
                 )
             elif len(other_agent_batches) == 1:
-                other_agent_id, (_, other_agent_batch) = next(
+                other_agent_id, (_, _, other_agent_batch) = next(
                     iter(other_agent_batches.items())
                 )
                 if SampleBatch.ACTION_DIST_INPUTS in other_agent_batch:
@@ -592,6 +606,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 max_seq_len,
                 time_major=model.is_time_major(),
             )
+            assert isinstance(mask, torch.Tensor)
             mask = torch.reshape(mask, [-1])
             num_valid = torch.sum(mask)
 
@@ -631,14 +646,13 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
         # Compute total loss.
-        total_loss = 0
-        if not self.config["pretrain"]:
-            total_loss = total_loss + policy_loss
-        total_loss = total_loss + (
+        total_loss: torch.Tensor = (
             self.config["vf_loss_coeff"] * value_loss
             + self.config["goal_loss_coeff"] * goal_loss
             - self.entropy_coeff * entropy
         )
+        if not self.config["pretrain"]:
+            total_loss = total_loss + policy_loss
 
         if isinstance(model, OtherAgentActionPredictorMixin):
             # Compute other agent action prediction loss.
@@ -653,7 +667,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 other_agent_action_dist_inputs == -np.inf
             ] = -1e4
             actual_other_agent_action_dist = dist_class(
-                other_agent_action_dist_inputs,
+                [other_agent_action_dist_inputs],
                 model=model,
             )
             other_agent_action_predictor_loss = reduce_mean_valid(
@@ -681,7 +695,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         return total_loss
 
-    def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
+    def extra_grad_info(self, train_batch: SampleBatch):
         grad_info: Dict[str, TensorType] = {
             "entropy_coeff": self.entropy_coeff,
             "mcts/temperature": self.mcts.temperature,
@@ -698,11 +712,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         ]:
             try:
                 grad_info[metric] = torch.mean(
-                    torch.stack(self.get_tower_stats(metric))
-                ).item()
+                    torch.stack(cast(List[torch.Tensor], self.get_tower_stats(metric)))
+                )
             except AssertionError:
                 pass
-        return grad_info
+        return convert_to_numpy(grad_info)
 
     def on_global_var_update(self, global_vars):
         super().on_global_var_update(global_vars)
@@ -713,36 +727,100 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         self.mcts.update_temperature(global_timestep=global_vars["timestep"])
 
 
-class MbagAlphaZeroTrainer(AlphaZero):
-    def __init__(self, config, *args, **kwargs):
-        if "ranked_rewards" in config:
-            del config["ranked_rewards"]
+class MbagAlphaZeroConfig(AlphaZeroConfig):
+    def __init__(self, algo_class=None):
+        super().__init__(algo_class)
+
+        self.sample_batch_size = 1000
+        self.vf_loss_coeff = 1.0
+        self.other_agent_action_predictor_loss_coeff = 1.0
+        self.goal_loss_coeff = 1.0
+        self.entropy_coeff = 0
+        self.entropy_coeff_schedule = 0
+        self.use_critic = True
+        self.use_replay_buffer = True
+        self.num_steps_sampled_before_learning_starts = 0
+        self.pretrain = False
+
+        del self.vf_share_layers
+        # self.mcts_config["temperature_schedule"] = None
+
+    def training(
+        self,
+        *args,
+        sample_batch_size=NotProvided,
+        vf_loss_coeff=NotProvided,
+        other_agent_action_predictor_loss_coeff=NotProvided,
+        goal_loss_coeff=NotProvided,
+        entropy_coeff=NotProvided,
+        entropy_coeff_schedule=NotProvided,
+        use_critic=NotProvided,
+        use_replay_buffer=NotProvided,
+        num_steps_sampled_before_learning_starts=NotProvided,
+        pretrain=NotProvided,
+        **kwargs,
+    ):
+        """
+        Set training parameters.
+        Args:
+            sample_batch_size (int): Number of samples to include in each
+                training batch.
+            vf_loss_coeff (float): Coefficient of the value function loss.
+            other_agent_action_predictor_loss_coeff (float): Coefficient of the
+                other agent action predictor loss.
+            goal_loss_coeff (float): Coefficient of the goal predictor loss.
+            entropy_coeff (float): Coefficient of the entropy loss.
+            entropy_coeff_schedule (float): Schedule for the entropy
+                coefficient.
+            use_critic (bool): Whether to use a critic.
+            use_replay_buffer (bool): Whether to use a replay buffer.
+            num_steps_sampled_before_learning_starts (int): Number of steps
+                collected before learning starts.
+            pretrain (bool): If True, then this will just pretrain the AlphaZero
+                predictors for goal, other agent action, etc. and take only NOOP
+                actions.
+        """
+
+        super().training(*args, **kwargs)
+
+        if sample_batch_size is not NotProvided:
+            self.sample_batch_size = sample_batch_size
+        if vf_loss_coeff is not NotProvided:
+            self.vf_loss_coeff = vf_loss_coeff
+        if other_agent_action_predictor_loss_coeff is not NotProvided:
+            self.other_agent_action_predictor_loss_coeff = (
+                other_agent_action_predictor_loss_coeff
+            )
+        if goal_loss_coeff is not NotProvided:
+            self.goal_loss_coeff = goal_loss_coeff
+        if entropy_coeff is not NotProvided:
+            self.entropy_coeff = entropy_coeff
+        if entropy_coeff_schedule is not NotProvided:
+            self.entropy_coeff_schedule = entropy_coeff_schedule
+        if use_critic is not NotProvided:
+            self.use_critic = use_critic
+        if use_replay_buffer is not NotProvided:
+            self.use_replay_buffer = use_replay_buffer
+        if num_steps_sampled_before_learning_starts is not NotProvided:
+            self.num_steps_sampled_before_learning_starts = (
+                num_steps_sampled_before_learning_starts
+            )
+        if pretrain is not NotProvided:
+            self.pretrain = pretrain
+
+
+class MbagAlphaZero(AlphaZero):
+    def __init__(self, config: MbagAlphaZeroConfig, *args, **kwargs):
+        del config.ranked_rewards
 
         super().__init__(config, *args, **kwargs)
 
-        if not self.config["use_replay_buffer"]:
+        if not config.use_replay_buffer:
             self.local_replay_buffer = None
 
     @classmethod
     def get_default_config(cls):
-        config = {
-            **AlphaZero.get_default_config(),
-            "sample_batch_size": 1000,
-            "vf_loss_coeff": 1.0,
-            "other_agent_action_predictor_loss_coeff": 1.0,
-            "goal_loss_coeff": 1.0,
-            "entropy_coeff": 0,
-            "entropy_coeff_schedule": 0,
-            "use_critic": True,
-            "use_replay_buffer": True,
-            "num_steps_sampled_before_learning_starts": 0,
-            # If pretrain=True, then this will just pretrain the AlphaZero predictors
-            # for goal, other agent action, etc. and take only NOOP actions.
-            "pretrain": False,
-        }
-        del config["vf_share_layers"]
-        cast(dict, config["mcts_config"])["temperature_schedule"] = None
-        return config
+        return MbagAlphaZeroConfig()
 
     def get_default_policy_class(self, config):
         return MbagAlphaZeroPolicy
@@ -757,7 +835,11 @@ class MbagAlphaZeroTrainer(AlphaZero):
             max_env_steps=self.config["sample_batch_size"],
         )
 
-        new_sample_batch = concat_samples(new_sample_batches)
+        if isinstance(new_sample_batches, list):
+            new_sample_batch = concat_samples(new_sample_batches)
+        else:
+            new_sample_batch = new_sample_batches
+
         # Update sampling step counters.
         self._counters[NUM_ENV_STEPS_SAMPLED] += new_sample_batch.env_steps()
         self._counters[NUM_AGENT_STEPS_SAMPLED] += new_sample_batch.agent_steps()
@@ -803,4 +885,4 @@ class MbagAlphaZeroTrainer(AlphaZero):
         return train_results
 
 
-register_trainable("MbagAlphaZero", MbagAlphaZeroTrainer)
+register_trainable("MbagAlphaZero", MbagAlphaZero)

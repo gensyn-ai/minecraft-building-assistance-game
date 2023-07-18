@@ -2,9 +2,12 @@
 RLLib-compatible MBAG environment.
 """
 
-from typing import List, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
-from gym import spaces
+if TYPE_CHECKING:
+    from .planning import MbagEnvModel
+
+from gymnasium import spaces
 from ray.rllib.env import MultiAgentEnv
 from ray.rllib.utils.typing import AgentID, MultiAgentDict
 from ray.tune.registry import register_env
@@ -64,13 +67,17 @@ class MbagMultiAgentEnv(MbagRllibWrapper):
             for player_index, element in enumerate(multi_agent_list)
         }
 
-    def reset(self) -> MultiAgentDict:
+    def reset(self, **kwargs):
         obs_list = self.env.reset()
-        return self._list_to_dict(obs_list)
+        obs_dict = self._list_to_dict(obs_list)
+        info_dict: MultiAgentDict = {agent_id: {} for agent_id in obs_dict}
+        return obs_dict, info_dict
 
-    def step(
+    def step(  # type: ignore
         self, action_dict: MultiAgentDict
-    ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
+    ) -> Tuple[
+        MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
+    ]:
         action_list = self._dict_to_list(action_dict)
         obs_list, reward_list, done_list, info_list = self.env.step(action_list)
 
@@ -80,7 +87,10 @@ class MbagMultiAgentEnv(MbagRllibWrapper):
         done_dict["__all__"] = all(done_list)
         info_dict = self._list_to_dict(info_list)
 
-        return obs_dict, reward_dict, done_dict, info_dict
+        terminated_dict = done_dict
+        truncated_dict = {agent_id: False for agent_id in done_dict}
+
+        return obs_dict, reward_dict, terminated_dict, truncated_dict, info_dict
 
     def render(self):
         return None
@@ -113,18 +123,22 @@ class FlatActionSpaceWrapper(MbagRllibWrapper):
         self.action_space = spaces.Discrete(num_flat_actions)
         self.observation_space = self.env.observation_space
 
-    def reset(self) -> MultiAgentDict:
-        return cast(MultiAgentDict, self.env.reset())
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
 
-    def step(
-        self, flat_action_dict: MultiAgentDict
-    ) -> Tuple[MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict]:
+    def step(self, flat_action_dict: MultiAgentDict):
         action_dict = {
             agent_id: tuple(self.action_mapping[action])
             for agent_id, action in flat_action_dict.items()
         }
-        obs_dict, reward_dict, done_dict, info_dict = self.env.step(action_dict)
-        return obs_dict, reward_dict, done_dict, info_dict
+        (
+            obs_dict,
+            reward_dict,
+            terminated_dict,
+            truncated_dict,
+            info_dict,
+        ) = self.env.step(action_dict)
+        return obs_dict, reward_dict, terminated_dict, truncated_dict, info_dict
 
 
 register_env(
@@ -133,7 +147,7 @@ register_env(
 )
 
 
-def unwrap_mbag_env(env: Union[MbagRllibWrapper, MbagEnv]) -> MbagEnv:
+def unwrap_mbag_env(env: Union["MbagEnvModel", MbagRllibWrapper, MbagEnv]) -> MbagEnv:
     while not isinstance(env, MbagEnv):
         env = env.env
     return env

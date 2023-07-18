@@ -159,6 +159,7 @@ def main(
     )
 
     episode_info = evaluator.rollout()
+    assert observer.dir is not None
     episode_fname = os.path.join(observer.dir, "episode.pkl")
     logger.info(f"saving episode to {episode_fname}")
     with open(episode_fname, "wb") as episode_file:

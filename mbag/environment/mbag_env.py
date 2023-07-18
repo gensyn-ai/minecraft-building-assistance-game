@@ -17,7 +17,7 @@ from typing import (
 )
 
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 from typing_extensions import Literal, TypedDict
 
 from .blocks import MinecraftBlocks

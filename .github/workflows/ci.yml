@@ -15,7 +15,7 @@ jobs:
       - name: Install Python
         uses: actions/setup-python@v2
         with:
-          python-version: 3.8
+          python-version: 3.9
 
       - name: Cache pip
         uses: actions/cache@v3
@@ -30,13 +30,6 @@ jobs:
           pip install --upgrade 'pip<23.1' 'setuptools<65.5.0' wheel==0.38.4
           pip install -r requirements.txt
           pip install --upgrade -r requirements_dev.txt
-
-      - name: Replace RLlib with custom version
-        run: |
-          git clone https://github.com/cassidylaidlaw/ray
-          cd ray
-          git checkout fixes
-          python/ray/setup-dev.py -y -s air tune train autoscaler ray_operator cloudpickle data _private scripts internal tests experimental util workflow widgets cluster_utils.py dashboard
 
       - name: Run flake8
         run: flake8 mbag tests

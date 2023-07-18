@@ -1,18 +1,19 @@
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
-from gym import spaces
-from ray.rllib.agents.ppo import PPOTorchPolicy, PPOTrainer
+from gymnasium import spaces
+from ray.rllib.algorithms.algorithm_config import NotProvided
+from ray.rllib.algorithms.ppo import PPO, PPOConfig, PPOTorchPolicy
 from ray.rllib.models.action_dist import ActionDistribution
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.utils.typing import TensorStructType, TensorType, TrainerConfigDict
+from ray.rllib.utils.typing import TensorType
 from ray.tune.registry import register_trainable
 from torch import nn
 
@@ -31,12 +32,13 @@ class MbagAgentPolicy(Policy):
     """
 
     agent: MbagAgent
+    config: Dict[str, Any]
 
     def __init__(
         self,
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
-        config: TrainerConfigDict,
+        config,
     ):
         super().__init__(observation_space, action_space, config)
         self.agent = config["mbag_agent"]
@@ -45,17 +47,17 @@ class MbagAgentPolicy(Policy):
 
         self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
 
-    def get_initial_state(self) -> List[TensorType]:
+    def get_initial_state(self):
         self.agent.reset()
         return self.agent.get_state()
 
     def compute_actions(
         self,
-        obs_batch: Union[List[TensorStructType], TensorStructType],
-        state_batches: Optional[List[TensorType]] = None,
-        prev_action_batch: Union[List[TensorStructType], TensorStructType] = None,
-        prev_reward_batch: Union[List[TensorStructType], TensorStructType] = None,
-        info_batch: Optional[Dict[str, list]] = None,
+        obs_batch,
+        state_batches=None,
+        prev_action_batch=None,
+        prev_reward_batch=None,
+        info_batch=None,
         episodes=None,
         explore: Optional[bool] = None,
         timestep: Optional[int] = None,
@@ -78,7 +80,7 @@ class MbagAgentPolicy(Policy):
         assert state_batches is not None
 
         obs: MbagObs
-        prev_state: Sequence[TensorType]
+        prev_state: Sequence[np.ndarray]
         for obs, prev_state in zip(
             zip(*unflattened_obs_batch),
             zip(*state_batches)
@@ -98,7 +100,7 @@ class MbagAgentPolicy(Policy):
             actions.append(action)
             new_states.append(self.agent.get_state())
 
-        action_array: Any
+        action_array: Union[np.ndarray, Tuple[np.ndarray, ...]]
         if self.flat_actions:
             action_array = np.array(
                 [
@@ -122,7 +124,7 @@ class MbagAgentPolicy(Policy):
             extra_fetches[SampleBatch.ACTION_DIST_INPUTS] = np.stack(
                 action_dist_inputs, axis=0
             )
-        return action_array, state_arrays, extra_fetches
+        return action_array, state_arrays, extra_fetches  # type: ignore
 
     def learn_on_batch(self, samples):
         pass
@@ -135,11 +137,13 @@ class MbagAgentPolicy(Policy):
 
 
 class MbagPPOTorchPolicy(PPOTorchPolicy):
+    config: Dict[str, Any]
+
     def __init__(
         self,
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
-        config: TrainerConfigDict,
+        config,
         **kwargs,
     ):
         self.action_mapping = torch.from_numpy(
@@ -157,7 +161,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         train_batch: SampleBatch,
     ) -> TensorType:
         loss = super().loss(model, dist_class, train_batch)
-        assert not isinstance(loss, list)
+        assert isinstance(loss, torch.Tensor)
 
         assert isinstance(model, MbagTorchModel)
 
@@ -169,10 +173,10 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
         goal = world_obs[:, GOAL_BLOCKS].long()
 
-        loss += self.config["place_block_loss_coeff"] * self.place_block_loss(
+        loss += self.config.get("place_block_loss_coeff", 0) * self.place_block_loss(
             model, dist_class, goal, train_batch
         )
-        loss += self.config["goal_loss_coeff"] * self.predict_goal_loss(
+        loss += self.config.get("goal_loss_coeff", 0) * self.predict_goal_loss(
             model, goal, train_batch
         )
 
@@ -189,7 +193,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         log_odds = model.goal_function()
 
         ce = nn.CrossEntropyLoss()
-        loss = ce(log_odds, goal)
+        loss: torch.Tensor = ce(log_odds, goal)
 
         model.tower_stats["predict_goal_loss"] = loss
 
@@ -254,9 +258,11 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
     def log_mean_loss(self, info: Dict[str, TensorType], loss_name: str):
         try:
-            info[loss_name] = torch.mean(torch.stack(self.get_tower_stats(loss_name)))
+            info[loss_name] = torch.mean(
+                torch.stack(cast(List[torch.Tensor], self.get_tower_stats(loss_name)))
+            )
         except AssertionError:
-            info[loss_name] = torch.nan
+            info[loss_name] = torch.tensor(np.nan)
 
     def stats_fn(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
         info = super().stats_fn(train_batch)
@@ -275,17 +281,35 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         self.kl_coeff = max(self.kl_coeff, 1e-3)
 
 
-class MbagPPOTrainer(PPOTrainer):
+class MbagPPOConfig(PPOConfig):
+    def __init__(self, algo_class=None):
+        super().__init__(algo_class)
+
+        self.goal_loss_coeff = 1.0
+        self.place_block_loss_coeff = 1.0
+
+    def training(
+        self,
+        *args,
+        goal_loss_coeff=NotProvided,
+        place_block_loss_coeff=NotProvided,
+        **kwargs,
+    ):
+        super().training(*args, **kwargs)
+
+        if goal_loss_coeff is not NotProvided:
+            self.goal_loss_coeff = goal_loss_coeff
+        if place_block_loss_coeff is not NotProvided:
+            self.place_block_loss_coeff = place_block_loss_coeff
+
+
+class MbagPPO(PPO):
     @classmethod
-    def get_default_config(cls) -> TrainerConfigDict:
-        return {
-            **super().get_default_config(),
-            "goal_loss_coeff": 1.0,
-            "place_block_loss_coeff": 1.0,
-        }
+    def get_default_config(cls):
+        return MbagPPOConfig()
 
     def get_default_policy_class(self, config):
         return MbagPPOTorchPolicy
 
 
-register_trainable("MbagPPO", MbagPPOTrainer)
+register_trainable("MbagPPO", MbagPPO)
