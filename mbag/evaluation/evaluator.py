@@ -27,6 +27,13 @@ class EpisodeInfo:
     info_history: List[List[MbagInfoDict]]
     last_infos: List[MbagInfoDict]
 
+    def to_json(self) -> dict:
+        return {
+            "cumulative_reward": self.cumulative_reward,
+            "length": self.length,
+            "last_infos": self.last_infos,
+        }
+
 
 class MbagEvaluator(object):
     """
