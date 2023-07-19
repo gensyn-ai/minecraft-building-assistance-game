@@ -353,7 +353,7 @@ class MbagEnv(object):
         self.action_space = spaces.Tuple(
             (
                 spaces.Discrete(MbagAction.NUM_ACTION_TYPES),
-                spaces.Discrete(np.prod(self.config["world_size"])),
+                spaces.Discrete(int(np.prod(self.config["world_size"]))),
                 spaces.Discrete(MinecraftBlocks.NUM_BLOCKS),
             )
         )
@@ -553,7 +553,8 @@ class MbagEnv(object):
             # Convert players to survival mode.
             # if not self.config["abilities"]["inf_blocks"]:
             for player_index in range(self.config["num_players"]):
-                self.malmo_client.send_command(player_index, "chat /gamemode 0")
+                if self.config["players"][player_index]["is_human"]:
+                    self.malmo_client.send_command(player_index, "chat /gamemode 0")
 
                 # Disable chat messages from the palette
                 self.malmo_client.send_command(

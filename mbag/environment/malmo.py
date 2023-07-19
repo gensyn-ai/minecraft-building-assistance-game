@@ -78,6 +78,8 @@ class MalmoClient(object):
     def _get_agent_section_xml(self, player_index: int, env_config: "MbagConfigDict"):
         width, height, depth = env_config["world_size"]
 
+        is_human = env_config["players"][player_index]["is_human"]
+
         inventory_item_tags: List[str] = []
         if env_config["abilities"]["inf_blocks"]:
             for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
@@ -89,7 +91,7 @@ class MalmoClient(object):
                 )
         inventory_items_xml = "\n".join(inventory_item_tags)
 
-        if env_config["players"][player_index]["is_human"]:
+        if is_human:
             return f"""
             <AgentSection mode="Creative">
                 <Name>{self.get_player_name(player_index, env_config)}</Name>
@@ -661,11 +663,21 @@ class MalmoClient(object):
         with tempfile.TemporaryDirectory() as temp_dir:
             record_tar = tarfile.open(self.record_fname, "r:gz")
             video_member_name = None
+            ffmpeg_out_member_name = None
             for member_name in record_tar.getnames():
                 if member_name.endswith("/video.mp4"):
                     video_member_name = member_name
-                    break
-            assert video_member_name is not None
+                elif member_name.endswith("/video_ffmpeg.out"):
+                    ffmpeg_out_member_name = member_name
+            if video_member_name is None:
+                if ffmpeg_out_member_name is not None:
+                    ffmpeg_out_file = record_tar.extractfile(ffmpeg_out_member_name)
+                    if ffmpeg_out_file is not None:
+                        ffmpeg_out = ffmpeg_out_file.read().decode("utf-8")
+                        raise RuntimeError(
+                            "Failed to create video. Output from ffmpeg:\n" + ffmpeg_out
+                        )
+                raise RuntimeError("Failed to create video (no output from ffmpeg).")
             record_tar.extract(video_member_name, temp_dir)
             shutil.move(
                 os.path.join(temp_dir, video_member_name),

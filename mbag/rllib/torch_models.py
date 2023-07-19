@@ -64,6 +64,8 @@ class MbagModelConfig(TypedDict, total=False):
     """Number of extra layers for the value head."""
     use_per_location_lstm: bool
     """Include a LSTM operating per-location."""
+    mask_action_distribution: bool
+    """Mask invalid actions in the output action distribution."""
 
 
 DEFAULT_CONFIG: MbagModelConfig = {
@@ -75,6 +77,8 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "hidden_size": 16,
     "num_action_layers": 1,
     "num_value_layers": 1,
+    "use_per_location_lstm": False,
+    "mask_action_distribution": True,
 }
 
 
@@ -121,6 +125,7 @@ class MbagTorchModel(ActorCriticModel):
         self.num_action_layers = extra_config["num_action_layers"]
         self.num_value_layers = extra_config["num_value_layers"]
         self.use_per_location_lstm = extra_config.get("use_per_location_lstm", False)
+        self.mask_action_distribution = extra_config["mask_action_distribution"]
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -399,7 +404,7 @@ class MbagTorchModel(ActorCriticModel):
         self._flat_logits = self._flat_logits.float()
         state = [state_var.float() for state_var in state]
 
-        if mask_logits:
+        if mask_logits and self.mask_action_distribution:
             if SampleBatch.ACTION_DIST_INPUTS in input_dict:
                 # We can assume that any action distribution inputs that exactly match
                 # MASK_LOGIT should be masked, saving the expensive re-computation of

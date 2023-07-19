@@ -5,8 +5,10 @@ import random
 import zipfile
 from typing import List, Union
 
+import numpy as np
 from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
 from ray.rllib.offline.json_writer import JsonWriter
+from ray.rllib.policy.sample_batch import SampleBatch
 from sacred import Experiment
 
 from mbag.agents.action_distributions import MbagActionDistribution
@@ -27,11 +29,13 @@ def sacred_config():
     }
     include_noops = False  # noqa: F841
     flat_actions = True  # noqa: F841
+    flat_observations = True  # noqa: F841
     player_indices = [0]  # noqa: F841
 
     experiment_name = "rllib"
     experiment_name += "_with_noops" if include_noops else "_no_noops"
     experiment_name += "_flat_actions" if flat_actions else "_tuple_actions"
+    experiment_name += "_flat_observations" if flat_observations else ""
     experiment_name += f"_player_{' '.join(map(str, player_indices))}"
     out_dir = os.path.join(data_dir, experiment_name)  # noqa: F841
 
@@ -43,6 +47,7 @@ def main(
     mbag_config: MbagConfigDict,
     include_noops: bool,
     flat_actions: bool,
+    flat_observations: bool,
     player_indices: List[int],
     _log: logging.Logger,
 ):
@@ -83,17 +88,22 @@ def main(
                     )
                 else:
                     action_id = action.to_tuple()
+                obs = obs[0], obs[1], np.array(t)
+                if flat_observations:
+                    obs = np.concatenate([obs_piece.flat for obs_piece in obs])
                 sample_batch_builder.add_values(
-                    t=t,
-                    eps_id=episode_id,
-                    agent_index=player_index,
-                    obs=obs,
-                    actions=action_id,
-                    action_prob=1.0,
-                    action_logp=0.0,
-                    rewards=reward,
-                    dones=False,
-                    infos=info,
+                    **{
+                        SampleBatch.T: t,
+                        SampleBatch.EPS_ID: episode_id,
+                        SampleBatch.AGENT_INDEX: player_index,
+                        SampleBatch.OBS: obs,
+                        SampleBatch.ACTIONS: action_id,
+                        SampleBatch.ACTION_PROB: 1.0,
+                        SampleBatch.ACTION_LOGP: 0.0,
+                        SampleBatch.REWARDS: reward,
+                        SampleBatch.DONES: False,
+                        SampleBatch.INFOS: info,
+                    }
                 )
                 t += 1
         _log.info("saving trajectory...")

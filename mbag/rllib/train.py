@@ -2,7 +2,7 @@ import faulthandler
 import os
 import signal
 from logging import Logger
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
 import ray
 import torch
@@ -25,6 +25,7 @@ from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
+    TransformedGoalGenerator,
     TransformedGoalGeneratorConfig,
 )
 from mbag.environment.goals.transforms import (
@@ -33,7 +34,8 @@ from mbag.environment.goals.transforms import (
     CropTransformConfig,
 )
 from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
-from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
+from mbag.rllib.alpha_zero import MbagAlphaZeroConfig
+from mbag.rllib.bc import BCConfig
 
 from .callbacks import MbagCallbacks
 from .policies import MbagAgentPolicy, MbagPPOConfig, MbagPPOTorchPolicy
@@ -81,6 +83,7 @@ def sacred_config(_log):  # noqa
     inf_blocks = True
     goal_visibility = [True] * num_players
     timestep_skip = [1] * num_players
+    is_human = [False] * num_players
     own_reward_prop = 0
     own_reward_prop_horizon: Optional[int] = None
     goal_generator_config = {"subset": goal_subset}
@@ -164,6 +167,7 @@ def sacred_config(_log):  # noqa
         player_config: MbagPlayerConfigDict = {
             "goal_visible": goal_visibility[player_index],
             "timestep_skip": timestep_skip[player_index],
+            "is_human": is_human[player_index],
         }
         player_configs.append(player_config)
 
@@ -172,6 +176,7 @@ def sacred_config(_log):  # noqa
         "horizon": horizon,
         "world_size": (width, height, depth),
         "random_start_locations": random_start_locations,
+        "goal_generator": TransformedGoalGenerator,
         "goal_generator_config": transformed_goal_generator_config,
         "malmo": {
             "use_malmo": False,
@@ -255,6 +260,7 @@ def sacred_config(_log):  # noqa
     num_action_layers = 2
     num_value_layers = 2
     use_per_location_lstm = False
+    mask_action_distribution = True
     num_heads = 4
     use_separated_transformer = False
     use_resnet = False
@@ -269,7 +275,7 @@ def sacred_config(_log):  # noqa
     }
     if "convolutional" in model:
         conv_config: MbagRecurrentConvolutionalModelConfig = {
-            "env_config": environment_params,
+            "env_config": cast(MbagConfigDict, dict(environment_params)),
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
             "mask_goal": mask_goal,
@@ -281,6 +287,7 @@ def sacred_config(_log):  # noqa
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
+            "mask_action_distribution": mask_action_distribution,
             "num_unet_layers": num_unet_layers,
             "unet_grow_factor": unet_grow_factor,
             "unet_use_bn": unet_use_bn,
@@ -289,7 +296,7 @@ def sacred_config(_log):  # noqa
         model_config["custom_model_config"] = conv_config
     elif "transformer" in model:
         transformer_config: MbagTransformerModelConfig = {
-            "env_config": environment_params,
+            "env_config": cast(MbagConfigDict, dict(environment_params)),
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
             "mask_goal": mask_goal,
@@ -301,6 +308,7 @@ def sacred_config(_log):  # noqa
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
             "use_separated_transformer": use_separated_transformer,
+            "mask_action_distribution": mask_action_distribution,
         }
         model_config["custom_model_config"] = transformer_config
 
@@ -326,10 +334,11 @@ def sacred_config(_log):  # noqa
     policy_ids: List[str]
     policy_mapping_fn: Callable[[str, Episode], str]
     if multiagent_mode == "self_play":
-        policy_ids = ["ppo"]
-        policy_mapping_fn = lambda agent_id, *args, **kwargs: "ppo"  # noqa: E731
+        policy_ids = ["human"]
+        policy_mapping_fn = lambda agent_id, *args, **kwargs: "human"  # noqa: E731
     elif multiagent_mode == "cross_play":
-        policy_ids = [f"ppo_{player_index}" for player_index in range(num_players)]
+        assert num_players == 2
+        policy_ids = ["human", "assistant"]
         if heuristic is not None:
             policy_ids[-1] = heuristic
 
@@ -359,15 +368,13 @@ def sacred_config(_log):  # noqa
 
     policies_to_train = []
     for policy_id in policy_ids:
-        if policy_id.startswith("ppo") and policy_id not in loaded_policy_dict:
+        if policy_id in ["human", "assistant"] and policy_id not in loaded_policy_dict:
             policies_to_train.append(policy_id)
 
     policies: MultiAgentPolicyConfigDict = {}
     policy_class: Union[None, Type[TorchPolicy], Type[TorchPolicyV2]] = None
     if "PPO" in run:
         policy_class = MbagPPOTorchPolicy
-    elif "AlphaZero" in run:
-        policy_class = MbagAlphaZeroPolicy
     policy_config: Dict[str, Any] = {
         "model": model_config,
         "goal_loss_coeff": goal_loss_coeff,
@@ -375,7 +382,7 @@ def sacred_config(_log):  # noqa
     for policy_id in policy_ids:
         if policy_id in loaded_policy_dict:
             policies[policy_id] = loaded_policy_dict[policy_id]
-        elif policy_id.startswith("ppo"):
+        elif policy_id in policies_to_train:
             policies[policy_id] = PolicySpec(
                 policy_class,
                 env.observation_space,
@@ -399,6 +406,7 @@ def sacred_config(_log):  # noqa
     evaluation_duration_unit = "episodes"
     evaluation_explore = False
     evaluation_config = {
+        "input": "sampler",
         "explore": evaluation_explore,
     }
 
@@ -516,6 +524,19 @@ def sacred_config(_log):  # noqa
             evaluation_config={
                 "mcts_config": evaluation_mcts_config,
             }
+        )
+    elif run == "BC":
+        assert isinstance(config, BCConfig)
+        validation_prop = 0
+        config.training(
+            lr=lr,
+            gamma=gamma,
+            train_batch_size=train_batch_size,
+            sgd_minibatch_size=sgd_minibatch_size,
+            num_sgd_iter=num_sgd_iter,
+            grad_clip=grad_clip,
+            entropy_coeff=entropy_coeff_start,
+            validation_prop=validation_prop,
         )
 
     del env
