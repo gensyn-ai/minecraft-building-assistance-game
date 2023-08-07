@@ -922,13 +922,32 @@ class MbagEnv(object):
             if action.action_type == MbagAction.BREAK_BLOCK:
                 # Give the block to the player. It looks like Malmo
                 # automatically gives broken blocks to the player
-                # so we pass give_in_malmo=False.
+                # as long as they are breakable without silk touch
+                give_in_malmo = not self.config["players"][player_index][
+                    "is_human"
+                ] and prev_block[0] in [
+                    MinecraftBlocks.NAME2ID["glass"],
+                    MinecraftBlocks.NAME2ID["stone"],
+                ]
 
-                # Not necessarily. In Minecraft broken block entities have random momentum so
-                # sometimes the block will not be given to the player.
                 self._try_give_player_block(
-                    int(prev_block[0]), player_index, give_in_malmo=False
+                    int(prev_block[0]), player_index, give_in_malmo=give_in_malmo
                 )
+
+                # Remove the extra cobblestone
+                if (
+                    not self.config["players"][player_index]["is_human"]
+                    and prev_block[0] == MinecraftBlocks.NAME2ID["stone"]
+                ):
+                    player_name = self.malmo_client.get_player_name(
+                        player_index, self.config
+                    )
+
+                    self.malmo_client.send_command(
+                        player_index,
+                        f"chat /clear {player_name} cobblestone 0 1",
+                    )
+
             else:
                 # Take block from player
                 assert (
