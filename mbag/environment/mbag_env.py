@@ -377,14 +377,16 @@ class MbagEnv(object):
         self.global_timestep = 0
 
         self.human_action_detector = HumanActionDetector(self.config)
-        if any(
-            player_config["is_human"] for player_config in self.config["players"]
-        ) and any(
-            not player_config["is_human"] for player_config in self.config["players"]
-        ):
-            raise ValueError(
-                "environment does not yet support human and non-human players at the same time"
-            )
+
+        # Commented out because now the environment DOES support mixed humans and non-humans working together
+        # if any(
+        #     player_config["is_human"] for player_config in self.config["players"]
+        # ) and any(
+        #     not player_config["is_human"] for player_config in self.config["players"]
+        # ):
+        #     raise ValueError(
+        #         "environment does not yet support human and non-human players at the same time"
+        #     )
 
     @staticmethod
     def get_config(partial_config: MbagConfigDict) -> MbagConfigDict:

@@ -91,7 +91,6 @@ def test_pallette():
                 "use_spectator": False,
                 "video_dir": None,
             },
-            "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
         },
         [
             (
