@@ -1,35 +1,82 @@
-from mbag.environment.types import MbagAction
-from .malmo import MalmoClient
+from typing import List, Tuple
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.human_actions import HumanActionDetector
+from mbag.environment.types import (
+    MalmoStateDiff,
+    MbagAction,
+    MalmoState,
+    MbagInventory,
+    WorldLocation,
+)
+from .malmo import MalmoClient, MalmoObservationDict
 import numpy as np
 import time
 from threading import Thread, Lock
+from .mbag_env import MalmoConfigDict
+
+
+# TODO: This should be it's own type in MbagTypes at some point
+NO_ONE = 0
+CURRENT_PLAYER = 1
+OTHER_PLAYER = 2
+NO_INTERACTION = -1
 
 
 class MalmoInterface:
-    def __init__(self):
+    def __init__(self, config: MalmoConfigDict):
         self.ai_action_queue = []
         self.ai_action_lock = Lock()
         self.human_action_queue = []
         self.human_action_lock = Lock()
         self.malmo_client = MalmoClient()
         self.malmo_lock = Lock()
+        self.human_action_detector = HumanActionDetector(self.config)
+        self.config = config
 
     def get_malmo_client(self):
+        """
+        Dummy method to expose underlying malmo_client API
+        Will get deleted after migration is complete
+        """
         return self.malmo_client
 
     def done(self):
         # Wait for a second for the final block to place and then end mission.
+        self.ai_thread.join()
+
         with self.malmo_lock:
             time.sleep(1)
             self.malmo_client.end_mission()
 
-    def reset(self, config, current_blocks, goal_blocks):
-        self.config = config
+        # TODO: Assuming this should happen after the AI so that all the moves have time to get processed
+        self.human_thread.join()
+
+    def reset(
+        self,
+        current_blocks: MinecraftBlocks,
+        goal_blocks: MinecraftBlocks,
+        last_interacted: np.ndarray,
+        player_locations: List[WorldLocation],
+        player_directions: List[Tuple],
+        player_inventories: List[MbagInventory],
+    ):
+        self.malmo_state: MalmoState = {
+            "blocks": current_blocks,
+            "player_inventories": player_inventories,
+            "player_locations": player_locations,
+            "player_directions": player_directions,
+            "last_interacted": last_interacted,
+            "player_currently_breaking_placing": [
+                False for _ in range(self.config["num_players"])
+            ],
+        }
 
         self.ai_thread = Thread(target=self.run_ai_actions)
         self.ai_thread.run()
 
-        # TODO: Make thread for humans tooo
+        # TODO: Placeholder for now
+        self.human_thread = Thread(target=self.run_human_actions)
+        self.human_thread.run()
 
         with self.malmo_lock:
             self.malmo_client.start_mission(config, current_blocks, goal_blocks)
@@ -95,6 +142,28 @@ class MalmoInterface:
 
             # TODO: Do the palette here
             time.sleep(self.config["malmo"]["action_delay"])
+
+    def update_malmo_state(
+        previous_state: MalmoState, malmo_obs: MalmoObservationDict
+    ) -> Tuple[MalmoState, List[MalmoStateDiff]]:
+        pass
+
+    def run_human_actions(self):
+        malmo_observation_dicts = self.malmo_client.get_observations()
+        for malmo_observation_dict in malmo_observation_dicts:
+            new_state, state_diffs = self.update_malmo_state(
+                self.malmo_state, malmo_observation_dict
+            )
+
+    # 		for state_diff in state_diffs:
+    # 				if state_diff in self.expected_diffs:
+    # 						self.expected_diffs.remove(state_diff)
+    # 				else:
+    # 						human_actions_queue.add_all(get_human_actions(self.malmo_state, state_diff))
+    # 		self.malmo_state = new_state
+
+    def get_human_actions(self):
+        pass
 
     def handle_move(self, player_index, action):
         action_type = action[0]

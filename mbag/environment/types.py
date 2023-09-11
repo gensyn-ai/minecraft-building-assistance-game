@@ -5,6 +5,8 @@ import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import Literal, TypedDict
 
+from mbag.environment.blocks import MinecraftBlocks
+
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
 
@@ -171,7 +173,18 @@ class MbagAction(object):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
 
 
+class MalmoState(TypedDict):
+    # TODO: Docstrings
+    blocks: MinecraftBlocks
+    player_inventories: List[MbagInventoryObs]
+    player_locations: List[BlockLocation]
+    player_directions: List[Tuple]
+    last_interacted: NDArray
+    player_currently_breaking_placing: NDArray
+
+
 class MalmoStateDiff(TypedDict):
+    # TODO: Add in block state? Or do we not  care
     block_diff: List[Tuple[BlockLocation, int, int]]
     """
     List of tuples representing a block discrepancy. Each tuple consists of the 

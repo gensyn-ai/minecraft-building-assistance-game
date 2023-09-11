@@ -371,7 +371,7 @@ class MbagEnv(object):
             raise NotImplementedError("lack of flying ability is not yet implemented")
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_interface = MalmoInterface()
+            self.malmo_interface = MalmoInterface(config)
             self.malmo_client = self.malmo_interface.get_malmo_client()
 
         self.global_timestep = 0
@@ -503,7 +503,14 @@ class MbagEnv(object):
             self._copy_palette_from_goal()
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_interface.reset()
+            self.malmo_interface.reset(
+                self.current_blocks,
+                self.goal_blocks,
+                self.last_interacted,
+                self.player_locations,
+                self.player_directions,
+                self.player_inventories,
+            )
 
         return [
             self._get_player_obs(player_index)
