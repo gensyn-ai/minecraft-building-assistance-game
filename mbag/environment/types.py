@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Tuple, cast
+from typing import TYPE_CHECKING, Dict, List, Tuple, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -125,6 +125,15 @@ class MbagAction(object):
         MOVE_NEG_Z,
     ]
 
+    MOVE_ACTION_MASK: Dict[MbagActionType, Tuple[WorldLocation, str]] = {
+        MOVE_POS_X: ((1, 0, 0), "moveeast 1"),
+        MOVE_NEG_X: ((-1, 0, 0), "movewest 1"),
+        MOVE_POS_Y: ((0, 1, 0), "tp"),
+        MOVE_NEG_Y: ((0, -1, 0), "tp"),
+        MOVE_POS_Z: ((0, 0, 1), "movesouth 1"),
+        MOVE_NEG_Z: ((0, 0, -1), "movenorth 1"),
+    }
+
     def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
         self.action_type, self.block_location_index, self.block_id = action_tuple
         self.block_location = cast(
@@ -160,6 +169,28 @@ class MbagAction(object):
     @classmethod
     def noop_action(cls):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
+
+
+class MalmoStateDiff(TypedDict):
+    block_diff: List[Tuple[BlockLocation, int, int]]
+    """
+    List of tuples representing a block discrepancy. Each tuple consists of the 
+    block location, the old (expected) block id, and the new (current) block id in that order
+    """
+
+    inventory_diff: List[Tuple[int, int, int, int]]
+    """
+    List of tuples representing a discrepancy in an inventory. Each tuple consists of the 
+    player id with the inventory discrepancy, the block id of the discrepancy, the old (expected) number of blocks,
+    and the new (current) number of blocks in that order 
+    """
+
+    location_diff: List[Tuple[int, BlockLocation, BlockLocation]]
+    """
+    List of tuples representing a discrepancy in a player's location. Each tuple consists of the 
+    player id with the location discrepancy, the block id of the discrepancy, the old (expected) location,
+    and the new (current) location
+    """
 
 
 class MbagInfoDict(TypedDict):

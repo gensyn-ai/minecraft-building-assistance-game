@@ -28,6 +28,7 @@ from .goals import (
     TransformedGoalGenerator,
 )
 from .human_actions import HumanActionDetector
+from .malmo_interface import MalmoInterface
 from .types import (
     CURRENT_BLOCK_STATES,
     CURRENT_BLOCKS,
@@ -370,9 +371,8 @@ class MbagEnv(object):
             raise NotImplementedError("lack of flying ability is not yet implemented")
 
         if self.config["malmo"]["use_malmo"]:
-            from .malmo import MalmoClient
-
-            self.malmo_client = MalmoClient()
+            self.malmo_interface = MalmoInterface()
+            self.malmo_client = self.malmo_interface.get_malmo_client()
 
         self.global_timestep = 0
 
@@ -499,76 +499,11 @@ class MbagEnv(object):
             self.palette_x,
         )
 
-        if self.config["malmo"]["use_malmo"]:
-            self.malmo_client.start_mission(
-                self.config, self.current_blocks, self.goal_blocks
-            )
-            time.sleep(1)  # Wait a second for the environment to load.
-
-            # Pre-episode setup in Malmo.
-            for player_index in range(self.config["num_players"]):
-                player_config = self.config["players"][player_index]
-                if not player_config["is_human"]:
-                    # Make players fly.
-                    for _ in range(2):
-                        self.malmo_client.send_command(player_index, "jump 1")
-                        time.sleep(0.1)
-                        self.malmo_client.send_command(player_index, "jump 0")
-                        time.sleep(0.1)
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, self.player_locations[player_index])),
-                )
-
-                # Give items to players.
-                for item in self.config["players"][player_index]["give_items"]:
-                    if "enchantments" not in item:
-                        item["enchantments"] = []
-
-                    for enchantment in item["enchantments"]:
-                        assert "id" in enchantment
-                        if "level" not in enchantment:
-                            enchantment["level"] = 32767
-
-                    enchantments_str = ",".join(
-                        [
-                            "{{id: {}, lvl: {}}}".format(
-                                enchantment["id"], enchantment["level"]
-                            )
-                            for enchantment in item["enchantments"]
-                        ]
-                    )
-
-                    self.malmo_client.send_command(
-                        player_index,
-                        "chat /give {} {} {} {} {}".format(
-                            "@p",
-                            item["id"],
-                            item["count"],
-                            0,
-                            "{{ench: [{}]}}".format(enchantments_str),
-                        ),
-                    )
-
-                    time.sleep(0.2)
-
-            # Convert players to survival mode.
-            # if not self.config["abilities"]["inf_blocks"]:
-            for player_index in range(self.config["num_players"]):
-                if self.config["players"][player_index]["is_human"]:
-                    self.malmo_client.send_command(player_index, "chat /gamemode 0")
-
-                # Disable chat messages from the palette
-                self.malmo_client.send_command(
-                    player_index, "chat /gamerule sendCommandFeedback false"
-                )
-
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
 
         if self.config["malmo"]["use_malmo"]:
-            # Let everything load in Malmo.
-            time.sleep(self.config["malmo"]["action_delay"])
+            self.malmo_interface.reset()
 
         return [
             self._get_player_obs(player_index)
@@ -645,9 +580,7 @@ class MbagEnv(object):
         dones = [self._done()] * self.config["num_players"]
 
         if dones[0] and self.config["malmo"]["use_malmo"]:
-            # Wait for a second for the final block to place and then end mission.
-            time.sleep(1)
-            self.malmo_client.end_mission()
+            self.malmo_interface.done()
 
         return obs, rewards, dones, infos
 
@@ -784,6 +717,14 @@ class MbagEnv(object):
                 "action"
             ]
 
+        # TODO: do we send actions to Malmo even if it's a no-op?
+        if (
+            not noop
+            and self.config["malmo"]
+            and not self.config["players"][player_index]["is_human"]
+        ):
+            self.malmo_interface.add_ai_action(player_index, action_tuple)
+
         reward = goal_dependent_reward + goal_independent_reward
 
         info: MbagInfoDict = {
@@ -853,69 +794,69 @@ class MbagEnv(object):
         if self.config["players"][player_index]["is_human"]:
             self.human_action_detector.record_human_interaction(action.block_location)
 
-        if (
-            self.config["malmo"]["use_malmo"]
-            and not self.config["players"][player_index]["is_human"]
-        ):
-            if self.config["abilities"]["teleportation"]:
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, player_location)),
-                )
+        # if (
+        #     self.config["malmo"]["use_malmo"]
+        #     and not self.config["players"][player_index]["is_human"]
+        # ):
+        #     if self.config["abilities"]["teleportation"]:
+        #         self.malmo_client.send_command(
+        #             player_index,
+        #             "tp " + " ".join(map(str, player_location)),
+        #         )
 
-            viewpoint = np.array(player_location)
-            viewpoint[1] += 1.6
-            delta = np.array(click_location) - viewpoint
-            delta /= np.sqrt((delta**2).sum())
-            yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
-            pitch = np.rad2deg(-np.arcsin(delta[1]))
-            self.malmo_client.send_command(player_index, f"setYaw {yaw}")
-            self.malmo_client.send_command(player_index, f"setPitch {pitch}")
-            self.player_directions[player_index] = (yaw, pitch)
+        #     viewpoint = np.array(player_location)
+        #     viewpoint[1] += 1.6
+        #     delta = np.array(click_location) - viewpoint
+        #     delta /= np.sqrt((delta**2).sum())
+        #     yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
+        #     pitch = np.rad2deg(-np.arcsin(delta[1]))
+        #     self.malmo_client.send_command(player_index, f"setYaw {yaw}")
+        #     self.malmo_client.send_command(player_index, f"setPitch {pitch}")
+        #     self.player_directions[player_index] = (yaw, pitch)
 
-            if action.action_type == MbagAction.PLACE_BLOCK:
-                if self.config["abilities"]["inf_blocks"]:
-                    self.malmo_client.send_command(
-                        player_index,
-                        f"swapInventoryItems 0 {action.block_id}",
-                    )
-                    hotbar_slot = 0
-                else:
-                    player_inventory = self.player_inventories[player_index]
-                    if inventory_slot < 9:
-                        hotbar_slot = inventory_slot
-                    else:
-                        # Block is not in hotbar, need to swap it in.
-                        hotbar_slot = random.randrange(9)
-                        self.malmo_client.send_command(
-                            player_index,
-                            f"swapInventoryItems {hotbar_slot} {inventory_slot}",
-                        )
-                        (
-                            player_inventory[hotbar_slot],
-                            player_inventory[inventory_slot],
-                        ) = (
-                            player_inventory[inventory_slot].copy(),
-                            player_inventory[hotbar_slot].copy(),
-                        )
+        #     if action.action_type == MbagAction.PLACE_BLOCK:
+        #         if self.config["abilities"]["inf_blocks"]:
+        #             self.malmo_client.send_command(
+        #                 player_index,
+        #                 f"swapInventoryItems 0 {action.block_id}",
+        #             )
+        #             hotbar_slot = 0
+        #         else:
+        #             player_inventory = self.player_inventories[player_index]
+        #             if inventory_slot < 9:
+        #                 hotbar_slot = inventory_slot
+        #             else:
+        #                 # Block is not in hotbar, need to swap it in.
+        #                 hotbar_slot = random.randrange(9)
+        #                 self.malmo_client.send_command(
+        #                     player_index,
+        #                     f"swapInventoryItems {hotbar_slot} {inventory_slot}",
+        #                 )
+        #                 (
+        #                     player_inventory[hotbar_slot],
+        #                     player_inventory[inventory_slot],
+        #                 ) = (
+        #                     player_inventory[inventory_slot].copy(),
+        #                     player_inventory[hotbar_slot].copy(),
+        #                 )
 
-                self.malmo_client.send_command(
-                    player_index, f"hotbar.{hotbar_slot + 1} 1"
-                )
-                self.malmo_client.send_command(
-                    player_index, f"hotbar.{hotbar_slot + 1} 0"
-                )
-                time.sleep(0.1)  # Give time to swap item to hand and teleport.
-                self.malmo_client.send_command(player_index, "use 1")
-                time.sleep(0.1)  # Give time to place block.
-                if self.config["abilities"]["inf_blocks"]:
-                    self.malmo_client.send_command(
-                        player_index,
-                        f"swapInventoryItems 0 {action.block_id}",
-                    )
-            else:
-                time.sleep(0.1)  # Give time to teleport.
-                self.malmo_client.send_command(player_index, "attack 1")
+        #         self.malmo_client.send_command(
+        #             player_index, f"hotbar.{hotbar_slot + 1} 1"
+        #         )
+        #         self.malmo_client.send_command(
+        #             player_index, f"hotbar.{hotbar_slot + 1} 0"
+        #         )
+        #         time.sleep(0.1)  # Give time to swap item to hand and teleport.
+        #         self.malmo_client.send_command(player_index, "use 1")
+        #         time.sleep(0.1)  # Give time to place block.
+        #         if self.config["abilities"]["inf_blocks"]:
+        #             self.malmo_client.send_command(
+        #                 player_index,
+        #                 f"swapInventoryItems 0 {action.block_id}",
+        #             )
+        #     else:
+        #         time.sleep(0.1)  # Give time to teleport.
+        #         self.malmo_client.send_command(player_index, "attack 1")
 
         if (
             not self.config["abilities"]["inf_blocks"]
@@ -980,15 +921,7 @@ class MbagEnv(object):
 
         player_location = self.player_locations[player_index]
 
-        action_mask: Dict[MbagActionType, Tuple[WorldLocation, str]] = {
-            MbagAction.MOVE_POS_X: ((1, 0, 0), "moveeast 1"),
-            MbagAction.MOVE_NEG_X: ((-1, 0, 0), "movewest 1"),
-            MbagAction.MOVE_POS_Y: ((0, 1, 0), "tp"),
-            MbagAction.MOVE_NEG_Y: ((0, -1, 0), "tp"),
-            MbagAction.MOVE_POS_Z: ((0, 0, 1), "movesouth 1"),
-            MbagAction.MOVE_NEG_Z: ((0, 0, -1), "movenorth 1"),
-        }
-        dx, dy, dz = action_mask[action_type][0]
+        dx, dy, dz = MbagAction.MOVE_ACTION_MASK[action_type][0]
         new_player_location: WorldLocation = (
             player_location[0] + dx,
             player_location[1] + dy,
@@ -1005,19 +938,19 @@ class MbagEnv(object):
         player_location = new_player_location
         self.player_locations[player_index] = player_location
 
-        if (
-            self.config["malmo"]["use_malmo"]
-            and not self.config["players"][player_index]["is_human"]
-        ):
-            if action_mask[action_type][1] != "tp":
-                self.malmo_client.send_command(
-                    player_index, action_mask[action_type][1]
-                )
-            else:
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, player_location)),
-                )
+        # if (
+        #     self.config["malmo"]["use_malmo"]
+        #     and not self.config["players"][player_index]["is_human"]
+        # ):
+        #     if action_mask[action_type][1] != "tp":
+        #         self.malmo_client.send_command(
+        #             player_index, action_mask[action_type][1]
+        #         )
+        #     else:
+        #         self.malmo_client.send_command(
+        #             player_index,
+        #             "tp " + " ".join(map(str, player_location)),
+        #         )
 
         return True
 
