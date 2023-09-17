@@ -1,3 +1,4 @@
+import random
 from typing import List, Tuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.human_actions import HumanActionDetector
@@ -5,14 +6,15 @@ from mbag.environment.types import (
     MalmoStateDiff,
     MbagAction,
     MalmoState,
+    MbagGiveAIAction,
     MbagInventory,
+    MbagPlaceBreakAIAction,
     WorldLocation,
 )
 from .malmo import MalmoClient, MalmoObservationDict
 import numpy as np
 import time
-from threading import Thread, Lock
-from .mbag_env import MalmoConfigDict
+from threading import Thread, Lock, Condition
 
 
 # TODO: This should be it's own type in MbagTypes at some point
@@ -23,15 +25,16 @@ NO_INTERACTION = -1
 
 
 class MalmoInterface:
-    def __init__(self, config: MalmoConfigDict):
+    def __init__(self, config):
+        self.config = config
+
         self.ai_action_queue = []
-        self.ai_action_lock = Lock()
+        self.ai_action_lock = Condition()
         self.human_action_queue = []
         self.human_action_lock = Lock()
         self.malmo_client = MalmoClient()
         self.malmo_lock = Lock()
         self.human_action_detector = HumanActionDetector(self.config)
-        self.config = config
 
     def get_malmo_client(self):
         """
@@ -42,7 +45,9 @@ class MalmoInterface:
 
     def done(self):
         # Wait for a second for the final block to place and then end mission.
+        print("Ending mission")
         self.ai_thread.join()
+        self.human_thread.join()
 
         with self.malmo_lock:
             time.sleep(1)
@@ -72,14 +77,13 @@ class MalmoInterface:
         }
 
         self.ai_thread = Thread(target=self.run_ai_actions)
-        self.ai_thread.run()
-
+        self.ai_thread.start()
         # TODO: Placeholder for now
         self.human_thread = Thread(target=self.run_human_actions)
-        self.human_thread.run()
+        self.human_thread.start()
 
         with self.malmo_lock:
-            self.malmo_client.start_mission(config, current_blocks, goal_blocks)
+            self.malmo_client.start_mission(self.config, current_blocks, goal_blocks)
             time.sleep(1)  # Wait a second for the environment to load.
 
             # Pre-episode setup in Malmo.
@@ -94,7 +98,10 @@ class MalmoInterface:
                         time.sleep(0.1)
                 self.malmo_client.send_command(
                     player_index,
-                    "tp " + " ".join(map(str, self.player_locations[player_index])),
+                    "tp "
+                    + " ".join(
+                        map(str, self.malmo_state["player_locations"][player_index])
+                    ),
                 )
 
                 # Give items to players.
@@ -149,11 +156,12 @@ class MalmoInterface:
         pass
 
     def run_human_actions(self):
-        malmo_observation_dicts = self.malmo_client.get_observations()
-        for malmo_observation_dict in malmo_observation_dicts:
-            new_state, state_diffs = self.update_malmo_state(
-                self.malmo_state, malmo_observation_dict
-            )
+        pass
+        # malmo_observation_dicts = self.malmo_client.get_observations()
+        # for malmo_observation_dict in malmo_observation_dicts:
+        #     new_state, state_diffs = self.update_malmo_state(
+        #         self.malmo_state, malmo_observation_dict
+        #     )
 
     # 		for state_diff in state_diffs:
     # 				if state_diff in self.expected_diffs:
@@ -165,8 +173,9 @@ class MalmoInterface:
     def get_human_actions(self):
         pass
 
-    def handle_move(self, player_index, action):
-        action_type = action[0]
+    def handle_move(self, player_index, ai_action):
+        print("handling move", ai_action.action)
+        action_type = ai_action.action.action_type
         with self.malmo_lock:
             if MbagAction.MOVE_ACTION_MASK[action_type][1] != "tp":
                 self.malmo_client.send_command(
@@ -176,29 +185,57 @@ class MalmoInterface:
                 # TODO: Which player location goes here?
                 self.malmo_client.send_command(
                     player_index,
-                    "tp " + " ".join(map(str, player_location)),
+                    "tp " + " ".join(map(str, ai_action.player_location)),
                 )
 
-    def handle_place_break(self, player_index, action):
+    def remove_block(self, player_index, block_id):
+        assert not self.config["abilities"]["inf_blocks"]
+        player_name = self.malmo_client.get_player_name(player_index, self.config)
+        block_name = MinecraftBlocks.ID2NAME[block_id]
+
+        self.malmo_client.send_command(
+            player_index, f"chat /clear {player_name} {block_name} 0 1"
+        )
+
+    def add_block(self, player_index, block_id):
+        player_name = self.malmo_client.get_player_name(player_index, self.config)
+        block_name = MinecraftBlocks.ID2NAME[block_id]
+
+        self.malmo_client.send_command(
+            player_index, f"chat /give {player_name} {block_name}"
+        )
+
+    def handle_give(self, player_index: int, ai_action: MbagGiveAIAction):
+        action, giver_index, receiver_index = (
+            ai_action.action,
+            ai_action.giver_index,
+            ai_action.receiver_index,
+        )
+
+        self.remove_block(giver_index, action.block_id)
+        self.add_block(receiver_index, action.block_id)
+
+    def handle_place_break(self, player_index: int, ai_action: MbagPlaceBreakAIAction):
         # TODO: Fix player location and inventory no states
         # TODO: Also figure out the click location thing (maybe some of that logic
         # should be pulled out here because it's malmo specific)
         with self.malmo_lock:
+            action, player_location, yaw, pitch, inventory_slot = (
+                ai_action.action,
+                ai_action.player_location,
+                ai_action.yaw,
+                ai_action.pitch,
+                ai_action.inventory_slot,
+            )
+
             if self.config["abilities"]["teleportation"]:
                 self.malmo_client.send_command(
                     player_index,
                     "tp " + " ".join(map(str, player_location)),
                 )
 
-            viewpoint = np.array(player_location)
-            viewpoint[1] += 1.6
-            delta = np.array(click_location) - viewpoint
-            delta /= np.sqrt((delta**2).sum())
-            yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
-            pitch = np.rad2deg(-np.arcsin(delta[1]))
             self.malmo_client.send_command(player_index, f"setYaw {yaw}")
             self.malmo_client.send_command(player_index, f"setPitch {pitch}")
-            self.player_directions[player_index] = (yaw, pitch)
 
             if action.action_type == MbagAction.PLACE_BLOCK:
                 if self.config["abilities"]["inf_blocks"]:
@@ -240,30 +277,55 @@ class MalmoInterface:
                         player_index,
                         f"swapInventoryItems 0 {action.block_id}",
                     )
+
+                if not self.config["abilities"]["inf_blocks"]:
+                    self.remove_block(player_index, action.block_id)
+
             else:
                 time.sleep(0.1)  # Give time to teleport.
                 self.malmo_client.send_command(player_index, "attack 1")
 
-    def add_ai_action(self, player_index, action):
+                if not self.config["abilities"]["inf_blocks"]:
+                    self.add_block()
+
+    def add_ai_action(self, player_index: int, action: MbagAction):
+        # print("Adding AI Action")
+        # print(action)
         with self.ai_action_lock:
-            self.ai_actions_queue.push((player_index, action))
+            self.ai_action_queue.append((player_index, action))
+            print(self.ai_action_queue)
+            self.ai_action_lock.notify()
 
     def run_ai_actions(self):
         while True:
-            player_index, action = -1, (-1, -1, -1)
+            player_index, ai_action = -1, None
+
+            # print("Checking AI actions, ", self.ai_action_queue)
             with self.ai_action_lock:
-                if len(self.ai_actions.queue) > 0:
-                    player_index, action = self.ai_action_queue.pop(0)
+                self.ai_action_lock.wait_for(lambda: len(self.ai_action_queue) > 0)
 
+                # print("Waited for action", self.ai_action_queue)
+                player_index, ai_action = self.ai_action_queue.pop(0)
+
+            assert not self.config["players"][player_index]["is_human"]
+
+            if player_index == -1:
+                # TODO: Better logging here
+                print("ERROR, this should never happen")
+                time.sleep(0)
+                continue
+
+            # print("Processing Action", ai_action.action, ai_action.action.action_type)
             if (
-                action[0] == MbagAction.PLACE_BLOCK
-                or action[0] == MbagAction.BREAK_BLOCK
+                ai_action.action.action_type == MbagAction.PLACE_BLOCK
+                or ai_action.action.action_type == MbagAction.BREAK_BLOCK
             ):
-                self.handle_place_break(player_index, action)
-            elif action[0] in MbagAction.MOVE_ACTION_TYPES:
-                self.handle_move(player_index, action)
+                self.handle_place_break(player_index, ai_action)
+            elif ai_action.action.action_type in MbagAction.MOVE_ACTION_TYPES:
+                self.handle_move(player_index, ai_action)
+            elif ai_action.action.action_type == MbagAction.GIVE_BLOCK:
+                self.handle_give(player_index, ai_action)
 
-            # TODO: I assume we want to let the thread just yield here?
             time.sleep(0)
 
 

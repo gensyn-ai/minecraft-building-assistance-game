@@ -39,6 +39,9 @@ from .types import (
     BlockLocation,
     FacingDirection,
     MbagAction,
+    MbagGiveAIAction,
+    MbagMoveAIAction,
+    MbagPlaceBreakAIAction,
     MbagActionTuple,
     MbagActionType,
     MbagInfoDict,
@@ -371,7 +374,7 @@ class MbagEnv(object):
             raise NotImplementedError("lack of flying ability is not yet implemented")
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_interface = MalmoInterface(config)
+            self.malmo_interface = MalmoInterface(self.config)
             self.malmo_client = self.malmo_interface.get_malmo_client()
 
         self.global_timestep = 0
@@ -706,14 +709,12 @@ class MbagEnv(object):
             action.action_type in MbagAction.MOVE_ACTION_TYPES
             and not self.config["abilities"]["teleportation"]
         ):
-            noop = not self._handle_move(player_index, action.action_type)
+            noop = not self._handle_move(player_index, action)
         elif (
             action.action_type == MbagAction.GIVE_BLOCK
             and not self.config["abilities"]["inf_blocks"]
         ):
-            noop = 0 == self._handle_give_block(
-                player_index, action.block_id, action.block_location
-            )
+            noop = 0 == self._handle_give_block(player_index, action)
 
         if noop:
             goal_independent_reward += self._get_reward_config_for_player(player_index)[
@@ -723,14 +724,6 @@ class MbagEnv(object):
             goal_independent_reward += self._get_reward_config_for_player(player_index)[
                 "action"
             ]
-
-        # TODO: do we send actions to Malmo even if it's a no-op?
-        if (
-            not noop
-            and self.config["malmo"]
-            and not self.config["players"][player_index]["is_human"]
-        ):
-            self.malmo_interface.add_ai_action(player_index, action_tuple)
 
         reward = goal_dependent_reward + goal_independent_reward
 
@@ -801,25 +794,32 @@ class MbagEnv(object):
         if self.config["players"][player_index]["is_human"]:
             self.human_action_detector.record_human_interaction(action.block_location)
 
-        # if (
-        #     self.config["malmo"]["use_malmo"]
-        #     and not self.config["players"][player_index]["is_human"]
-        # ):
-        #     if self.config["abilities"]["teleportation"]:
-        #         self.malmo_client.send_command(
-        #             player_index,
-        #             "tp " + " ".join(map(str, player_location)),
-        #         )
+        if (
+            self.config["malmo"]["use_malmo"]
+            and not self.config["players"][player_index]["is_human"]
+        ):
+            # if self.config["abilities"]["teleportation"]:
+            #     self.malmo_client.send_command(
+            #         player_index,
+            #         "tp " + " ".join(map(str, player_location)),
+            #     )
 
-        #     viewpoint = np.array(player_location)
-        #     viewpoint[1] += 1.6
-        #     delta = np.array(click_location) - viewpoint
-        #     delta /= np.sqrt((delta**2).sum())
-        #     yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
-        #     pitch = np.rad2deg(-np.arcsin(delta[1]))
-        #     self.malmo_client.send_command(player_index, f"setYaw {yaw}")
-        #     self.malmo_client.send_command(player_index, f"setPitch {pitch}")
-        #     self.player_directions[player_index] = (yaw, pitch)
+            viewpoint = np.array(player_location)
+            viewpoint[1] += 1.6
+            delta = np.array(click_location) - viewpoint
+            delta /= np.sqrt((delta**2).sum())
+            yaw = np.rad2deg(np.arctan2(-delta[0], delta[2]))
+            pitch = np.rad2deg(-np.arcsin(delta[1]))
+            # self.malmo_client.send_command(player_index, f"setYaw {yaw}")
+            # self.malmo_client.send_command(player_index, f"setPitch {pitch}")
+            self.player_directions[player_index] = (yaw, pitch)
+
+            self.malmo_interface.add_ai_action(
+                player_index,
+                MbagPlaceBreakAIAction(
+                    action, inventory_slot, yaw, pitch, player_location
+                ),
+            )
 
         #     if action.action_type == MbagAction.PLACE_BLOCK:
         #         if self.config["abilities"]["inf_blocks"]:
@@ -885,18 +885,18 @@ class MbagEnv(object):
                 )
 
                 # Remove the extra cobblestone
-                if (
-                    not self.config["players"][player_index]["is_human"]
-                    and prev_block[0] == MinecraftBlocks.NAME2ID["stone"]
-                ):
-                    player_name = self.malmo_client.get_player_name(
-                        player_index, self.config
-                    )
+                # if (
+                #     not self.config["players"][player_index]["is_human"]
+                #     and prev_block[0] == MinecraftBlocks.NAME2ID["stone"]
+                # ):
+                #     player_name = self.malmo_client.get_player_name(
+                #         player_index, self.config
+                #     )
 
-                    self.malmo_client.send_command(
-                        player_index,
-                        f"chat /clear {player_name} cobblestone 0 1",
-                    )
+                #     self.malmo_client.send_command(
+                #         player_index,
+                #         f"chat /clear {player_name} cobblestone 0 1",
+                #     )
 
             else:
                 # Take block from player
@@ -917,12 +917,13 @@ class MbagEnv(object):
 
         return True
 
-    def _handle_move(self, player_index: int, action_type: MbagActionType) -> bool:
+    def _handle_move(self, player_index: int, action: MbagAction) -> bool:
         """
         Handle a move action.
         Returns whether the action was successful or not
         """
 
+        action_type = action.action_type
         if self.config["players"][player_index]["is_human"]:
             self.human_action_detector.record_human_movement(player_index)
 
@@ -945,10 +946,13 @@ class MbagEnv(object):
         player_location = new_player_location
         self.player_locations[player_index] = player_location
 
-        # if (
-        #     self.config["malmo"]["use_malmo"]
-        #     and not self.config["players"][player_index]["is_human"]
-        # ):
+        if (
+            self.config["malmo"]["use_malmo"]
+            and not self.config["players"][player_index]["is_human"]
+        ):
+            self.malmo_interface.add_ai_action(
+                player_index, MbagMoveAIAction(action, player_location)
+            )
         #     if action_mask[action_type][1] != "tp":
         #         self.malmo_client.send_command(
         #             player_index, action_mask[action_type][1]
@@ -961,12 +965,12 @@ class MbagEnv(object):
 
         return True
 
-    def _handle_give_block(
-        self, giver_player_index: int, block_id: int, receiver_location: WorldLocation
-    ) -> int:
+    def _handle_give_block(self, giver_player_index: int, action: MbagAction) -> int:
         """
         Handles giving blocks to a player. Returns how many blocks were given.
         """
+
+        block_id, receiver_location = action.block_id, action.block_location
 
         receiver_player_location = (
             receiver_location[0] + 0.5,
@@ -1023,6 +1027,15 @@ class MbagEnv(object):
             if not success:
                 return block_index
 
+        if (
+            given_blocks > 0
+            and self.config["players"][giver_player_index]["is_human"]
+            and self.config["malmo"]["use_malmo"]
+        ):
+            self.malmo_interface.add_ai_action(
+                giver_player_index,
+                MbagGiveAIAction(action, giver_player_index, receiver_player_index),
+            )
         return given_blocks
 
     def _try_give_player_block(
@@ -1056,19 +1069,19 @@ class MbagEnv(object):
         player_inventory[selected_slot, 0] = block_id
         player_inventory[selected_slot, 1] += 1
 
-        if (
-            self.config["malmo"]["use_malmo"]
-            and give_in_malmo
-            and (
-                not self.config["players"][player_index]["is_human"]
-                or self.config["abilities"]["inf_blocks"]
-            )
-        ):
-            player_name = self.malmo_client.get_player_name(player_index, self.config)
-            block_name = MinecraftBlocks.ID2NAME[block_id]
-            self.malmo_client.send_command(
-                player_index, f"chat /give {player_name} {block_name}"
-            )
+        # if (
+        #     self.config["malmo"]["use_malmo"]
+        #     and give_in_malmo
+        #     and (
+        #         not self.config["players"][player_index]["is_human"]
+        #         or self.config["abilities"]["inf_blocks"]
+        #     )
+        # ):
+        #     player_name = self.malmo_client.get_player_name(player_index, self.config)
+        #     block_name = MinecraftBlocks.ID2NAME[block_id]
+        #     self.malmo_client.send_command(
+        #         player_index, f"chat /give {player_name} {block_name}"
+        #     )
 
         return True
 
@@ -1112,18 +1125,19 @@ class MbagEnv(object):
             if player_inventory[selected_slot, 1] == 0:
                 player_inventory[selected_slot, 0] = MinecraftBlocks.AIR
 
-            if (
-                self.config["malmo"]["use_malmo"]
-                and not self.config["players"][player_index]["is_human"]
-            ):
-                player_name = self.malmo_client.get_player_name(
-                    player_index, self.config
-                )
-                block_name = MinecraftBlocks.ID2NAME[block_id]
+            # if (
+            #     self.config["malmo"]["use_malmo"]
+            #     and not self.config["players"][player_index]["is_human"]
+            # ):
 
-                self.malmo_client.send_command(
-                    player_index, f"chat /clear {player_name} {block_name} 0 1"
-                )
+            #     player_name = self.malmo_client.get_player_name(
+            #         player_index, self.config
+            #     )
+            #     block_name = MinecraftBlocks.ID2NAME[block_id]
+
+            #     self.malmo_client.send_command(
+            #         player_index, f"chat /clear {player_name} {block_name} 0 1"
+            #     )
 
         return selected_slot
 

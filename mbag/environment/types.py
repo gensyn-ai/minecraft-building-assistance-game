@@ -5,8 +5,6 @@ import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import Literal, TypedDict
 
-from mbag.environment.blocks import MinecraftBlocks
-
 if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
 
@@ -173,9 +171,38 @@ class MbagAction(object):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
 
 
+class MbagPlaceBreakAIAction:
+    def __init__(
+        self,
+        action: MbagAction,
+        inventory_slot: int,
+        yaw: float,
+        pitch: float,
+        player_location: WorldLocation,
+    ):
+        self.action = action
+        self.inventory_slot = inventory_slot
+        self.yaw = yaw
+        self.pitch = pitch
+        self.player_location = player_location
+
+
+class MbagMoveAIAction:
+    def __init__(self, action: MbagAction, player_location: WorldLocation):
+        self.action = action
+        self.player_location = player_location
+
+
+class MbagGiveAIAction:
+    def __init__(self, action: MbagAction, giver_index: int, receiver_index: int):
+        self.action = action
+        self.giver_index = giver_index
+        self.receiver_index = receiver_index
+
+
 class MalmoState(TypedDict):
-    # TODO: Docstrings
-    blocks: MinecraftBlocks
+    # TODO: Add docstrings, change the type annotations
+    blocks: any
     player_inventories: List[MbagInventoryObs]
     player_locations: List[BlockLocation]
     player_directions: List[Tuple]
