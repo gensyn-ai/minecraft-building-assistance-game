@@ -53,6 +53,33 @@ def test_layer_builder_agent():
     assert episode_info.cumulative_reward == 18
 
 
+@pytest.mark.uses_malmo
+def test_layer_builder_agent_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 5, 5),
+            "num_players": 1,
+            "horizon": 50,
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
+            "malmo": {
+                "use_malmo": True,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                LayerBuilderAgent,
+                {},
+            )
+        ],
+        force_get_set_state=True,
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
+
+
 def test_pq_agent_basic():
     evaluator = MbagEvaluator(
         {

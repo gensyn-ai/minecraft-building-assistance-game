@@ -1,7 +1,7 @@
 import os
 import shutil
 from random import Random
-from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
+from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, TypedDict, cast
 
 import cc3d
 import numpy as np
@@ -9,7 +9,14 @@ from numpy.typing import NDArray
 from skimage.util import view_as_blocks
 from typing_extensions import Literal
 
-from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize
+from .types import (
+    BlockLocation,
+    MbagAction,
+    MbagActionType,
+    MbagInventoryObs,
+    WorldLocation,
+    WorldSize,
+)
 
 
 def cartesian_product(*arrays):
@@ -690,3 +697,13 @@ vn -1.000000 0.000000 0.000000
 
         with open(obj_fname, "w") as obj_file:
             obj_file.write(self.to_obj())
+
+
+class MalmoState(TypedDict):
+    # TODO: Add docstrings, change the type annotations
+    blocks: MinecraftBlocks
+    player_inventories: List[MbagInventoryObs]
+    player_locations: List[BlockLocation]
+    player_directions: List[Tuple]
+    last_interacted: NDArray
+    player_currently_breaking_placing: NDArray

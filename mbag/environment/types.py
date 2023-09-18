@@ -200,16 +200,6 @@ class MbagGiveAIAction:
         self.receiver_index = receiver_index
 
 
-class MalmoState(TypedDict):
-    # TODO: Add docstrings, change the type annotations
-    blocks: any
-    player_inventories: List[MbagInventoryObs]
-    player_locations: List[BlockLocation]
-    player_directions: List[Tuple]
-    last_interacted: NDArray
-    player_currently_breaking_placing: NDArray
-
-
 class MalmoStateDiff(TypedDict):
     # TODO: Add in block state? Or do we not  care
     block_diff: List[Tuple[BlockLocation, int, int]]

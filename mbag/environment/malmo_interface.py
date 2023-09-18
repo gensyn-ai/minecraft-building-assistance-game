@@ -1,16 +1,16 @@
 import random
 from typing import List, Tuple
-from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.blocks import MalmoState, MinecraftBlocks
 from mbag.environment.human_actions import HumanActionDetector
 from mbag.environment.types import (
     MalmoStateDiff,
     MbagAction,
-    MalmoState,
     MbagGiveAIAction,
     MbagInventory,
     MbagPlaceBreakAIAction,
     WorldLocation,
 )
+
 from .malmo import MalmoClient, MalmoObservationDict
 import numpy as np
 import time
@@ -46,6 +46,7 @@ class MalmoInterface:
     def done(self):
         # Wait for a second for the final block to place and then end mission.
         print("Ending mission")
+        self.add_ai_action(-2, None)
         self.ai_thread.join()
         self.human_thread.join()
 
@@ -55,6 +56,8 @@ class MalmoInterface:
 
         # TODO: Assuming this should happen after the AI so that all the moves have time to get processed
         self.human_thread.join()
+
+        print("Ended mission")
 
     def reset(
         self,
@@ -78,7 +81,7 @@ class MalmoInterface:
 
         self.ai_thread = Thread(target=self.run_ai_actions)
         self.ai_thread.start()
-        # TODO: Placeholder for now
+
         self.human_thread = Thread(target=self.run_human_actions)
         self.human_thread.start()
 
@@ -173,6 +176,9 @@ class MalmoInterface:
     def get_human_actions(self):
         pass
 
+    def get_malmo_state(self):
+        return self.malmo_state
+
     def handle_move(self, player_index, ai_action):
         print("handling move", ai_action.action)
         action_type = ai_action.action.action_type
@@ -182,7 +188,6 @@ class MalmoInterface:
                     player_index, MbagAction.MOVE_ACTION_MASK[action_type][1]
                 )
             else:
-                # TODO: Which player location goes here?
                 self.malmo_client.send_command(
                     player_index,
                     "tp " + " ".join(map(str, ai_action.player_location)),
@@ -216,6 +221,7 @@ class MalmoInterface:
         self.add_block(receiver_index, action.block_id)
 
     def handle_place_break(self, player_index: int, ai_action: MbagPlaceBreakAIAction):
+        print("handling break place")
         # TODO: Fix player location and inventory no states
         # TODO: Also figure out the click location thing (maybe some of that logic
         # should be pulled out here because it's malmo specific)
@@ -289,8 +295,8 @@ class MalmoInterface:
                     self.add_block()
 
     def add_ai_action(self, player_index: int, action: MbagAction):
-        # print("Adding AI Action")
-        # print(action)
+        print("Adding AI Action")
+        print(action)
         with self.ai_action_lock:
             self.ai_action_queue.append((player_index, action))
             print(self.ai_action_queue)
@@ -300,22 +306,24 @@ class MalmoInterface:
         while True:
             player_index, ai_action = -1, None
 
-            # print("Checking AI actions, ", self.ai_action_queue)
+            print("Checking AI actions, ", self.ai_action_queue)
             with self.ai_action_lock:
                 self.ai_action_lock.wait_for(lambda: len(self.ai_action_queue) > 0)
 
-                # print("Waited for action", self.ai_action_queue)
+                print("Waited for action", self.ai_action_queue)
                 player_index, ai_action = self.ai_action_queue.pop(0)
-
-            assert not self.config["players"][player_index]["is_human"]
 
             if player_index == -1:
                 # TODO: Better logging here
                 print("ERROR, this should never happen")
                 time.sleep(0)
                 continue
+            elif player_index == -2:
+                return
 
-            # print("Processing Action", ai_action.action, ai_action.action.action_type)
+            assert not self.config["players"][player_index]["is_human"]
+
+            print("Processing Action", ai_action.action, ai_action.action.action_type)
             if (
                 ai_action.action.action_type == MbagAction.PLACE_BLOCK
                 or ai_action.action.action_type == MbagAction.BREAK_BLOCK
