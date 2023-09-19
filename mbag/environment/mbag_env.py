@@ -576,9 +576,10 @@ class MbagEnv(object):
             if self.config["malmo"]["use_malmo"]:
                 self._copy_palette_from_goal_in_malmo()
 
-        if self.config["malmo"]["use_malmo"]:
-            time.sleep(self.config["malmo"]["action_delay"])
-            infos = self._update_state_from_malmo(infos)
+        # TODO: The infos here are giving faulty rewards, fix
+        # if self.config["malmo"]["use_malmo"]:
+        #     time.sleep(self.config["malmo"]["action_delay"])
+        #     infos = self._update_state_from_malmo(infos)
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -1110,10 +1111,13 @@ class MbagEnv(object):
 
         # Find an appropriate slot
         player_inventory = self.player_inventories[player_index]
+        # print(player_inventory)
+        # print(block_id)
 
         matching_inventory_slots = np.where(
             (player_inventory[:, 0] == block_id) & (player_inventory[:, 1] > 0)
         )[0]
+        # print(matching_inventory_slots)
         if matching_inventory_slots.size > 0:
             selected_slot = matching_inventory_slots[0]
         else:

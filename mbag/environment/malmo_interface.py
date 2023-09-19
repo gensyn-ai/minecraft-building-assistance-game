@@ -180,7 +180,7 @@ class MalmoInterface:
         return self.malmo_state
 
     def handle_move(self, player_index, ai_action):
-        print("handling move", ai_action.action)
+        # print("handling move", ai_action.action)
         action_type = ai_action.action.action_type
         with self.malmo_lock:
             if MbagAction.MOVE_ACTION_MASK[action_type][1] != "tp":
@@ -216,12 +216,14 @@ class MalmoInterface:
             ai_action.giver_index,
             ai_action.receiver_index,
         )
+        print("handling give")
+        print(action, giver_index, receiver_index)
 
         self.remove_block(giver_index, action.block_id)
         self.add_block(receiver_index, action.block_id)
 
     def handle_place_break(self, player_index: int, ai_action: MbagPlaceBreakAIAction):
-        print("handling break place")
+        # print("handling break place")
         # TODO: Fix player location and inventory no states
         # TODO: Also figure out the click location thing (maybe some of that logic
         # should be pulled out here because it's malmo specific)
@@ -251,7 +253,9 @@ class MalmoInterface:
                     )
                     hotbar_slot = 0
                 else:
-                    player_inventory = self.player_inventories[player_index]
+                    player_inventory = self.malmo_state["player_inventories"][
+                        player_index
+                    ]
                     if inventory_slot < 9:
                         hotbar_slot = inventory_slot
                     else:
@@ -291,12 +295,12 @@ class MalmoInterface:
                 time.sleep(0.1)  # Give time to teleport.
                 self.malmo_client.send_command(player_index, "attack 1")
 
-                if not self.config["abilities"]["inf_blocks"]:
-                    self.add_block()
+                # if not self.config["abilities"]["inf_blocks"]:
+                #     self.add_block(player_index, action.block_id)
 
     def add_ai_action(self, player_index: int, action: MbagAction):
-        print("Adding AI Action")
-        print(action)
+        # print("Adding AI Action")
+        # print(action)
         with self.ai_action_lock:
             self.ai_action_queue.append((player_index, action))
             print(self.ai_action_queue)
@@ -306,11 +310,11 @@ class MalmoInterface:
         while True:
             player_index, ai_action = -1, None
 
-            print("Checking AI actions, ", self.ai_action_queue)
+            # print("Checking AI actions, ", self.ai_action_queue)
             with self.ai_action_lock:
                 self.ai_action_lock.wait_for(lambda: len(self.ai_action_queue) > 0)
 
-                print("Waited for action", self.ai_action_queue)
+                # print("Waited for action", self.ai_action_queue)
                 player_index, ai_action = self.ai_action_queue.pop(0)
 
             if player_index == -1:
@@ -323,7 +327,7 @@ class MalmoInterface:
 
             assert not self.config["players"][player_index]["is_human"]
 
-            print("Processing Action", ai_action.action, ai_action.action.action_type)
+            # print("Processing Action", ai_action.action, ai_action.action.action_type)
             if (
                 ai_action.action.action_type == MbagAction.PLACE_BLOCK
                 or ai_action.action.action_type == MbagAction.BREAK_BLOCK
