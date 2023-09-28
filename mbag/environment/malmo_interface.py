@@ -1,12 +1,21 @@
 import random
-from typing import List, Tuple
+import logging
+
+from typing import List, Optional, Tuple, cast
+
+from git import Sequence
 from mbag.environment.blocks import MalmoState, MinecraftBlocks
 from mbag.environment.human_actions import HumanActionDetector
 from mbag.environment.types import (
+    BlockDiff,
+    BlockLocation,
+    InventoryDiff,
+    LocationDiff,
     MalmoStateDiff,
     MbagAction,
     MbagGiveAIAction,
     MbagInventory,
+    MbagInventoryObs,
     MbagPlaceBreakAIAction,
     WorldLocation,
 )
@@ -16,12 +25,16 @@ import numpy as np
 import time
 from threading import Thread, Lock, Condition
 
+logger = logging.getLogger(__name__)
+
 
 # TODO: This should be it's own type in MbagTypes at some point
 NO_ONE = 0
 CURRENT_PLAYER = 1
 OTHER_PLAYER = 2
 NO_INTERACTION = -1
+INVENTORY_NUM_SLOTS = 36
+STACK_SIZE = 64
 
 
 class MalmoInterface:
@@ -43,9 +56,13 @@ class MalmoInterface:
         """
         return self.malmo_client
 
+    def get_malmo_state(self):
+        # TODO: Not sure if this method is gonna stay as is, or needs some other
+        return self.malmo_state
+
     def done(self):
         # Wait for a second for the final block to place and then end mission.
-        print("Ending mission")
+        logger.info("Ending mission")
         self.add_ai_action(-2, None)
         self.ai_thread.join()
         self.human_thread.join()
@@ -57,7 +74,7 @@ class MalmoInterface:
         # TODO: Assuming this should happen after the AI so that all the moves have time to get processed
         self.human_thread.join()
 
-        print("Ended mission")
+        logger.info("Ended mission")
 
     def reset(
         self,
@@ -153,14 +170,8 @@ class MalmoInterface:
             # TODO: Do the palette here
             time.sleep(self.config["malmo"]["action_delay"])
 
-    def update_malmo_state(
-        previous_state: MalmoState, malmo_obs: MalmoObservationDict
-    ) -> Tuple[MalmoState, List[MalmoStateDiff]]:
-        pass
-
     def run_human_actions(self):
         pass
-        # malmo_observation_dicts = self.malmo_client.get_observations()
         # for malmo_observation_dict in malmo_observation_dicts:
         #     new_state, state_diffs = self.update_malmo_state(
         #         self.malmo_state, malmo_observation_dict
@@ -175,9 +186,6 @@ class MalmoInterface:
 
     def get_human_actions(self):
         pass
-
-    def get_malmo_state(self):
-        return self.malmo_state
 
     def handle_move(self, player_index, ai_action):
         # print("handling move", ai_action.action)
@@ -224,8 +232,6 @@ class MalmoInterface:
 
     def handle_place_break(self, player_index: int, ai_action: MbagPlaceBreakAIAction):
         # print("handling break place")
-        # TODO: Fix player location and inventory no states
-        # TODO: Also figure out the click location thing (maybe some of that logic
         # should be pulled out here because it's malmo specific)
         with self.malmo_lock:
             action, player_location, yaw, pitch, inventory_slot = (
@@ -303,8 +309,39 @@ class MalmoInterface:
         # print(action)
         with self.ai_action_lock:
             self.ai_action_queue.append((player_index, action))
-            print(self.ai_action_queue)
+            # print(self.ai_action_queue)
             self.ai_action_lock.notify()
+
+    def running_ai_actions(self):
+        return len(self.ai_action_queue) == 0 and not self.malmo_lock.locked()
+
+    def get_current_malmo_state(self):
+        return self.malmo_state
+
+    def get_latest_malmo_obs(self) -> List[Optional[MalmoObservationDict]]:
+        malmo_observations = [None * self.config["num_players"]]
+        with self.malmo_lock:
+            for player_index in range(self.config["num_players"]):
+                malmo_player_observations = self.malmo_client.get_observations(
+                    player_index
+                )
+
+                print(f"Player {player_index} obs:")
+                print(malmo_player_observations)
+
+                if len(malmo_player_observations) > 0:
+                    _, latest_malmo_player_observation = sorted(
+                        malmo_player_observations
+                    )[-1]
+                    malmo_observations[player_index] = latest_malmo_player_observation
+
+        return malmo_observations
+
+    def update_malmo_state(self, new_state: MalmoState):
+        self.malmo_state["blocks"] = new_state.get("blocks")
+        self.malmo_state["player_directions"] = new_state.get("player_directions")
+        self.malmo_state["player_locations"] = new_state.get("player_locations")
+        self.malmo_state["player_inventories"] = new_state.get("player_inventories")
 
     def run_ai_actions(self):
         while True:
@@ -318,8 +355,7 @@ class MalmoInterface:
                 player_index, ai_action = self.ai_action_queue.pop(0)
 
             if player_index == -1:
-                # TODO: Better logging here
-                print("ERROR, this should never happen")
+                logger.warn("Did not find AI action in queue")
                 time.sleep(0)
                 continue
             elif player_index == -2:
@@ -328,17 +364,201 @@ class MalmoInterface:
             assert not self.config["players"][player_index]["is_human"]
 
             # print("Processing Action", ai_action.action, ai_action.action.action_type)
+
+            ai_expected_diffs = []
             if (
                 ai_action.action.action_type == MbagAction.PLACE_BLOCK
                 or ai_action.action.action_type == MbagAction.BREAK_BLOCK
             ):
-                self.handle_place_break(player_index, ai_action)
+                ai_expected_diffs = self.handle_place_break(player_index, ai_action)
             elif ai_action.action.action_type in MbagAction.MOVE_ACTION_TYPES:
-                self.handle_move(player_index, ai_action)
+                ai_expected_diffs = self.handle_move(player_index, ai_action)
             elif ai_action.action.action_type == MbagAction.GIVE_BLOCK:
-                self.handle_give(player_index, ai_action)
+                ai_expected_diffs = self.handle_give(player_index, ai_action)
 
+            malmo_observations = self.get_latest_malmo_obs()
+
+            new_state = convert_malmo_obs_to_state(malmo_observations, self.config)
+            diffs = generate_state_diffs(self.malmo_state, new_state)
+
+            print("Diffs:")
+            print(diffs)
+            # TODO: Do something after the diffs
+
+            self.update_malmo_state(new_state)
             time.sleep(0)
+
+    def copy_palette_from_goal(self):
+        # Sync with Malmo.
+        with self.malmo_lock:
+            width, height, depth = self.config["world_size"]
+            palette_x = width - 1
+            goal_palette_x = palette_x + width + 1
+
+            self.malmo_client.send_command(
+                0,
+                f"chat /clone {goal_palette_x} 0 0 "
+                f"{goal_palette_x} {height - 1} {depth - 1} "
+                f"{palette_x} 0 0",
+            )
+            time.sleep(0.3)
+
+
+def generate_state_diffs(
+    reference_state: MalmoState, updated_state: MalmoState
+) -> List[MalmoStateDiff]:
+    diffs = []
+
+    reference_blocks = reference_state.get("blocks").blocks
+    updated_blocks = updated_state.get("blocks").blocks
+    for location in cast(
+        Sequence[BlockLocation],
+        map(
+            tuple,
+            np.argwhere((reference_blocks != updated_blocks)),
+        ),
+    ):
+        diffs.append(
+            BlockDiff(
+                location,
+                reference_blocks[location],
+                updated_blocks[location],
+            )
+        )
+        logger.info(
+            f"BlockDiff at {location}: "
+            "expected "
+            f"{MinecraftBlocks.ID2NAME[reference_blocks[location]]} "
+            f"in MalmoInterface but received "
+            f"{MinecraftBlocks.ID2NAME[updated_blocks[location]]} "
+            "from Malmo"
+        )
+
+    for player_id, reference_location in enumerate(
+        reference_state.get("player_locations")
+    ):
+        updated_location = updated_state.get("player_locations")[player_id]
+        if any(
+            abs(malmo_coord - stored_coord) > 1e-4
+            for malmo_coord, stored_coord in zip(reference_location, updated_location)
+        ):
+            logger.info(
+                f"LocationDiff for player {player_id}: "
+                f"expected {reference_location} in MalmoInterface but received "
+                f"{updated_location} from Malmo"
+            )
+            diffs.append(LocationDiff(player_id, reference_location, updated_location))
+
+    for player_id, reference_inventory in enumerate(
+        reference_state.get("player_inventories")
+    ):
+        reference_inventory_obs = get_inventory_obs(reference_inventory)
+        updated_inventory_obs = get_inventory_obs(
+            updated_state.get("player_inventories")[player_id]
+        )
+
+        for block_id in np.nonzero(reference_inventory_obs != updated_inventory_obs)[0]:
+            logger.info(
+                f"InventoryDiff for player {player_id} in block {MinecraftBlocks.ID2NAME[block_id]}:"
+                f"expected {reference_inventory_obs[block_id]}"
+                f"but received {updated_inventory_obs[block_id]}"
+                "from Malmo"
+            )
+
+            diffs.append(
+                InventoryDiff(
+                    player_id,
+                    block_id,
+                    reference_inventory_obs[block_id],
+                    updated_inventory_obs[block_id],
+                )
+            )
+
+    return diffs
+
+
+# Returns best effort malmo state given the malmo observation
+def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> MalmoState:
+    """
+
+    Takes in a list of MalmoObservationDicts and returns a MalmoState object
+    """
+
+    assert len(obs) == len(config["players"])
+
+    malmo_blocks = None
+    global_obs = obs[0]
+
+    if "world" in global_obs:
+        malmo_blocks = MinecraftBlocks.from_malmo_grid(
+            config["world_size"], global_obs["world"]
+        )
+    else:
+        logger.warn("No block information from Malmo")
+
+    malmo_inventories = [None for _ in obs]
+    malmo_locations = [None for _ in obs]
+    malmo_directions = [None for _ in obs]
+
+    for player_index in range(config["num_players"]):
+        player_obs = obs[player_index]
+        # print(player_obs)
+
+        if "InventorySlot_0_item" in player_obs:
+            malmo_inventory: MbagInventory = np.zeros(
+                (INVENTORY_NUM_SLOTS, 2), dtype=int
+            )
+            for slot in range(INVENTORY_NUM_SLOTS):
+                item_name = player_obs[f"InventorySlot_{slot}_item"]  # type: ignore
+                malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
+                malmo_inventory[slot, 1] = player_obs[f"InventorySlot_{slot}_size"]  # type: ignore
+
+            malmo_inventories[player_index] = malmo_inventory
+        else:
+            logger.warn(
+                "missing inventory information from Malmo observation "
+                f"(keys = {player_obs.keys()})"
+            )
+
+        if not config["abilities"]["teleportation"]:
+            # Make sure position is as expected.
+            location = (
+                player_obs.get("XPos", None),
+                player_obs.get("YPos", None),
+                player_obs.get("ZPos", None),
+            )
+            malmo_locations[player_index] = location
+
+            direction = (player_obs.get("Pitch", None), player_obs.get("Yaw", None))
+            malmo_directions[player_index] = direction
+
+    malmo_state: MalmoState = {
+        "blocks": malmo_blocks,
+        "player_inventories": malmo_inventories,
+        "player_locations": malmo_locations,
+        "player_directions": malmo_directions,
+        # TODO: Figure out how to get the following locations
+        "last_interacted": None,
+        "player_currently_breaking_placing": [
+            False for _ in range(config["num_players"])
+        ],
+    }
+
+    return malmo_state
+
+
+def get_inventory_obs(player_inventory) -> MbagInventoryObs:
+    """
+    Gets the array representation of the given player's inventory.
+    """
+
+    inventory_obs: MbagInventoryObs = np.zeros(
+        MinecraftBlocks.NUM_BLOCKS, dtype=int
+    )  # 10 total blocks
+    for i in range(player_inventory.shape[0]):
+        inventory_obs[player_inventory[i][0]] += player_inventory[i][1]
+
+    return inventory_obs
 
 
 # - in human action detection thread

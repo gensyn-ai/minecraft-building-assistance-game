@@ -622,6 +622,7 @@ class MalmoClient(object):
         agent_host = self.agent_hosts[player_index]
         world_state = agent_host.getWorldState()
         if not world_state.is_mission_running:
+            logger.warning("Attempted to get observation of an already ended mission")
             return []
         else:
             observation_tuples: List[Tuple[datetime, MalmoObservationDict]] = []

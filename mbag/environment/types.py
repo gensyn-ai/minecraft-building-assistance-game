@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Tuple, cast
+from typing import TYPE_CHECKING, Dict, List, Tuple, Union, cast
+from collections import namedtuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -200,27 +201,14 @@ class MbagGiveAIAction:
         self.receiver_index = receiver_index
 
 
-class MalmoStateDiff(TypedDict):
-    # TODO: Add in block state? Or do we not  care
-    block_diff: List[Tuple[BlockLocation, int, int]]
-    """
-    List of tuples representing a block discrepancy. Each tuple consists of the 
-    block location, the old (expected) block id, and the new (current) block id in that order
-    """
-
-    inventory_diff: List[Tuple[int, int, int, int]]
-    """
-    List of tuples representing a discrepancy in an inventory. Each tuple consists of the 
-    player id with the inventory discrepancy, the block id of the discrepancy, the old (expected) number of blocks,
-    and the new (current) number of blocks in that order 
-    """
-
-    location_diff: List[Tuple[int, BlockLocation, BlockLocation]]
-    """
-    List of tuples representing a discrepancy in a player's location. Each tuple consists of the 
-    player id with the location discrepancy, the block id of the discrepancy, the old (expected) location,
-    and the new (current) location
-    """
+BlockDiff = namedtuple("BlockDiff", ["location", "expected_block", "received_block"])
+InventoryDiff = namedtuple(
+    "InventoryDiff", ["player_id", "block_id", "expected_number", "received_number"]
+)
+LocationDiff = namedtuple(
+    "LocationDiff", ["player_id", "expected_location", "received_location"]
+)
+MalmoStateDiff = Union[BlockDiff, InventoryDiff, LocationDiff]
 
 
 class MbagInfoDict(TypedDict):

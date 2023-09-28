@@ -574,12 +574,27 @@ class MbagEnv(object):
             logger.info("Copying palette from goal ")
             self._copy_palette_from_goal()
             if self.config["malmo"]["use_malmo"]:
-                self._copy_palette_from_goal_in_malmo()
+                self.malmo_interface.copy_palette_from_goal()
 
-        # TODO: The infos here are giving faulty rewards, fix
-        # if self.config["malmo"]["use_malmo"]:
-        #     time.sleep(self.config["malmo"]["action_delay"])
-        #     infos = self._update_state_from_malmo(infos)
+        # normal_step(actions)
+
+        # begin = time()
+        # while time() - begin < 0.2 and human_actions_queue.empty():
+        # 		sleep(0.001)
+
+        # if not malmo_interface.running_ai_actions and human_actions_queue.empty():
+        # 		self.update_malmo_state(malmo_interface.malmo_state)  # force-update MbagEnv state from MalmoState to make sure everything is in sync if there are no pending AI/human actions
+
+        # infos[human_index]["human_action"] = human_actions_queue.pop()
+
+        if self.config["malmo"]["use_malmo"]:
+            begin = time.time()
+            while time.time() - begin < 0.2 and True:
+                time.sleep(0.001)
+
+            if not self.malmo_interface.running_ai_actions():
+                infos = self._update_state_from_malmo(infos)
+
         obs = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -637,20 +652,6 @@ class MbagEnv(object):
         self.human_action_detector._copy_palette(
             self.palette_x, palette_blocks, palette_block_states
         )
-
-    def _copy_palette_from_goal_in_malmo(self):
-        # Sync with Malmo.
-        if self.config["malmo"]["use_malmo"]:
-            width, height, depth = self.config["world_size"]
-            goal_palette_x = self.palette_x + width + 1
-
-            self.malmo_client.send_command(
-                0,
-                f"chat /clone {goal_palette_x} 0 0 "
-                f"{goal_palette_x} {height - 1} {depth - 1} "
-                f"{self.palette_x} 0 0",
-            )
-            time.sleep(0.3)
 
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple
@@ -1086,6 +1087,7 @@ class MbagEnv(object):
 
         return True
 
+    # TODO: This function got repeated somewhere else...
     def _get_inventory_obs(self, player_index: int) -> MbagInventoryObs:
         """
         Gets the array representation of the given player's inventory.
@@ -1324,6 +1326,7 @@ class MbagEnv(object):
         Minecraft game via Malmo. This generates human actions for human players.
         """
 
+        # TODO: change this to get stuff from malmo interface
         malmo_observations = self.malmo_client.get_observations(0)
 
         if len(malmo_observations) == 0:

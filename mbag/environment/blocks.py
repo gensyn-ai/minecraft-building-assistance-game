@@ -11,6 +11,7 @@ from typing_extensions import Literal
 
 from .types import (
     BlockLocation,
+    FacingDirection,
     MbagAction,
     MbagActionType,
     MbagInventoryObs,
@@ -704,6 +705,6 @@ class MalmoState(TypedDict):
     blocks: MinecraftBlocks
     player_inventories: List[MbagInventoryObs]
     player_locations: List[BlockLocation]
-    player_directions: List[Tuple]
+    player_directions: List[FacingDirection]
     last_interacted: NDArray
     player_currently_breaking_placing: NDArray
