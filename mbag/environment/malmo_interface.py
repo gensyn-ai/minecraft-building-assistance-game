@@ -183,6 +183,9 @@ class MalmoInterface:
             time.sleep(self.config["malmo"]["action_delay"])
 
     def run_human_actions(self):
+        # Clear the observations created during the setup stage
+        _ = self.get_malmo_obs()
+
         while not self.done:
             malmo_timestep_obs = self.get_malmo_obs()
 
@@ -198,13 +201,12 @@ class MalmoInterface:
                 with self.malmo_state_lock:
                     state_diffs = generate_state_diffs(self.malmo_state, new_state)
                 for state_diff in state_diffs:
-                    print("state diff found: ")
-                    print(state_diff)
+                    print(f"state diff found: {state_diff}")
 
                     if state_diff in self.ai_diff_queue:
                         self.ai_diff_queue.remove(state_diff)
                     else:
-                        logger.info(
+                        logger.warning(
                             f"Found Diffs between Malmo State and Malmo Observation that were not accounted for by AI Actions: {state_diff}"
                         )
                         # TODO: do the human actions here
@@ -505,8 +507,7 @@ class MalmoInterface:
             elif ai_action.action.action_type == MbagAction.GIVE_BLOCK:
                 ai_expected_diffs = self.handle_give(player_index, ai_action)
             self.ai_diff_queue.extend(ai_expected_diffs)
-            print("AI Action Diff")
-            print(ai_expected_diffs)
+            print(f"AI Expected Diffs {ai_expected_diffs}")
 
             # Wait for AI expected diffs to come through the observations
             time.sleep(self.config["malmo"]["action_delay"])
@@ -621,7 +622,7 @@ def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> Malmo
             config["world_size"], global_obs["world"]
         )
     else:
-        logger.warn("No block information from Malmo")
+        logger.warning("No block information from Malmo")
 
     malmo_inventories = [None for _ in obs]
     malmo_locations = [None for _ in obs]
@@ -641,7 +642,7 @@ def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> Malmo
 
             malmo_inventories[player_index] = malmo_inventory
         else:
-            logger.warn(
+            logger.warning(
                 "missing inventory information from Malmo observation "
                 f"(keys = {player_obs.keys()})"
             )
