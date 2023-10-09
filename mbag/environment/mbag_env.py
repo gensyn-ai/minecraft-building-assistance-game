@@ -6,10 +6,8 @@ import random
 import time
 from typing import (
     TYPE_CHECKING,
-    Dict,
     List,
     Optional,
-    Sequence,
     Tuple,
     Type,
     Union,
@@ -39,15 +37,14 @@ from .types import (
     BlockLocation,
     FacingDirection,
     MbagAction,
-    MbagGiveAIAction,
-    MbagMoveAIAction,
-    MbagPlaceBreakAIAction,
     MbagActionTuple,
-    MbagActionType,
+    MbagGiveAIAction,
     MbagInfoDict,
     MbagInventory,
     MbagInventoryObs,
+    MbagMoveAIAction,
     MbagObs,
+    MbagPlaceBreakAIAction,
     MbagWorldObsArray,
     WorldLocation,
     WorldSize,
@@ -576,17 +573,6 @@ class MbagEnv(object):
             if self.config["malmo"]["use_malmo"]:
                 self.malmo_interface.copy_palette_from_goal()
 
-        # normal_step(actions)
-
-        # begin = time()
-        # while time() - begin < 0.2 and human_actions_queue.empty():
-        # 		sleep(0.001)
-
-        # if not malmo_interface.running_ai_actions and human_actions_queue.empty():
-        # 		self.update_malmo_state(malmo_interface.malmo_state)  # force-update MbagEnv state from MalmoState to make sure everything is in sync if there are no pending AI/human actions
-
-        # infos[human_index]["human_action"] = human_actions_queue.pop()
-
         if self.config["malmo"]["use_malmo"]:
             begin = time.time()
             while time.time() - begin < 0.2 and True:
@@ -1032,7 +1018,7 @@ class MbagEnv(object):
 
         if (
             given_blocks > 0
-            and self.config["players"][giver_player_index]["is_human"]
+            and not self.config["players"][giver_player_index]["is_human"]
             and self.config["malmo"]["use_malmo"]
         ):
             self.malmo_interface.add_ai_action(
@@ -1329,7 +1315,9 @@ class MbagEnv(object):
             "player_locations": self.player_locations,
             "player_directions": self.player_directions,
             "last_interacted": self.last_interacted,
-            "player_currently_breaking_placing": None,
+            "player_currently_breaking_placing": [
+                False for _ in range(self.config["num_players"])
+            ],
         }
 
         diffs = generate_state_diffs(new_malmo_state, current_malmo_state)

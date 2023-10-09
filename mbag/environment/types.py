@@ -1,6 +1,6 @@
+from collections import namedtuple
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Tuple, Union, cast
-from collections import namedtuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -201,6 +201,7 @@ class MbagGiveAIAction:
         self.receiver_index = receiver_index
 
 
+MbagMalmoAIAction = Union[MbagPlaceBreakAIAction, MbagMoveAIAction, MbagGiveAIAction]
 BlockDiff = namedtuple("BlockDiff", ["location", "expected_block", "received_block"])
 InventoryDiff = namedtuple(
     "InventoryDiff", ["player_id", "block_id", "expected_number", "received_number"]

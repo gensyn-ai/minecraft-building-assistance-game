@@ -1,7 +1,7 @@
 import os
 import shutil
 from random import Random
-from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, TypedDict, cast
+from typing import Dict, List, Optional, Sequence, Set, Tuple, TypedDict, TypeVar, cast
 
 import cc3d
 import numpy as np
@@ -15,7 +15,6 @@ from .types import (
     MbagAction,
     MbagActionType,
     MbagInventory,
-    MbagInventoryObs,
     WorldLocation,
     WorldSize,
 )
@@ -705,7 +704,7 @@ class MalmoState(TypedDict):
     # TODO: Add docstrings, change the type annotations
     blocks: MinecraftBlocks
     player_inventories: List[MbagInventory]
-    player_locations: List[BlockLocation]
+    player_locations: List[WorldLocation]
     player_directions: List[FacingDirection]
     last_interacted: NDArray
-    player_currently_breaking_placing: NDArray
+    player_currently_breaking_placing: List[bool]

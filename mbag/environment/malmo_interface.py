@@ -1,14 +1,18 @@
-import random
 import logging
-
+import random
+import time
+from threading import Condition, Lock, Thread
 from typing import List, Optional, Tuple, cast
 
+import numpy as np
 from git import Sequence
+
 from mbag.environment.blocks import MalmoState, MinecraftBlocks
 from mbag.environment.human_actions import HumanActionDetector
 from mbag.environment.types import (
     BlockDiff,
     BlockLocation,
+    FacingDirection,
     InventoryDiff,
     LocationDiff,
     MalmoStateDiff,
@@ -16,14 +20,12 @@ from mbag.environment.types import (
     MbagGiveAIAction,
     MbagInventory,
     MbagInventoryObs,
+    MbagMalmoAIAction,
     MbagPlaceBreakAIAction,
     WorldLocation,
 )
 
 from .malmo import MalmoClient, MalmoObservationDict
-import numpy as np
-import time
-from threading import Thread, Lock, Condition
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ class MalmoInterface:
         self.ai_action_queue = []
         self.ai_action_lock = Condition()
         self.ai_diff_queue = []
+        self.ai_diff_queue_lock = Lock()
 
         self.human_action_queue = []
         self.human_action_lock = Lock()
@@ -87,7 +90,7 @@ class MalmoInterface:
         goal_blocks: MinecraftBlocks,
         last_interacted: np.ndarray,
         player_locations: List[WorldLocation],
-        player_directions: List[Tuple],
+        player_directions: List[FacingDirection],
         player_inventories: List[MbagInventory],
     ):
         with self.malmo_state_lock:
@@ -97,7 +100,7 @@ class MalmoInterface:
                     inventory.copy() for inventory in player_inventories
                 ],
                 "player_locations": player_locations[:],
-                "player_directions": player_directions[:],
+                "player_directions": list(player_directions),
                 "last_interacted": last_interacted.copy(),
                 "player_currently_breaking_placing": [
                     False for _ in range(self.config["num_players"])
@@ -203,7 +206,7 @@ class MalmoInterface:
                 for state_diff in state_diffs:
                     print(f"state diff found: {state_diff}")
 
-                    with self.ai_action_lock:
+                    with self.ai_diff_queue_lock:
                         try:
                             if state_diff in self.ai_diff_queue:
                                 self.ai_diff_queue.remove(state_diff)
@@ -217,21 +220,19 @@ class MalmoInterface:
                                 #     get_human_actions(self.malmo_state, state_diff)
                                 # )
                         except ValueError as e:
-                            pass
+                            # raise
                             # TODO: Very occasionally, there will be a value error
                             # when comparing tuples, I'm really not sure why, maybe we should
                             # just ignore it since having extra AI actions sitting around
                             # isn't the worst thing in the world? Or go to default search?
 
-                            # update the lock might have fixed the issue
-
-                            # logger.warn("Issue with comparing queues")
-                            # logger.warn(state_diff)
-                            # logger.warn(self.ai_diff_queue)
-                            # for i in self.ai_diff_queue:
-                            #     logger.warn(i)
-                            #     logger.warn(state_diff in [i])
-                            # raise
+                            logger.warn("Issue with comparing queues")
+                            logger.warn(state_diff)
+                            logger.warn(self.ai_diff_queue)
+                            for i in self.ai_diff_queue:
+                                logger.warn(i)
+                                logger.warn(state_diff in [i])
+                            raise
 
                 self.update_malmo_state(new_state)
 
@@ -335,7 +336,7 @@ class MalmoInterface:
         print("handling break place")
 
         with self.malmo_lock:
-            expected_diffs = []
+            expected_diffs: List[MalmoStateDiff] = []
             action, player_location, yaw, pitch, inventory_slot = (
                 ai_action.action,
                 ai_action.player_location,
@@ -456,7 +457,7 @@ class MalmoInterface:
 
             return expected_diffs
 
-    def add_ai_action(self, player_index: int, action: MbagAction):
+    def add_ai_action(self, player_index: int, action: MbagMalmoAIAction):
         # print("Adding AI Action")
         # print(action)
         with self.ai_action_lock:
@@ -470,12 +471,14 @@ class MalmoInterface:
     def get_current_malmo_state(self):
         return self.malmo_state
 
-    def get_malmo_obs(self) -> List[List[Optional[MalmoObservationDict]]]:
+    def get_malmo_obs(self) -> List[List[MalmoObservationDict]]:
         """
         Gets the latest observations from Malmo, indexed first by timestamp, then by player.
         There may not be any Malmo observations
         """
-        malmo_observations = [[]] * self.config["num_players"]
+        malmo_observations: List[List[MalmoObservationDict]] = [[]] * self.config[
+            "num_players"
+        ]
         with self.malmo_lock:
             for player_index in range(self.config["num_players"]):
                 malmo_player_observations = self.malmo_client.get_observations(
@@ -493,11 +496,19 @@ class MalmoInterface:
         return [list(x) for x in list(zip(*malmo_observations))]
 
     def update_malmo_state(self, new_state: MalmoState):
+        # TODO: Do a check to make sure that these values actually exist?
         with self.malmo_state_lock:
-            self.malmo_state["blocks"] = new_state.get("blocks")
-            self.malmo_state["player_directions"] = new_state.get("player_directions")
-            self.malmo_state["player_locations"] = new_state.get("player_locations")
-            self.malmo_state["player_inventories"] = new_state.get("player_inventories")
+            blocks = new_state.get("blocks", None)
+            if blocks:
+                self.malmo_state["blocks"] = blocks
+
+            self.malmo_state["player_directions"] = new_state.get(
+                "player_directions", []
+            )
+            self.malmo_state["player_locations"] = new_state.get("player_locations", [])
+            self.malmo_state["player_inventories"] = new_state.get(
+                "player_inventories", []
+            )
 
     def run_ai_actions(self):
         while True:
@@ -531,7 +542,9 @@ class MalmoInterface:
                 ai_expected_diffs = self.handle_move(player_index, ai_action)
             elif ai_action.action.action_type == MbagAction.GIVE_BLOCK:
                 ai_expected_diffs = self.handle_give(player_index, ai_action)
-            self.ai_diff_queue.extend(ai_expected_diffs)
+
+            with self.ai_diff_queue_lock:
+                self.ai_diff_queue.extend(ai_expected_diffs)
             print(f"AI Expected Diffs {ai_expected_diffs}")
 
             # Wait for AI expected diffs to come through the observations
@@ -558,10 +571,10 @@ class MalmoInterface:
 def generate_state_diffs(
     reference_state: MalmoState, updated_state: MalmoState
 ) -> List[MalmoStateDiff]:
-    diffs = []
+    diffs: List[MalmoStateDiff] = []
 
-    reference_blocks = reference_state.get("blocks").blocks
-    updated_blocks = updated_state.get("blocks").blocks
+    reference_blocks = reference_state["blocks"].blocks
+    updated_blocks = updated_state["blocks"].blocks
     for location in cast(
         Sequence[BlockLocation],
         map(
@@ -586,9 +599,9 @@ def generate_state_diffs(
         # )
 
     for player_id, reference_location in enumerate(
-        reference_state.get("player_locations")
+        reference_state.get("player_locations", [])
     ):
-        updated_location = updated_state.get("player_locations")[player_id]
+        updated_location = updated_state["player_locations"][player_id]
         if any(
             abs(malmo_coord - stored_coord) > 1e-4
             for malmo_coord, stored_coord in zip(reference_location, updated_location)
@@ -601,7 +614,7 @@ def generate_state_diffs(
             diffs.append(LocationDiff(player_id, reference_location, updated_location))
 
     for player_id, reference_inventory in enumerate(
-        reference_state.get("player_inventories")
+        reference_state.get("player_inventories", [])
     ):
         reference_inventory_obs = get_inventory_obs(reference_inventory)
         updated_inventory_obs = get_inventory_obs(
@@ -629,10 +642,14 @@ def generate_state_diffs(
 
 
 # Returns best effort malmo state given the malmo observation
-def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> MalmoState:
+# TODO: some of the types are weird, maybe we can just pass a fallback?
+def convert_malmo_obs_to_state(
+    obs: List[MalmoObservationDict], config
+) -> Optional[MalmoState]:
     """
 
-    Takes in a list of MalmoObservationDicts and returns a MalmoState object
+    Takes in a list of MalmoObservationDicts and returns a MalmoState object. Best
+    effort is used when there is missing data.
     """
 
     assert len(obs) == len(config["players"])
@@ -649,9 +666,9 @@ def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> Malmo
     else:
         logger.warning("No block information from Malmo")
 
-    malmo_inventories = [None for _ in obs]
-    malmo_locations = [None for _ in obs]
-    malmo_directions = [None for _ in obs]
+    malmo_inventories: List[MbagInventory] = [None for _ in obs]
+    malmo_locations: List[WorldLocation] = [None for _ in obs]
+    malmo_directions: List[FacingDirection] = [None for _ in obs]
 
     for player_index in range(config["num_players"]):
         player_obs = obs[player_index]
@@ -690,7 +707,7 @@ def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> Malmo
         "player_locations": malmo_locations,
         "player_directions": malmo_directions,
         # TODO: Figure out how to get the following locations
-        "last_interacted": None,
+        "last_interacted": np.zeros(config["world_size"]),
         "player_currently_breaking_placing": [
             False for _ in range(config["num_players"])
         ],
