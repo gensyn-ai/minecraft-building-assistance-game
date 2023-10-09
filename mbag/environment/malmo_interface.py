@@ -68,18 +68,16 @@ class MalmoInterface:
     def finish_mission(self):
         # Wait for a second for the final block to place and then end mission.
         logger.info("Ending mission")
+
+        time.sleep(self.config["malmo"]["action_delay"])
         self.done = True
 
-        self.add_ai_action(-2, None)
         self.ai_thread.join()
         self.human_thread.join()
 
         with self.malmo_lock:
             time.sleep(1)
             self.malmo_client.end_mission()
-
-        # TODO: Assuming this should happen after the AI so that all the moves have time to get processed
-        self.human_thread.join()
 
         logger.info("Ended mission")
 
@@ -184,9 +182,11 @@ class MalmoInterface:
 
     def run_human_actions(self):
         # Clear the observations created during the setup stage
-        _ = self.get_malmo_obs()
+        malmo_timestep_obs = self.get_malmo_obs()
 
-        while not self.done:
+        # Continue the loop if there are more observations to process
+        # even if the process is done
+        while not self.done or len(malmo_timestep_obs) != 0:
             malmo_timestep_obs = self.get_malmo_obs()
 
             for malmo_observations in malmo_timestep_obs:
@@ -203,17 +203,36 @@ class MalmoInterface:
                 for state_diff in state_diffs:
                     print(f"state diff found: {state_diff}")
 
-                    if state_diff in self.ai_diff_queue:
-                        self.ai_diff_queue.remove(state_diff)
-                    else:
-                        logger.warning(
-                            f"Found Diffs between Malmo State and Malmo Observation that were not accounted for by AI Actions: {state_diff}"
-                        )
-                        # TODO: do the human actions here
+                    with self.ai_action_lock:
+                        try:
+                            if state_diff in self.ai_diff_queue:
+                                self.ai_diff_queue.remove(state_diff)
+                            else:
+                                logger.warning(
+                                    f"Found Diffs between Malmo State and Malmo Observation that were not accounted for by AI Actions: {state_diff}"
+                                )
+                                # TODO: do the human actions here
 
-                        # human_actions_queue.add_all(
-                        #     get_human_actions(self.malmo_state, state_diff)
-                        # )
+                                # human_actions_queue.add_all(
+                                #     get_human_actions(self.malmo_state, state_diff)
+                                # )
+                        except ValueError as e:
+                            pass
+                            # TODO: Very occasionally, there will be a value error
+                            # when comparing tuples, I'm really not sure why, maybe we should
+                            # just ignore it since having extra AI actions sitting around
+                            # isn't the worst thing in the world? Or go to default search?
+
+                            # update the lock might have fixed the issue
+
+                            # logger.warn("Issue with comparing queues")
+                            # logger.warn(state_diff)
+                            # logger.warn(self.ai_diff_queue)
+                            # for i in self.ai_diff_queue:
+                            #     logger.warn(i)
+                            #     logger.warn(state_diff in [i])
+                            # raise
+
                 self.update_malmo_state(new_state)
 
             time.sleep(0)
@@ -389,38 +408,44 @@ class MalmoInterface:
                         action.block_location, MinecraftBlocks.AIR, action.block_id
                     )
                 )
+
+                player_inventory_obs = get_inventory_obs(
+                    self.malmo_state["player_inventories"][player_index]
+                )
+
                 if not self.config["abilities"]["inf_blocks"]:
                     self.remove_block(player_index, action.block_id)
                     expected_diffs.append(
                         InventoryDiff(
                             player_index,
                             action.block_id,
-                            player_inventory[action.block_id],
-                            player_inventory[action.block_id] - 1,
+                            player_inventory_obs[action.block_id],
+                            player_inventory_obs[action.block_id] - 1,
                         )
                     )
 
             else:
                 time.sleep(0.1)  # Give time to teleport.
                 self.malmo_client.send_command(player_index, "attack 1")
+                block_id_broken = self.malmo_state["blocks"][action.block_location][0]
                 expected_diffs.append(
                     BlockDiff(
                         action.block_location,
-                        self.malmo_state["blocks"][action.block_location],
+                        block_id_broken,
                         MinecraftBlocks.AIR,
                     )
                 )
+
+                player_inventory_obs = get_inventory_obs(
+                    self.malmo_state["player_inventories"][player_index]
+                )
+
                 expected_diffs.append(
                     InventoryDiff(
                         player_index,
-                        action.block_id,
-                        self.malmo_state["player_inventories"][player_index][
-                            action.block_id
-                        ],
-                        self.malmo_state["player_inventories"][player_index][
-                            action.block_id
-                        ]
-                        + 1,
+                        block_id_broken,
+                        player_inventory_obs[block_id_broken],
+                        player_inventory_obs[block_id_broken] + 1,
                     )
                 )
 
@@ -674,7 +699,7 @@ def convert_malmo_obs_to_state(obs: List[MalmoObservationDict], config) -> Malmo
     return malmo_state
 
 
-def get_inventory_obs(player_inventory) -> MbagInventoryObs:
+def get_inventory_obs(player_inventory: MbagInventory) -> MbagInventoryObs:
     """
     Gets the array representation of the given player's inventory.
     """

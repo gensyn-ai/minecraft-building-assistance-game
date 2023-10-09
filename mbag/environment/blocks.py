@@ -14,6 +14,7 @@ from .types import (
     FacingDirection,
     MbagAction,
     MbagActionType,
+    MbagInventory,
     MbagInventoryObs,
     WorldLocation,
     WorldSize,
@@ -703,7 +704,7 @@ vn -1.000000 0.000000 0.000000
 class MalmoState(TypedDict):
     # TODO: Add docstrings, change the type annotations
     blocks: MinecraftBlocks
-    player_inventories: List[MbagInventoryObs]
+    player_inventories: List[MbagInventory]
     player_locations: List[BlockLocation]
     player_directions: List[FacingDirection]
     last_interacted: NDArray
