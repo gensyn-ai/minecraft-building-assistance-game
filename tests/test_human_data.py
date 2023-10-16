@@ -23,6 +23,7 @@ def test_convert_human_data_to_rllib():
                 config_updates={
                     "data_dir": "data/human_data/sample_tutorial",
                     "flat_actions": flat_actions,
+                    "flat_observations": False,
                     "out_dir": tmp_dir,
                 }
             ).result
