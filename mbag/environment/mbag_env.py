@@ -570,8 +570,8 @@ class MbagEnv(object):
         ).any() and not self.config["abilities"]["inf_blocks"]:
             logger.info("Copying palette from goal ")
             self._copy_palette_from_goal()
-            if self.config["malmo"]["use_malmo"]:
-                self.malmo_interface.copy_palette_from_goal()
+            # if self.config["malmo"]["use_malmo"]:
+            #     self.malmo_interface.copy_palette_from_goal()
 
         if self.config["malmo"]["use_malmo"]:
             begin = time.time()

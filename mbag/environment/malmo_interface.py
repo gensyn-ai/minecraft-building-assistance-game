@@ -57,6 +57,8 @@ class MalmoInterface:
         self.malmo_state_lock = Lock()
         self.done = False
 
+        self.palette_x = self.config["world_size"][0] - 1
+
     def get_malmo_client(self):
         """
         Dummy method to expose underlying malmo_client API
@@ -82,6 +84,7 @@ class MalmoInterface:
             time.sleep(1)
             self.malmo_client.end_mission()
 
+        logger.warning(self.ai_diff_queue)
         logger.info("Ended mission")
 
     def reset(
@@ -160,7 +163,6 @@ class MalmoInterface:
                     )
 
                     time.sleep(0.2)
-
             # Convert players to survival mode.
             # if not self.config["abilities"]["inf_blocks"]:
             for player_index in range(self.config["num_players"]):
@@ -172,16 +174,20 @@ class MalmoInterface:
                     player_index, "chat /gamerule sendCommandFeedback false"
                 )
 
-            # Start both AI action and human action thread
-            self.done = False
-            self.ai_thread = Thread(target=self.run_ai_actions)
-            self.ai_thread.start()
+        # Copy goal blocks over
+        print("Starting")
+        self.copy_palette_from_goal()
 
-            self.human_thread = Thread(target=self.run_human_actions)
-            self.human_thread.start()
+        # Start both AI action and human action thread
+        self.done = False
+        self.ai_thread = Thread(target=self.run_ai_actions)
+        self.ai_thread.start()
 
-            # TODO: Do the palette here
-            time.sleep(self.config["malmo"]["action_delay"])
+        self.human_thread = Thread(target=self.run_human_actions)
+        self.human_thread.start()
+
+        # TODO: Do the palette here
+        time.sleep(self.config["malmo"]["action_delay"])
 
     def run_human_actions(self):
         # Clear the observations created during the setup stage
@@ -205,6 +211,15 @@ class MalmoInterface:
                     state_diffs = generate_state_diffs(self.malmo_state, new_state)
                 for state_diff in state_diffs:
                     print(f"state diff found: {state_diff}")
+
+                    if (
+                        isinstance(state_diff, BlockDiff)
+                        and state_diff.location[0] == self.palette_x
+                    ):
+                        if state_diff.received_block == MinecraftBlocks.AIR:
+                            self.copy_palette_from_goal()
+                        else:
+                            continue
 
                     with self.ai_diff_queue_lock:
                         try:
@@ -231,6 +246,7 @@ class MalmoInterface:
                             logger.warn(self.ai_diff_queue)
                             for i in self.ai_diff_queue:
                                 logger.warn(i)
+                                logger.warn(state_diff == i)
                                 logger.warn(state_diff in [i])
                             raise
 
@@ -556,14 +572,13 @@ class MalmoInterface:
         # Sync with Malmo.
         with self.malmo_lock:
             width, height, depth = self.config["world_size"]
-            palette_x = width - 1
-            goal_palette_x = palette_x + width + 1
+            goal_palette_x = self.palette_x + width + 1
 
             self.malmo_client.send_command(
                 0,
                 f"chat /clone {goal_palette_x} 0 0 "
                 f"{goal_palette_x} {height - 1} {depth - 1} "
-                f"{palette_x} 0 0",
+                f"{self.palette_x} 0 0",
             )
             time.sleep(0.3)
 
@@ -598,10 +613,11 @@ def generate_state_diffs(
         #     "from Malmo"
         # )
 
+    # TODO: Somehow this is buggy in test_two_players_in_malmo
     for player_id, reference_location in enumerate(
         reference_state.get("player_locations", [])
     ):
-        updated_location = updated_state["player_locations"][player_id]
+        updated_location = updated_state.get("player_locations")[player_id]
         if any(
             abs(malmo_coord - stored_coord) > 1e-4
             for malmo_coord, stored_coord in zip(reference_location, updated_location)
