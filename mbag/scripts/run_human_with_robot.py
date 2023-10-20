@@ -5,11 +5,10 @@ from datetime import datetime
 from subprocess import Popen
 from typing import Optional
 
-# from malmo import minecraft
 from sacred import Experiment
 from sacred.observers import FileStorageObserver
-from mbag.agents.hardcoded_agents import HardcodedHumanAgent
 
+from mbag.agents.hardcoded_agents import HardcodedHumanAgent
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.goals import TransformedGoalGenerator, TutorialGoalGenerator
 from mbag.environment.mbag_env import MbagConfigDict
@@ -151,6 +150,8 @@ def main(
 ):
     minecraft_process: Optional[Popen] = None
     if launch_minecraft:
+        from malmo import minecraft
+
         (minecraft_process,) = minecraft.launch()
 
     evaluator = MbagEvaluator(

@@ -34,8 +34,8 @@ from mbag.environment.goals.transforms import (
     CropTransformConfig,
 )
 from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
-from mbag.rllib.alpha_zero import MbagAlphaZeroConfig
-from mbag.rllib.bc import BCConfig
+from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
+from mbag.rllib.bc import BCConfig, BCTorchPolicy
 
 from .callbacks import MbagCallbacks
 from .policies import MbagAgentPolicy, MbagPPOConfig, MbagPPOTorchPolicy
@@ -375,6 +375,10 @@ def sacred_config(_log):  # noqa
     policy_class: Union[None, Type[TorchPolicy], Type[TorchPolicyV2]] = None
     if "PPO" in run:
         policy_class = MbagPPOTorchPolicy
+    elif "AlphaZero" in run:
+        policy_class = MbagAlphaZeroPolicy
+    elif run == "BC":
+        policy_class = BCTorchPolicy
     policy_config: Dict[str, Any] = {
         "model": model_config,
         "goal_loss_coeff": goal_loss_coeff,
@@ -545,7 +549,7 @@ def sacred_config(_log):  # noqa
 
 @ex.automain
 def main(
-    config,
+    config: AlgorithmConfig,
     log_dir,
     experiment_name,
     run,
