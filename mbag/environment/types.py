@@ -44,6 +44,7 @@ LAST_INTERACTED = 5
 num_world_obs_channels = 6
 
 MbagObs = Tuple[MbagWorldObsArray, MbagInventoryObs, NDArray[np.int32]]
+"""Tuple of (world_obs, inventory_obs, timestep)."""
 
 MbagHumanCommandType = Literal["key", "mouse"]
 MbagHumanCommand = Literal[

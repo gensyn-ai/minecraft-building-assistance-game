@@ -549,7 +549,7 @@ def sacred_config(_log):  # noqa
 
 @ex.automain
 def main(
-    config,
+    config: AlgorithmConfig,
     log_dir,
     experiment_name,
     run,
