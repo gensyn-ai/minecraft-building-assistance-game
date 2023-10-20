@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 import numpy as np
 import torch
 from gymnasium import spaces
+from ray.rllib.algorithms import registry as rllib_algorithm_registry
 from ray.rllib.algorithms.algorithm_config import NotProvided
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero, AlphaZeroConfig
 from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
@@ -23,6 +24,7 @@ from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.utils.metrics import (
     NUM_AGENT_STEPS_SAMPLED,
     NUM_ENV_STEPS_SAMPLED,
+    SAMPLE_TIMER,
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
 from ray.rllib.utils.numpy import convert_to_numpy
@@ -808,6 +810,13 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         if pretrain is not NotProvided:
             self.pretrain = pretrain
 
+    def update_from_dict(self, config_dict):
+        if "mcts_config" in config_dict and isinstance(config_dict, dict):
+            self.mcts_config.update(config_dict["mcts_config"])
+            del config_dict["mcts_config"]
+
+        return super().update_from_dict(config_dict)
+
 
 class MbagAlphaZero(AlphaZero):
     def __init__(self, config: MbagAlphaZeroConfig, *args, **kwargs):
@@ -829,11 +838,12 @@ class MbagAlphaZero(AlphaZero):
         assert self.workers is not None
 
         # Sample n MultiAgentBatches from n workers.
-        new_sample_batches = synchronous_parallel_sample(
-            worker_set=self.workers,
-            concat=False,
-            max_env_steps=self.config["sample_batch_size"],
-        )
+        with self._timers[SAMPLE_TIMER]:
+            new_sample_batches = synchronous_parallel_sample(
+                worker_set=self.workers,
+                concat=False,
+                max_env_steps=self.config["sample_batch_size"],
+            )
 
         if isinstance(new_sample_batches, list):
             new_sample_batch = concat_samples(new_sample_batches)
@@ -850,13 +860,13 @@ class MbagAlphaZero(AlphaZero):
         if self.local_replay_buffer is not None:
             cur_ts = self._counters[
                 NUM_AGENT_STEPS_SAMPLED
-                if self._by_agent_steps
+                if self.config.count_steps_by == "agent_steps"
                 else NUM_ENV_STEPS_SAMPLED
             ]
 
-            if cur_ts > self.config["num_steps_sampled_before_learning_starts"]:
+            if cur_ts > self.config.num_steps_sampled_before_learning_starts:
                 train_batch = self.local_replay_buffer.sample(
-                    self.config["train_batch_size"]
+                    self.config.train_batch_size
                 )
             else:
                 train_batch = None
@@ -886,3 +896,6 @@ class MbagAlphaZero(AlphaZero):
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZero)
+rllib_algorithm_registry.POLICIES[
+    "MbagAlphaZeroPolicy"
+] = "mbag.rllib.alpha_zero.MbagAlphaZeroPolicy"

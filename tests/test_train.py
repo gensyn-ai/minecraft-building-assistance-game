@@ -55,7 +55,7 @@ def test_single_agent(default_config):
     ).result
 
     assert result is not None
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -71,7 +71,7 @@ def test_lstm(default_config):
     ).result
 
     assert result is not None
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -89,7 +89,7 @@ def test_transformer(default_config):
     ).result
 
     assert result is not None
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
     result = ex.run(
         config_updates={
@@ -104,7 +104,7 @@ def test_transformer(default_config):
     ).result
 
     assert result is not None
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -118,13 +118,13 @@ def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
             "use_extra_features": False,
             "own_reward_prop": 1,
             "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
-            "load_policies_mapping": {"ppo": "ppo_0"},
-            "policies_to_train": ["ppo_1"],
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["assistant"],
         }
     ).result
 
     assert result is not None
-    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+    assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -137,7 +137,7 @@ def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
     ).result
 
     assert result is not None
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -148,13 +148,13 @@ def test_train_together(default_config, dummy_ppo_checkpoint_fname):
             "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
             "multiagent_mode": "cross_play",
             "num_players": 2,
-            "load_policies_mapping": {"ppo": "ppo_0"},
-            "policies_to_train": ["ppo_0", "ppo_1"],
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["human", "assistant"],
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
-    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+    assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -170,7 +170,7 @@ def test_alpha_zero(default_config):
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["ppo/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -186,16 +186,16 @@ def test_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
             "mask_goal": True,
             "use_extra_features": False,
             "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
-            "load_policies_mapping": {"ppo": "ppo_0"},
-            "policies_to_train": ["ppo_1"],
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
             "num_simulations": 5,
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
-    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+    assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -211,8 +211,8 @@ def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
             "mask_goal": True,
             "use_extra_features": False,
             "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
-            "load_policies_mapping": {"ppo": "ppo_0"},
-            "policies_to_train": ["ppo_1"],
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
             "use_per_location_lstm": True,
@@ -223,8 +223,8 @@ def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
-    assert result["custom_metrics"]["ppo_1/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+    assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -239,7 +239,7 @@ def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
-            "policies_to_train": ["ppo_0"],
+            "policies_to_train": ["human"],
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
             "heuristic": "lowest_block",
@@ -247,7 +247,7 @@ def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["ppo_0/own_reward_mean"] > -10
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
     assert result["custom_metrics"]["lowest_block/place_block_accuracy_mean"] == 1
 
 
@@ -264,8 +264,8 @@ def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_f
             "mask_goal": True,
             "use_extra_features": False,
             "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
-            "load_policies_mapping": {"ppo": "ppo_0"},
-            "policies_to_train": ["ppo_1"],
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
             "hidden_size": 64,
             "pretrain": True,
@@ -273,5 +273,5 @@ def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_f
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["ppo_1/num_place_block_mean"] == 0
-    assert result["custom_metrics"]["ppo_1/num_break_block_mean"] == 0
+    assert result["custom_metrics"]["assistant/num_place_block_mean"] == 0
+    assert result["custom_metrics"]["assistant/num_break_block_mean"] == 0
