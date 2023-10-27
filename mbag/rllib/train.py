@@ -1,6 +1,7 @@
 import faulthandler
 import os
 import signal
+import tempfile
 from logging import Logger
 from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
@@ -38,6 +39,7 @@ from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
 
 from .callbacks import MbagCallbacks
+from .os_utils import available_cpu_count
 from .policies import MbagAgentPolicy, MbagPPOConfig, MbagPPOTorchPolicy
 from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
@@ -560,9 +562,12 @@ def main(
     load_policies_mapping: Dict[str, str],
     _log: Logger,
 ):
+    temp_dir = tempfile.mkdtemp()
     ray.init(
+        num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
+        _temp_dir=temp_dir,
     )
 
     algorithm_class: Type[Algorithm] = get_trainable_cls(run)
