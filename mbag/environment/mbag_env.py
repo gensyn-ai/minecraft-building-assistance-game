@@ -341,7 +341,7 @@ class MbagEnv(object):
                     0,
                     self.INVENTORY_NUM_SLOTS * self.STACK_SIZE,
                     (MinecraftBlocks.NUM_BLOCKS,),
-                    dtype=int,
+                    dtype=np.int32,
                 ),
                 spaces.Box(0, 0x7FFFFFFF, (), dtype=np.int32),
             )

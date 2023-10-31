@@ -124,7 +124,7 @@ class MbagAgentPolicy(Policy):
             extra_fetches[SampleBatch.ACTION_DIST_INPUTS] = np.stack(
                 action_dist_inputs, axis=0
             )
-        return action_array, state_arrays, extra_fetches  # type: ignore
+        return action_array, state_arrays, extra_fetches
 
     def learn_on_batch(self, samples):
         pass

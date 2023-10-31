@@ -1,13 +1,19 @@
-from typing import Iterable, List, cast
+from typing import TYPE_CHECKING, Iterable, List, Union, cast
 
 import numpy as np
 from ray.rllib.policy import Policy
-from ray.rllib.utils.typing import TensorType
 from typing_extensions import TypedDict
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import MbagActionTuple, MbagObs
+
+if TYPE_CHECKING:
+    import torch
+
+    TensorType = Union[np.ndarray, torch.Tensor]
+else:
+    from ray.rllib.utils.typing import TensorType
 
 
 class RllibMbagAgentConfigDict(TypedDict):

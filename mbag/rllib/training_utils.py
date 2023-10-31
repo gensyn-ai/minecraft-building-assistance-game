@@ -8,7 +8,7 @@ from ray.rllib.algorithms import Algorithm, AlgorithmConfig
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.checkpoints import get_checkpoint_info
-from ray.rllib.utils.typing import PolicyID, TrainerConfigDict
+from ray.rllib.utils.typing import PolicyID
 from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import get_trainable_cls
 
@@ -33,7 +33,7 @@ def build_logger_creator(log_dir: str, experiment_name: str):
     return custom_logger_creator
 
 
-def load_trainer_config(checkpoint_path: str) -> TrainerConfigDict:
+def load_trainer_config(checkpoint_path: str) -> dict:
     # Load configuration from checkpoint file.
     config_dir = os.path.dirname(checkpoint_path)
     config_path = os.path.join(config_dir, "params.pkl")
@@ -50,7 +50,7 @@ def load_trainer_config(checkpoint_path: str) -> TrainerConfigDict:
     # Load the config from pickled.
     else:
         with open(config_path, "rb") as f:
-            config: TrainerConfigDict = cloudpickle.load(f)
+            config: dict = cloudpickle.load(f)
 
     return config
 
