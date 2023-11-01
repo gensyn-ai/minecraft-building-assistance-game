@@ -458,6 +458,8 @@ def sacred_config(_log):  # noqa
         evaluation_duration=evaluation_duration,
         evaluation_duration_unit=evaluation_duration_unit,
     )
+    config.rl_module(_enable_rl_module_api=False)
+    config.training(_enable_learner_api=False)
 
     if "PPO" in run:
         assert isinstance(config, PPOConfig)
