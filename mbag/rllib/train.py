@@ -565,6 +565,7 @@ def main(
     _log: Logger,
 ):
     temp_dir = tempfile.mkdtemp()
+    os.environ["RAY_AIR_NEW_PERSISTENCE_MODE"] = "0"
     ray.init(
         num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
