@@ -88,7 +88,52 @@ def sacred_config(_log):  # noqa
     is_human = [False] * num_players
     own_reward_prop = 0
     own_reward_prop_horizon: Optional[int] = None
-    goal_generator_config = {"subset": goal_subset}
+    # Same goal generator config as in run_human_data_collection.py.
+    house_id = None
+    goal_generator_config = {
+        "goal_generator": "craftassist",
+        "goal_generator_config": {
+            "data_dir": "data/craftassist",
+            "subset": goal_subset,
+            "house_id": house_id,
+        },
+        "transforms": [
+            {
+                "transform": "largest_cc",
+                "config": {"connectivity": 18},
+            },
+            {"transform": "crop_air"},
+            {
+                "transform": "crop_low_density_bottom_layers",
+                "config": {"density_threshold": 0.1},
+            },
+            {
+                "transform": "min_size_filter",
+                "config": {"min_size": [4, 4, 4]},
+            },
+            {
+                "transform": "area_sample",
+                "config": {
+                    "interpolate": True,
+                    "interpolation_order": 1,
+                    "max_scaling_factor": 2,
+                    "max_scaling_factor_ratio": 1.5,
+                    "preserve_paths": True,
+                    "scale_y_independently": True,
+                },
+            },
+            {
+                "transform": "density_filter",
+                "config": {"max_density": 1, "min_density": 0},
+            },
+            {"transform": "randomly_place"},
+            {"transform": "add_grass"},
+            {
+                "transform": "single_cc_filter",
+                "config": {"connectivity": 18},
+            },
+        ],
+    }
 
     goal_transforms: List[GoalTransformSpec] = []
     uniform_block_type = False
