@@ -62,7 +62,9 @@ class MbagAgentPolicy(Policy):
         explore: Optional[bool] = None,
         timestep: Optional[int] = None,
         **kwargs,
-    ) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
+    ) -> Tuple[
+        Union[TensorType, Tuple[TensorType]], List[TensorType], Dict[str, TensorType]
+    ]:
         for batch_key, view_requirement in self.view_requirements.items():
             if batch_key.startswith("state_in_"):
                 view_requirement.batch_repeat_value = 1

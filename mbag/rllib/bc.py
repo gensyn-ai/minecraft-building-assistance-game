@@ -213,7 +213,7 @@ class BC(Algorithm):
             with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
                 from_worker = None
                 self.workers.sync_weights(
-                    from_worker_or_trainer=from_worker,
+                    from_worker_or_learner_group=from_worker,
                     policies=list(train_results.keys()),
                     global_vars=global_vars,
                 )
