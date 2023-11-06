@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, cast
 
 import gymnasium as gym
 import numpy as np
@@ -62,9 +62,7 @@ class MbagAgentPolicy(Policy):
         explore: Optional[bool] = None,
         timestep: Optional[int] = None,
         **kwargs,
-    ) -> Tuple[
-        Union[TensorType, Tuple[TensorType]], List[TensorType], Dict[str, TensorType]
-    ]:
+    ) -> Tuple[TensorType, List[TensorType], Dict[str, TensorType]]:
         for batch_key, view_requirement in self.view_requirements.items():
             if batch_key.startswith("state_in_"):
                 view_requirement.batch_repeat_value = 1
@@ -102,7 +100,6 @@ class MbagAgentPolicy(Policy):
             actions.append(action)
             new_states.append(self.agent.get_state())
 
-        action_array: Union[np.ndarray, Tuple[np.ndarray, ...]]
         if self.flat_actions:
             action_array = np.array(
                 [
@@ -113,9 +110,11 @@ class MbagAgentPolicy(Policy):
                 ]
             )
         else:
-            action_array = tuple(
-                np.array([action[action_part] for action in actions])
-                for action_part in range(3)
+            action_array = np.array(
+                [
+                    np.array([action[action_part] for action in actions])
+                    for action_part in range(3)
+                ]
             )
         state_arrays = [
             np.array([new_state[state_part] for new_state in new_states])
