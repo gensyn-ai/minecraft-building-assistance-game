@@ -458,6 +458,8 @@ def sacred_config(_log):  # noqa
         evaluation_duration=evaluation_duration,
         evaluation_duration_unit=evaluation_duration_unit,
     )
+    config.rl_module(_enable_rl_module_api=False)
+    config.training(_enable_learner_api=False)
 
     if "PPO" in run:
         assert isinstance(config, PPOConfig)
@@ -563,6 +565,7 @@ def main(
     _log: Logger,
 ):
     temp_dir = tempfile.mkdtemp()
+    os.environ["RAY_AIR_NEW_PERSISTENCE_MODE"] = "0"
     ray.init(
         num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
