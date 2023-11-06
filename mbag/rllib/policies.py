@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union, cast
 
 import gymnasium as gym
 import numpy as np
@@ -100,6 +100,7 @@ class MbagAgentPolicy(Policy):
             actions.append(action)
             new_states.append(self.agent.get_state())
 
+        action_array: Union[np.ndarray, Tuple[np.ndarray, ...]]
         if self.flat_actions:
             action_array = np.array(
                 [
@@ -110,11 +111,9 @@ class MbagAgentPolicy(Policy):
                 ]
             )
         else:
-            action_array = np.array(
-                [
-                    np.array([action[action_part] for action in actions])
-                    for action_part in range(3)
-                ]
+            action_array = tuple(
+                np.array([action[action_part] for action in actions])
+                for action_part in range(3)
             )
         state_arrays = [
             np.array([new_state[state_part] for new_state in new_states])
@@ -125,7 +124,7 @@ class MbagAgentPolicy(Policy):
             extra_fetches[SampleBatch.ACTION_DIST_INPUTS] = np.stack(
                 action_dist_inputs, axis=0
             )
-        return action_array, state_arrays, extra_fetches
+        return action_array, state_arrays, extra_fetches  # type: ignore
 
     def learn_on_batch(self, samples):
         pass
