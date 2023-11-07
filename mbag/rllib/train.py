@@ -1,9 +1,11 @@
 import faulthandler
 import os
 import signal
+import sys
 import tempfile
+from datetime import datetime
 from logging import Logger
-from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type, Union, cast
 
 import ray
 import torch
@@ -20,6 +22,7 @@ from ray.tune.registry import ENV_CREATOR, _global_registry, get_trainable_cls
 from sacred import SETTINGS as SACRED_SETTINGS
 from sacred import Experiment
 from sacred.config.custom_containers import DogmaticDict
+from sacred.observers import FileStorageObserver
 from typing_extensions import Literal
 
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
@@ -50,6 +53,16 @@ from .training_utils import (
     load_policies_from_checkpoint,
     load_trainer_config,
 )
+
+if TYPE_CHECKING:
+    from typing import List
+else:
+    # Deal with weird sacred serialization issue.
+    if sys.version_info >= (3, 9):
+        List = list
+    else:
+        from typing import Sequence as List
+
 
 ex = Experiment("train_mbag")
 SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -426,7 +439,8 @@ def sacred_config(_log):  # noqa
         experiment_name_parts.append(heuristic)
     if experiment_tag is not None:
         experiment_name_parts.append(experiment_tag)
-    experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
+    experiment_name_parts.append(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    experiment_dir = os.path.join(log_dir, *experiment_name_parts)
 
     config.framework("torch")
     config.rollouts(
@@ -550,18 +564,20 @@ def sacred_config(_log):  # noqa
     del env
     del loaded_policy_dict
 
+    observer = FileStorageObserver(experiment_dir)
+    ex.observers.append(observer)
+
 
 @ex.automain
 def main(
     config: AlgorithmConfig,
-    log_dir,
-    experiment_name,
     run,
     num_training_iters,
     save_freq,
     checkpoint_path: Optional[str],
     checkpoint_to_load_policies: Optional[str],
     load_policies_mapping: Dict[str, str],
+    observer,
     _log: Logger,
 ):
     temp_dir = tempfile.mkdtemp()
@@ -576,10 +592,7 @@ def main(
     algorithm_class: Type[Algorithm] = get_trainable_cls(run)
     trainer = algorithm_class(
         config,
-        logger_creator=build_logger_creator(
-            log_dir,
-            experiment_name,
-        ),
+        logger_creator=build_logger_creator(observer.dir),
     )
 
     if checkpoint_to_load_policies is not None:

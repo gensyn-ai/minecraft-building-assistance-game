@@ -1,6 +1,5 @@
 import glob
 import os
-from datetime import datetime
 from typing import Any, Callable, Dict, Type, Union, cast
 
 import cloudpickle
@@ -13,13 +12,7 @@ from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import get_trainable_cls
 
 
-def build_logger_creator(log_dir: str, experiment_name: str):
-    experiment_dir = os.path.join(
-        log_dir,
-        experiment_name,
-        datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-    )
-
+def build_logger_creator(experiment_dir: str):
     def custom_logger_creator(config):
         """
         Creates a Unified logger that stores results in

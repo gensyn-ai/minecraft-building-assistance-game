@@ -39,7 +39,7 @@ def dummy_ppo_checkpoint_fname(default_config):
     ex.run(config_updates={**default_config, "log_dir": checkpoint_dir})
 
     checkpoint_fname = glob.glob(
-        checkpoint_dir + "/MbagPPO/self_play/6x6x6/random/*/checkpoint_000002"
+        checkpoint_dir + "/MbagPPO/self_play/6x6x6/random/*/*/checkpoint_000002"
     )[0]
     assert os.path.exists(checkpoint_fname)
     return checkpoint_fname
