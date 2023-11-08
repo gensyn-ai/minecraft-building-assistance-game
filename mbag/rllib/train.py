@@ -33,8 +33,8 @@ from mbag.environment.goals.goal_transform import (
     TransformedGoalGeneratorConfig,
 )
 from mbag.environment.goals.transforms import (
-    AreaSampleTransform,
     AreaSampleTransformConfig,
+    CropLowDensityBottomLayersTransformConfig,
     CropTransformConfig,
 )
 from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
@@ -81,7 +81,7 @@ def sacred_config(_log):  # noqa
 
     # Environment
     environment_name = "MBAGFlatActions-v1"
-    goal_generator = "random"
+    goal_generator = "craftassist"
     goal_subset = "train"
     horizon = 1000
     num_players = 1
@@ -112,6 +112,7 @@ def sacred_config(_log):  # noqa
     force_single_cc = True
     force_single_cc_connectivity = 18
     crop_air = True
+    crop_low_density_bottom_layers = True
     crop = False
     crop_density_threshold = 0.25
     area_sample = True
@@ -129,6 +130,16 @@ def sacred_config(_log):  # noqa
         )
     if crop_air:
         goal_transforms.append({"transform": "crop_air"})
+    if crop_low_density_bottom_layers:
+        crop_low_density_config: CropLowDensityBottomLayersTransformConfig = {
+            "density_threshold": 0.1
+        }
+        goal_transforms.append(
+            {
+                "transform": "crop_low_density_bottom_layers",
+                "config": crop_low_density_config,
+            }
+        )
     min_size_config: MinSizeFilterConfig = {
         "min_size": (min_width, min_height, min_depth)
     }
@@ -142,14 +153,12 @@ def sacred_config(_log):  # noqa
         goal_transforms.append({"transform": "crop", "config": crop_config})
     if area_sample:
         area_sample_config: AreaSampleTransformConfig = {
-            "max_scaling_factor": 2,
             "interpolate": True,
             "interpolation_order": 1,
-            "scale_y_independently": True,
-            "max_scaling_factor_ratio": AreaSampleTransform.default_config[
-                "max_scaling_factor_ratio"
-            ],
+            "max_scaling_factor": 2,
+            "max_scaling_factor_ratio": 1.5,
             "preserve_paths": True,
+            "scale_y_independently": True,
         }
         goal_transforms.append(
             {"transform": "area_sample", "config": area_sample_config}
