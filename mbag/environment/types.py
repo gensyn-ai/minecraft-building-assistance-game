@@ -1,6 +1,6 @@
 from collections import namedtuple
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Tuple, Union, cast
+from typing import TYPE_CHECKING, Dict, List, NamedTuple, Tuple, Union, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -203,13 +203,27 @@ class MbagGiveAIAction:
 
 
 MbagMalmoAIAction = Union[MbagPlaceBreakAIAction, MbagMoveAIAction, MbagGiveAIAction]
-BlockDiff = namedtuple("BlockDiff", ["location", "expected_block", "received_block"])
-InventoryDiff = namedtuple(
-    "InventoryDiff", ["player_id", "block_id", "expected_number", "received_number"]
-)
-LocationDiff = namedtuple(
-    "LocationDiff", ["player_id", "expected_location", "received_location"]
-)
+
+
+class BlockDiff(NamedTuple):
+    location: BlockLocation
+    old_block: int
+    new_block: int
+
+
+class InventoryDiff(NamedTuple):
+    player_id: int
+    block_id: int
+    old_number: int
+    new_number: int
+
+
+class LocationDiff(NamedTuple):
+    player_id: int
+    old_location: WorldLocation
+    new_location: WorldLocation
+
+
 MalmoStateDiff = Union[BlockDiff, InventoryDiff, LocationDiff]
 
 
