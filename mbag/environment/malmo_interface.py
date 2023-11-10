@@ -75,7 +75,10 @@ class MalmoInterface:
         logger.info("Ending mission")
 
         time.sleep(self.config["malmo"]["action_delay"])
-        self.done = True
+
+        with self.ai_action_lock:
+            self.done = True
+            self.ai_action_lock.notify()
 
         self.ai_thread.join()
         self.human_thread.join()
