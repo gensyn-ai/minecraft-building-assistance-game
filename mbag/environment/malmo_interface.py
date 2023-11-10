@@ -21,6 +21,7 @@ from mbag.environment.types import (
     MbagInventory,
     MbagInventoryObs,
     MbagMalmoAIAction,
+    MbagMoveAIAction,
     MbagPlaceBreakAIAction,
     WorldLocation,
 )
@@ -30,7 +31,7 @@ from .malmo import MalmoClient, MalmoObservationDict
 logger = logging.getLogger(__name__)
 
 
-# TODO: This should be it's own type in MbagTypes at some point
+# TODO: This should be its own type in MbagTypes at some point
 NO_ONE = 0
 CURRENT_PLAYER = 1
 OTHER_PLAYER = 2
@@ -62,7 +63,7 @@ class MalmoInterface:
     def get_malmo_client(self):
         """
         Dummy method to expose underlying malmo_client API
-        Will get deleted after migration is complete
+        TODO: delete after migration is complete
         """
         return self.malmo_client
 
@@ -166,8 +167,8 @@ class MalmoInterface:
                     )
 
                     time.sleep(0.2)
+
             # Convert players to survival mode.
-            # if not self.config["abilities"]["inf_blocks"]:
             for player_index in range(self.config["num_players"]):
                 if self.config["players"][player_index]["is_human"]:
                     self.malmo_client.send_command(player_index, "chat /gamemode 0")
@@ -192,6 +193,30 @@ class MalmoInterface:
         # TODO: Do the palette here
         time.sleep(self.config["malmo"]["action_delay"])
 
+    def get_malmo_obs(self) -> List[List[MalmoObservationDict]]:
+        """
+        Gets the latest observations from Malmo, indexed first by timestamp, then by player.
+        There may not be any Malmo observations
+        """
+        malmo_observations: List[List[MalmoObservationDict]] = [[]] * self.config[
+            "num_players"
+        ]
+        with self.malmo_lock:
+            for player_index in range(self.config["num_players"]):
+                malmo_player_observations = self.malmo_client.get_observations(
+                    player_index
+                )
+
+                # print(f"Player {player_index} obs:")
+                # print(malmo_player_observations)
+
+                if len(malmo_player_observations) > 0:
+                    malmo_observations[player_index] = [
+                        x for _, x in sorted(malmo_player_observations)
+                    ]
+
+        return [list(x) for x in list(zip(*malmo_observations))]
+
     def run_human_actions(self):
         # Clear the observations created during the setup stage
         malmo_timestep_obs = self.get_malmo_obs()
@@ -203,8 +228,6 @@ class MalmoInterface:
 
             for malmo_observations in malmo_timestep_obs:
                 new_state = convert_malmo_obs_to_state(malmo_observations, self.config)
-                # print("New State Observations")
-                # print(new_state)
 
                 # TODO: this may not be necessary
                 if not new_state:
@@ -219,7 +242,7 @@ class MalmoInterface:
                         isinstance(state_diff, BlockDiff)
                         and state_diff.location[0] == self.palette_x
                     ):
-                        if state_diff.received_block == MinecraftBlocks.AIR:
+                        if state_diff.new_block == MinecraftBlocks.AIR:
                             self.copy_palette_from_goal()
                         else:
                             continue
@@ -260,7 +283,9 @@ class MalmoInterface:
     def get_human_actions(self):
         pass
 
-    def handle_move(self, player_index, ai_action) -> List[LocationDiff]:
+    def handle_ai_move_action(
+        self, player_index: int, ai_action: MbagMoveAIAction
+    ) -> List[LocationDiff]:
         """
         Executes a player's movement in Malmo. Returns the expected location difference
         """
@@ -297,7 +322,7 @@ class MalmoInterface:
                 )
             return [movement_diff]
 
-    def remove_block(self, player_index, block_id):
+    def remove_block_from_player_in_malmo(self, player_index: int, block_id: int):
         assert not self.config["abilities"]["inf_blocks"]
         player_name = self.malmo_client.get_player_name(player_index, self.config)
         block_name = MinecraftBlocks.ID2NAME[block_id]
@@ -306,7 +331,7 @@ class MalmoInterface:
             player_index, f"chat /clear {player_name} {block_name} 0 1"
         )
 
-    def add_block(self, player_index, block_id):
+    def add_block_to_player_in_malmo(self, player_index: int, block_id: int):
         player_name = self.malmo_client.get_player_name(player_index, self.config)
         block_name = MinecraftBlocks.ID2NAME[block_id]
 
@@ -314,7 +339,7 @@ class MalmoInterface:
             player_index, f"chat /give {player_name} {block_name}"
         )
 
-    def handle_give(
+    def handle_ai_give_action(
         self, player_index: int, ai_action: MbagGiveAIAction
     ) -> List[InventoryDiff]:
         action, giver_index, receiver_index = (
@@ -327,8 +352,8 @@ class MalmoInterface:
         assert not self.config["abilities"]["inf_blocks"]
 
         with self.malmo_lock:
-            self.remove_block(giver_index, action.block_id)
-            self.add_block(receiver_index, action.block_id)
+            self.remove_block_from_player_in_malmo(giver_index, action.block_id)
+            self.add_block_to_player_in_malmo(receiver_index, action.block_id)
 
             giver_inventory = get_inventory_obs(
                 self.malmo_state["player_inventories"][giver_index]
@@ -351,7 +376,9 @@ class MalmoInterface:
                 ),
             ]
 
-    def handle_place_break(self, player_index: int, ai_action: MbagPlaceBreakAIAction):
+    def handle_ai_place_break_action(
+        self, player_index: int, ai_action: MbagPlaceBreakAIAction
+    ):
         print("handling break place")
 
         with self.malmo_lock:
@@ -434,7 +461,9 @@ class MalmoInterface:
                 )
 
                 if not self.config["abilities"]["inf_blocks"]:
-                    self.remove_block(player_index, action.block_id)
+                    self.remove_block_from_player_in_malmo(
+                        player_index, action.block_id
+                    )
                     expected_diffs.append(
                         InventoryDiff(
                             player_index,
@@ -484,35 +513,11 @@ class MalmoInterface:
             # print(self.ai_action_queue)
             self.ai_action_lock.notify()
 
-    def running_ai_actions(self):
+    def running_ai_actions(self) -> bool:
         return len(self.ai_action_queue) == 0 and not self.malmo_lock.locked()
 
     def get_current_malmo_state(self):
         return self.malmo_state
-
-    def get_malmo_obs(self) -> List[List[MalmoObservationDict]]:
-        """
-        Gets the latest observations from Malmo, indexed first by timestamp, then by player.
-        There may not be any Malmo observations
-        """
-        malmo_observations: List[List[MalmoObservationDict]] = [[]] * self.config[
-            "num_players"
-        ]
-        with self.malmo_lock:
-            for player_index in range(self.config["num_players"]):
-                malmo_player_observations = self.malmo_client.get_observations(
-                    player_index
-                )
-
-                # print(f"Player {player_index} obs:")
-                # print(malmo_player_observations)
-
-                if len(malmo_player_observations) > 0:
-                    malmo_observations[player_index] = [
-                        x for _, x in sorted(malmo_player_observations)
-                    ]
-
-        return [list(x) for x in list(zip(*malmo_observations))]
 
     def update_malmo_state(self, new_state: MalmoState):
         # TODO: Do a check to make sure that these values actually exist?
@@ -556,11 +561,13 @@ class MalmoInterface:
                 ai_action.action.action_type == MbagAction.PLACE_BLOCK
                 or ai_action.action.action_type == MbagAction.BREAK_BLOCK
             ):
-                ai_expected_diffs = self.handle_place_break(player_index, ai_action)
+                ai_expected_diffs = self.handle_ai_place_break_action(
+                    player_index, ai_action
+                )
             elif ai_action.action.action_type in MbagAction.MOVE_ACTION_TYPES:
-                ai_expected_diffs = self.handle_move(player_index, ai_action)
+                ai_expected_diffs = self.handle_ai_move_action(player_index, ai_action)
             elif ai_action.action.action_type == MbagAction.GIVE_BLOCK:
-                ai_expected_diffs = self.handle_give(player_index, ai_action)
+                ai_expected_diffs = self.handle_ai_give_action(player_index, ai_action)
 
             with self.ai_diff_queue_lock:
                 self.ai_diff_queue.extend(ai_expected_diffs)
