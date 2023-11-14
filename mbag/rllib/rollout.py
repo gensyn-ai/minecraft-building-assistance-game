@@ -3,14 +3,14 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-import gym
+import gymnasium as gym
 import ray
 import torch
-from ray.rllib.algorithms import Algorithm
 from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.utils import merge_dicts  # type: ignore
 from ray.rllib.utils.typing import PolicyID
 from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import SETTINGS, Experiment
@@ -52,6 +52,11 @@ def sacred_config():
 
     record_video = False  # noqa: F841
 
+    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out_dir = os.path.join(  # noqa: F841
+        checkpoint, f"rollouts_{experiment_name}{time_str}"
+    )
+
 
 @ex.automain
 def main(
@@ -63,6 +68,7 @@ def main(
     policy_ids: Optional[List[str]],
     player_names: Optional[List[str]],
     record_video: bool,
+    out_dir: str,
     _log,
 ):
     ray.init(
@@ -70,14 +76,13 @@ def main(
         include_dashboard=False,
     )
 
-    config_updates = Algorithm.merge_trainer_configs(
-        config_updates, extra_config_updates, _allow_unknown_configs=True
+    config_updates = merge_dicts(
+        config_updates,
+        extra_config_updates,
     )
 
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if not experiment_name.endswith("_") and experiment_name != "":
         experiment_name += "_"
-    out_dir = os.path.join(checkpoint, f"rollouts_{experiment_name}{time_str}")
     _log.info(f"writing output to {out_dir}")
     os.makedirs(out_dir, exist_ok=True)
     config_updates["output"] = out_dir
