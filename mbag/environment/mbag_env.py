@@ -134,8 +134,8 @@ class RewardsConfigDict(TypedDict, total=False):
 
     get_resources: float
     """
-    A number from 0 to 1. The reward for getting a resource by mining the palette.
-    Not sure if strictly necessary.
+    The reward for getting a resource block from the palette that the player
+    did not have in their inventory previously.
     """
 
 
