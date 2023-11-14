@@ -275,3 +275,29 @@ def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_f
     assert result is not None
     assert result["custom_metrics"]["assistant/num_place_block_mean"] == 0
     assert result["custom_metrics"]["assistant/num_break_block_mean"] == 0
+
+
+@pytest.mark.uses_rllib
+def test_bc(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "BC",
+            "num_workers": 0,
+            "evaluation_num_workers": 2,
+            "use_extra_features": True,
+            "model": "transformer",
+            "use_separated_transformer": True,
+            "num_layers": 3,
+            "vf_share_layers": True,
+            "hidden_channels": 64,
+            "num_sgd_iter": 1,
+            "inf_blocks": False,
+            "teleportation": False,
+            "input": "data/human_data/sample_tutorial_rllib",
+            "is_human": [True],
+            "mask_action_distribution": False,
+            "validation_prop": 0.1,
+        }
+    ).result
+    assert result is not None
