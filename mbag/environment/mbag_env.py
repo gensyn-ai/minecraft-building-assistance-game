@@ -938,7 +938,8 @@ class MbagEnv(object):
 
                 # Remove the extra cobblestone
                 if (
-                    not self.config["players"][player_index]["is_human"]
+                    self.config["malmo"]["use_malmo"]
+                    and not self.config["players"][player_index]["is_human"]
                     and prev_block[0] == MinecraftBlocks.NAME2ID["stone"]
                 ):
                     player_name = self.malmo_client.get_player_name(
