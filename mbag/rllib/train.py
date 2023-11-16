@@ -102,6 +102,7 @@ def sacred_config(_log):  # noqa
     own_reward_prop = 0
     own_reward_prop_horizon: Optional[int] = None
     goal_generator_config = {"subset": goal_subset}
+
     goal_transforms: List[GoalTransformSpec] = []
     uniform_block_type = False
     min_density = 0
