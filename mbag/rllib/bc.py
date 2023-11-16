@@ -189,6 +189,10 @@ class BC(Algorithm):
         self._counters[NUM_AGENT_STEPS_SAMPLED] += train_batch.agent_steps()
         self._counters[NUM_ENV_STEPS_SAMPLED] += train_batch.env_steps()
 
+        for policy_id, policy_batch in train_batch.policy_batches.items():
+            if "infos" in policy_batch:
+                del policy_batch["infos"]
+
         # Train
         train_results: ResultDict
         if self.config["simple_optimizer"]:

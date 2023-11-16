@@ -78,7 +78,7 @@ class LayerBuilderAgent(MbagAgent):
             goal_blocks = world_obs[2, :, self.current_layer, :]
 
             layer_block_location: Tuple[int, int] = tuple(
-                random.choice(np.argwhere(layer_blocks != goal_blocks))  # type: ignore
+                random.choice(np.argwhere(layer_blocks != goal_blocks))
             )
             block_location: BlockLocation = (
                 layer_block_location[0],
