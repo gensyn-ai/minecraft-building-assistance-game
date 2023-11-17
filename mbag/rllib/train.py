@@ -525,6 +525,9 @@ def sacred_config(_log):  # noqa
             "dirichlet_noise": 0.03,
             "argmax_tree_policy": argmax_tree_policy,
             "add_dirichlet_noise": add_dirichlet_noise,
+            "prior_temperature": 1.0,
+            "init_q_with_max": False,
+            "use_bilevel_action_selection": True,
         }
         config.training(
             lr=lr,

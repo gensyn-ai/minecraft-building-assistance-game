@@ -190,7 +190,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
     ) -> TensorType:
         if not hasattr(model, "_backbone_out"):
             model(train_batch)
-        log_odds = model.goal_function()
+        log_odds = model.goal_predictor()
 
         ce = nn.CrossEntropyLoss()
         loss: torch.Tensor = ce(log_odds, goal)

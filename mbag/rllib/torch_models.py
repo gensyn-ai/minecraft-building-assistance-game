@@ -437,7 +437,7 @@ class MbagTorchModel(ActorCriticModel):
                 vf = self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
         return vf.float()
 
-    def goal_function(self):
+    def goal_predictor(self):
         with self._amp_or_nothing:
             goal_preds = self.goal_head(self._backbone_out)
         return goal_preds.float()

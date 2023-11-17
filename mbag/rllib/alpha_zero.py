@@ -108,7 +108,9 @@ class MbagMCTSNode(Node):
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
-        Q[self.child_number_visits == 0] = V
+        Q[self.child_number_visits == 0] = (
+            self.max_value if self.mcts.init_q_with_max else V
+        )
         Q = (Q - self.min_value) / max(  # noqa: N806
             self.max_value - self.min_value, 0.01
         )
@@ -125,7 +127,7 @@ class MbagMCTSNode(Node):
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
-        Q[number_visits == 0] = V
+        Q[number_visits == 0] = self.max_value if self.mcts.init_q_with_max else V
         Q = (Q - self.min_value) / max(  # noqa: N806
             self.max_value - self.min_value, 0.01
         )
@@ -151,17 +153,20 @@ class MbagMCTSNode(Node):
         )
 
     def best_action(self) -> int:
-        action_type_score = (
-            self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
-        )
-        action_type_score[~self.valid_action_types] = -np.inf
-        action_type = np.argmax(action_type_score)
+        if self.mcts.use_bilevel_action_selection:
+            action_type_score = (
+                self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
+            )
+            action_type_score[~self.valid_action_types] = -np.inf
+            action_type = np.argmax(action_type_score)
 
-        child_score = self.child_Q() + self.mcts.c_puct * self.child_U()
-        masked_child_score = child_score
-        masked_child_score[~self.valid_actions] = -np.inf
-        masked_child_score[self.action_mapping[:, 0] != action_type] = -np.inf
-        return int(np.argmax(masked_child_score))
+            child_score = self.child_Q() + self.mcts.c_puct * self.child_U()
+            masked_child_score = child_score
+            masked_child_score[~self.valid_actions] = -np.inf
+            masked_child_score[self.action_mapping[:, 0] != action_type] = -np.inf
+            return int(np.argmax(masked_child_score))
+        else:
+            return int(super().best_action())
 
     def expand(
         self,
@@ -244,7 +249,6 @@ class MbagMCTSNode(Node):
 
         if all_actions not in self.children:
             self.env.set_state(self.state)
-            assert self.goal_logits is not None
             obs, reward, terminated, truncated, info = self.env.step(
                 action,
                 goal_logits=self.goal_logits,
@@ -291,10 +295,13 @@ class MbagMCTSNode(Node):
 class MbagMCTS(MCTS):
     _temperature_schedule: Optional[Schedule]
 
-    def __init__(self, model, mcts_param, gamma: float, use_critic=True):
+    def __init__(
+        self, model, mcts_param, gamma: float, use_critic=True, use_goal_predictor=True
+    ):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
+        self.use_goal_predictor = use_goal_predictor
 
         self._temperature_schedule = None
         if mcts_param["temperature_schedule"] is not None:
@@ -304,6 +311,12 @@ class MbagMCTS(MCTS):
                 framework=None,
             )
             self.temperature = self._temperature_schedule.value(0)
+
+        self.prior_temperature = mcts_param.get("prior_temperature", 1.0)
+        self.init_q_with_max = mcts_param.get("init_q_with_max", False)
+        self.use_bilevel_action_selection = mcts_param.get(
+            "use_bilevel_action_selection", False
+        )
 
     def update_temperature(self, global_timestep: int):
         if self._temperature_schedule is not None:
@@ -321,10 +334,17 @@ class MbagMCTS(MCTS):
                     leaf.model_state_in,
                 )
 
+                child_priors = child_priors**self.prior_temperature
+                child_priors /= child_priors.sum()
+
                 if not self.use_critic:
                     value = 0
 
-                goal_logits = convert_to_numpy(self.model.goal_function())[0]
+                goal_logits: Optional[np.ndarray]
+                if self.use_goal_predictor:
+                    goal_logits = convert_to_numpy(self.model.goal_predictor())[0]
+                else:
+                    goal_logits = None
 
                 other_agent_action_dist: Optional[np.ndarray] = None
                 if isinstance(self.model, OtherAgentActionPredictorMixin):
@@ -414,7 +434,13 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             return MbagEnvModel(env, env_config)
 
         def mcts_creator():
-            return MbagMCTS(model, config["mcts_config"], config["gamma"])
+            return MbagMCTS(
+                model,
+                config["mcts_config"],
+                config["gamma"],
+                use_critic=config["use_critic"],
+                use_goal_predictor=config["use_goal_predictor"],
+            )
 
         super().__init__(
             obs_space,
@@ -630,7 +656,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         entropy = reduce_mean_valid(dist.entropy())
 
         # Compute goal prediction loss.
-        goal_logits = model.goal_function()
+        goal_logits = model.goal_predictor()
         world_obs, _, _ = restore_original_dimensions(
             train_batch[SampleBatch.OBS],
             obs_space=self.observation_space,
@@ -739,6 +765,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.entropy_coeff = 0
         self.entropy_coeff_schedule = 0
         self.use_critic = True
+        self.use_goal_predictor = True
         self.use_replay_buffer = True
         self.num_steps_sampled_before_learning_starts = 0
         self.pretrain = False
@@ -756,6 +783,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         entropy_coeff=NotProvided,
         entropy_coeff_schedule=NotProvided,
         use_critic=NotProvided,
+        use_goal_predictor=NotProvided,
         use_replay_buffer=NotProvided,
         num_steps_sampled_before_learning_starts=NotProvided,
         pretrain=NotProvided,
@@ -774,6 +802,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             entropy_coeff_schedule (float): Schedule for the entropy
                 coefficient.
             use_critic (bool): Whether to use a critic.
+            use_goal_predictor (bool): Whether to use a goal predictor.
             use_replay_buffer (bool): Whether to use a replay buffer.
             num_steps_sampled_before_learning_starts (int): Number of steps
                 collected before learning starts.
@@ -800,6 +829,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             self.entropy_coeff_schedule = entropy_coeff_schedule
         if use_critic is not NotProvided:
             self.use_critic = use_critic
+        if use_goal_predictor is not NotProvided:
+            self.use_goal_predictor = use_goal_predictor
         if use_replay_buffer is not NotProvided:
             self.use_replay_buffer = use_replay_buffer
         if num_steps_sampled_before_learning_starts is not NotProvided:
