@@ -342,6 +342,7 @@ def sacred_config(_log):  # noqa
 
     # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
     load_policies_mapping: Dict[str, str] = {}
+    overwrite_loaded_policy_type = False
     if isinstance(load_policies_mapping, DogmaticDict):
         # Weird shim for sacred
         for key in load_policies_mapping.revelation():
@@ -410,6 +411,8 @@ def sacred_config(_log):  # noqa
     for policy_id in policy_ids:
         if policy_id in loaded_policy_dict:
             policies[policy_id] = loaded_policy_dict[policy_id]
+            if overwrite_loaded_policy_type:
+                policies[policy_id].policy_class = policy_class
         elif policy_id in policies_to_train:
             policies[policy_id] = PolicySpec(
                 policy_class,

@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 import numpy as np
 import torch
 from gymnasium import spaces
-from ray.rllib.algorithms import registry as rllib_algorithm_registry
 from ray.rllib.algorithms.algorithm_config import NotProvided
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero, AlphaZeroConfig
 from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
@@ -896,6 +895,3 @@ class MbagAlphaZero(AlphaZero):
 
 
 register_trainable("MbagAlphaZero", MbagAlphaZero)
-rllib_algorithm_registry.POLICIES[
-    "MbagAlphaZeroPolicy"
-] = "mbag.rllib.alpha_zero.MbagAlphaZeroPolicy"
