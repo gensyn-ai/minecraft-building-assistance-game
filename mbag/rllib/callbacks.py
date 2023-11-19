@@ -79,15 +79,10 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
             # Log what action the agent made
             action = info_dict["action"]
-            if (
-                action.action_type == MbagAction.BREAK_BLOCK
-                and action.is_palette
-            ):
+            if action.action_type == MbagAction.BREAK_BLOCK and action.is_palette:
                 action_type_name = MBAG_ACTION_BREAK_PALETTE_NAME
             else:
-                action_type_name = MbagAction.ACTION_TYPE_NAMES[
-                    action.action_type
-                ]
+                action_type_name = MbagAction.ACTION_TYPE_NAMES[action.action_type]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
             if action_key not in episode.custom_metrics:
@@ -102,14 +97,9 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 episode.custom_metrics.setdefault(metric_key, 0)
                 episode.custom_metrics[metric_key] += 1
 
-            if (
-                f"{policy_id}/num_correct_place_block"
-                not in episode.custom_metrics
-            ):
+            if f"{policy_id}/num_correct_place_block" not in episode.custom_metrics:
                 for name in ["place_block", "break_block"]:
-                    episode.custom_metrics[
-                        f"{policy_id}/num_correct_{name}"
-                    ] = 0
+                    episode.custom_metrics[f"{policy_id}/num_correct_{name}"] = 0
 
             if info_dict["action_correct"]:
                 action_correct_key = (
