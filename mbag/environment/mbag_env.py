@@ -711,7 +711,15 @@ class MbagEnv(object):
     def _step_player(
         self, player_index: int, action_tuple: MbagActionTuple
     ) -> Tuple[float, MbagInfoDict]:
-        action = MbagAction(action_tuple, self.config["world_size"])
+        (
+            action_type,
+            block_location_index,
+            block_id,
+        ) = action_tuple
+        world_size = self.config["world_size"]
+        block_location = tuple(np.unravel_index(action_tuple[1], world_size))
+        is_palette = block_location[0] == self.palette_x
+        action = MbagAction(action_tuple, world_size, is_palette=is_palette)
         goal_dependent_reward = 0.0
         goal_independent_reward = 0.0
 

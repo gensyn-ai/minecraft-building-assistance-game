@@ -65,6 +65,7 @@ MbagActionTuple = Tuple[MbagActionType, int, int]
 """
 An action tuple (action_type, block_location, block_id).
 """
+MBAG_ACTION_BREAK_PALETTE_NAME = "break_palette"
 
 
 class MbagAction(object):
@@ -113,6 +114,7 @@ class MbagAction(object):
     block_location_index: int
     block_location: BlockLocation
     block_id: int
+    is_palette: bool
 
     # Which actions require which attributes:
     BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, GIVE_BLOCK]
@@ -126,12 +128,22 @@ class MbagAction(object):
         MOVE_NEG_Z,
     ]
 
-    def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
-        self.action_type, self.block_location_index, self.block_id = action_tuple
+    def __init__(
+        self,
+        action_tuple: MbagActionTuple,
+        world_size: WorldSize,
+        is_palette: bool = False,
+    ):
+        (
+            self.action_type,
+            self.block_location_index,
+            self.block_id,
+        ) = action_tuple
         self.block_location = cast(
             BlockLocation,
             tuple(np.unravel_index(self.block_location_index, world_size)),
         )
+        self.is_palette = is_palette
 
     def __str__(self):
         from .blocks import MinecraftBlocks
