@@ -252,6 +252,7 @@ def sacred_config(_log):  # noqa
     use_replay_buffer = True
     replay_buffer_size = 10
     use_critic = True
+    use_goal_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
     pretrain = False
 
@@ -545,6 +546,7 @@ def sacred_config(_log):  # noqa
             num_steps_sampled_before_learning_starts=0,
             mcts_config=mcts_config,
             use_critic=use_critic,
+            use_goal_predictor=use_goal_predictor,
             other_agent_action_predictor_loss_coeff=other_agent_action_predictor_loss_coeff,
             use_replay_buffer=use_replay_buffer,
             replay_buffer_config={
