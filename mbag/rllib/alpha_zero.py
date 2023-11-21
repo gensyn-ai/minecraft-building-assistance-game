@@ -209,7 +209,7 @@ class MbagMCTSNode(Node):
             valid_action_types = np.any(type_masks, axis=1)
 
             action_type_dirichlet_noise = np.random.dirichlet(
-                np.full(num_action_types, 0.25)
+                np.full(num_action_types, self.mcts.dir_noise)
             )
             action_type_dirichlet_noise[~valid_action_types] = 0
             action_type_dirichlet_noise /= action_type_dirichlet_noise.sum()
