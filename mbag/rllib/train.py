@@ -267,6 +267,8 @@ def sacred_config(_log):  # noqa
     argmax_tree_policy = False
     add_dirichlet_noise = True
     dirichlet_noise = 0.03
+    prior_temperature = 1.0
+    init_q_with_max = False
     use_bilevel_action_selection = True
     goal_loss_coeff, place_block_loss_coeff = 0.5, 1
 
@@ -528,8 +530,8 @@ def sacred_config(_log):  # noqa
             "dirichlet_noise": dirichlet_noise,
             "argmax_tree_policy": argmax_tree_policy,
             "add_dirichlet_noise": add_dirichlet_noise,
-            "prior_temperature": 1.0,
-            "init_q_with_max": False,
+            "prior_temperature": prior_temperature,
+            "init_q_with_max": init_q_with_max,
             "use_bilevel_action_selection": use_bilevel_action_selection,
         }
         config.training(
