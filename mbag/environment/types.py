@@ -65,6 +65,7 @@ MbagActionTuple = Tuple[MbagActionType, int, int]
 """
 An action tuple (action_type, block_location, block_id).
 """
+MBAG_ACTION_BREAK_PALETTE_NAME = "break_palette"
 
 
 class MbagAction(object):
@@ -126,12 +127,21 @@ class MbagAction(object):
         MOVE_NEG_Z,
     ]
 
-    def __init__(self, action_tuple: MbagActionTuple, world_size: WorldSize):
-        self.action_type, self.block_location_index, self.block_id = action_tuple
+    def __init__(
+        self,
+        action_tuple: MbagActionTuple,
+        world_size: WorldSize,
+    ):
+        (
+            self.action_type,
+            self.block_location_index,
+            self.block_id,
+        ) = action_tuple
         self.block_location = cast(
             BlockLocation,
             tuple(np.unravel_index(self.block_location_index, world_size)),
         )
+        self._world_size = world_size
 
     def __str__(self):
         from .blocks import MinecraftBlocks
@@ -161,6 +171,13 @@ class MbagAction(object):
     @classmethod
     def noop_action(cls):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
+
+    def is_palette(self, inf_blocks: bool) -> bool:
+        """Returns whether this action is on the palette."""
+        # The action can only be on the palette if inf_blocks is False,
+        # otherwise the agent does not need to collect blocks and the palette
+        # does not exist.
+        return (self.block_location[0] == self._world_size[0] - 1) and not inf_blocks
 
 
 class MbagInfoDict(TypedDict):
