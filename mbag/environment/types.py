@@ -114,7 +114,6 @@ class MbagAction(object):
     block_location_index: int
     block_location: BlockLocation
     block_id: int
-    is_palette: bool
 
     # Which actions require which attributes:
     BLOCK_ID_ACTION_TYPES = [PLACE_BLOCK, GIVE_BLOCK]
@@ -132,7 +131,6 @@ class MbagAction(object):
         self,
         action_tuple: MbagActionTuple,
         world_size: WorldSize,
-        is_palette: bool = False,
     ):
         (
             self.action_type,
@@ -143,7 +141,7 @@ class MbagAction(object):
             BlockLocation,
             tuple(np.unravel_index(self.block_location_index, world_size)),
         )
-        self.is_palette = is_palette
+        self._world_size = world_size
 
     def __str__(self):
         from .blocks import MinecraftBlocks
@@ -173,6 +171,11 @@ class MbagAction(object):
     @classmethod
     def noop_action(cls):
         return cls((MbagAction.NOOP, 0, 0), (1, 1, 1))
+
+    @property
+    def is_palette(self) -> bool:
+        """Whether this action is on the palette."""
+        return self.block_location[0] == self._world_size[0] - 1
 
 
 class MbagInfoDict(TypedDict):
