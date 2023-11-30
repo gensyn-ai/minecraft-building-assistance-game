@@ -730,6 +730,7 @@ class MbagEnv(object):
             if (
                 action.action_type == MbagAction.BREAK_BLOCK
                 and action.block_location[0] == self.palette_x
+                and not self.config["abilities"]["inf_blocks"]
             ):
                 # TODO: shouldn't we check if the user actually broke the block?
                 # might be worth adding a test to make sure the reward only comes
