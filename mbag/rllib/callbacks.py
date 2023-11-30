@@ -79,9 +79,8 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
             # Log what action the agent made
             action = info_dict["action"]
-            if (
-                action.action_type == MbagAction.BREAK_BLOCK
-                and action.is_palette(env.config["abilities"]["inf_blocks"])
+            if action.action_type == MbagAction.BREAK_BLOCK and action.is_palette(
+                env.config["abilities"]["inf_blocks"]
             ):
                 action_type_name = MBAG_ACTION_BREAK_PALETTE_NAME
             else:

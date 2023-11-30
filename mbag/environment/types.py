@@ -177,9 +177,7 @@ class MbagAction(object):
         # The action can only be on the palette if inf_blocks is False,
         # otherwise the agent does not need to collect blocks and the palette
         # does not exist.
-        return (
-            self.block_location[0] == self._world_size[0] - 1
-        ) and not inf_blocks
+        return (self.block_location[0] == self._world_size[0] - 1) and not inf_blocks
 
 
 class MbagInfoDict(TypedDict):
