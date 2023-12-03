@@ -138,6 +138,12 @@ class RewardsConfigDict(TypedDict, total=False):
     did not have in their inventory previously.
     """
 
+    get_resources_horizon: Optional[int]
+    """
+    Decay get_resources to 0 over this horizon. This requires calling
+    set_global_timestep on the environment to update the global timestep.
+    """
+
 
 class AbilitiesConfigDict(TypedDict):
     teleportation: bool
@@ -295,6 +301,14 @@ NO_ONE = 0
 CURRENT_PLAYER = 1
 OTHER_PLAYER = 2
 NO_INTERACTION = -1
+
+
+def _get_linear_horizon_reward(
+    reward: float, timestep: int, horizon: Optional[int] = None
+) -> float:
+    if horizon is not None:
+        reward *= max(1 - timestep / horizon, 0)
+    return reward
 
 
 class MbagStateDict(TypedDict):
@@ -739,7 +753,7 @@ class MbagEnv(object):
                 goal_independent_reward += (
                     np.count_nonzero(new_inventory_obs)
                     - np.count_nonzero(prev_inventory_obs)
-                ) * self._get_reward_config_for_player(player_index)["get_resources"]
+                ) * self._get_resources_reward(player_index)
             else:
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
@@ -1350,11 +1364,19 @@ class MbagEnv(object):
         reward_config = self._get_reward_config_for_player(player_index)
         own_reward_prop = reward_config["own_reward_prop"]
         own_reward_prop_horizon = reward_config["own_reward_prop_horizon"]
-        if own_reward_prop_horizon is not None:
-            own_reward_prop *= max(
-                1 - self.global_timestep / own_reward_prop_horizon, 0
-            )
-        return own_reward_prop
+        return _get_linear_horizon_reward(
+            own_reward_prop, self.global_timestep, horizon=own_reward_prop_horizon
+        )
+
+    def _get_resources_reward(self, player_index: int) -> float:
+        reward_config = self._get_reward_config_for_player(player_index)
+        get_resources_reward = reward_config["get_resources"]
+        get_resources_reward_horizon = reward_config["get_resources_horizon"]
+        return _get_linear_horizon_reward(
+            get_resources_reward,
+            self.global_timestep,
+            horizon=get_resources_reward_horizon,
+        )
 
     def _get_player_reward(
         self, player_index: int, reward: float, own_reward: float

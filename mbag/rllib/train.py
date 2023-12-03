@@ -91,6 +91,7 @@ def sacred_config(_log):  # noqa
     random_start_locations = False
     noop_reward = 0
     get_resources_reward = 0
+    get_resources_reward_horizon: Optional[int] = None
     action_reward = 0
     place_wrong_reward = -1
     teleportation = True
@@ -213,6 +214,7 @@ def sacred_config(_log):  # noqa
             "own_reward_prop": own_reward_prop,
             "own_reward_prop_horizon": own_reward_prop_horizon,
             "get_resources": get_resources_reward,
+            "get_resources_horizon": get_resources_reward_horizon,
         },
         "abilities": {
             "teleportation": teleportation,
