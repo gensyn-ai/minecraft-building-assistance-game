@@ -266,7 +266,7 @@ def sacred_config(_log):  # noqa
     dirichlet_epsilon = 0.25
     argmax_tree_policy = False
     add_dirichlet_noise = True
-    dirichlet_noise = 0.03
+    dirichlet_noise = 0.25
     prior_temperature = 1.0
     init_q_with_max = False
     use_bilevel_action_selection = True
