@@ -295,15 +295,6 @@ OTHER_PLAYER = 2
 NO_INTERACTION = -1
 
 
-def _validate_reward_config(reward_config: RewardsConfigDict) -> None:
-    for key, value in reward_config.items():
-        if not isinstance(value, list) or not isinstance(value, (float, int)):
-            raise ValueError(
-                f"Reward config for {key} must be a number or a list of "
-                f"(timestep, value) tuples. Got {value}"
-            )
-
-
 class MbagStateDict(TypedDict):
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
@@ -386,19 +377,23 @@ class MbagEnv(object):
         self.human_action_detector = HumanActionDetector(self.config)
 
         # Initialize reward schedules.
-        self._reward_schedules: List[Dict[str, Schedule]] = {}
+        self._reward_schedules: List[Dict[str, Schedule]] = []
         for player_index in range(self.config["num_players"]):
+            player_reward_schedule: Dict[str, Schedule] = {}
             reward_config = self._get_reward_config_for_player(player_index)
-            _validate_reward_config(reward_config)
             for key, value in reward_config.items():
                 if isinstance(value, list):
-                    self._reward_schedules[player_index][key] = PiecewiseSchedule(
+                    player_reward_schedule[key] = PiecewiseSchedule(
                         endpoints=value, outside_value=value[-1][-1]
                     )
+                elif isinstance(value, (float, int)):
+                    player_reward_schedule[key] = ConstantSchedule(float(value))
                 else:
-                    self._reward_schedules[player_index][key] = ConstantSchedule(
-                        float(value)
+                    raise ValueError(
+                        f"Reward config for {key} must be a number or a list of "
+                        f"(timestep, value) tuples. Got {value}"
                     )
+            self._reward_schedules.append(player_reward_schedule)
 
         # Commented out because now the environment DOES support mixed humans and non-humans working together
         # if any(
@@ -1383,7 +1378,7 @@ class MbagEnv(object):
     def _get_player_reward(
         self, player_index: int, reward: float, own_reward: float
     ) -> float:
-        own_reward_prop = self._get_reward(player_index, reward, self.global_timestep)
+        own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
     def _update_state_from_malmo(self, infos: List[MbagInfoDict]) -> List[MbagInfoDict]:
