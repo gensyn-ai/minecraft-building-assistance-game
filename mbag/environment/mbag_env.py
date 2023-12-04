@@ -18,6 +18,7 @@ from typing import (
 
 import numpy as np
 from gymnasium import spaces
+from ray.rllib.utils.schedules import ConstantSchedule, PiecewiseSchedule, Schedule
 from typing_extensions import Literal, TypedDict
 
 from .blocks import MinecraftBlocks
@@ -279,7 +280,6 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "action": 0.0,
         "place_wrong": 0.0,
         "own_reward_prop": 0.0,
-        "own_reward_prop_horizon": None,
         "get_resources": 0,
     },
     "abilities": {
@@ -295,12 +295,13 @@ OTHER_PLAYER = 2
 NO_INTERACTION = -1
 
 
-def _get_linear_horizon_reward(
-    reward: float, timestep: int, horizon: Optional[int] = None
-) -> float:
-    if horizon is not None:
-        reward *= max(1 - timestep / horizon, 0)
-    return reward
+def _validate_reward_config(reward_config: RewardsConfigDict) -> None:
+    for key, value in reward_config.items():
+        if not isinstance(value, list) or not isinstance(value, (float, int)):
+            raise ValueError(
+                f"Reward config for {key} must be a number or a list of "
+                f"(timestep, value) tuples. Got {value}"
+            )
 
 
 class MbagStateDict(TypedDict):
@@ -383,6 +384,21 @@ class MbagEnv(object):
         self.global_timestep = 0
 
         self.human_action_detector = HumanActionDetector(self.config)
+
+        # Initialize reward schedules.
+        self._reward_schedules: List[Dict[str, Schedule]] = {}
+        for player_index in range(self.config["num_players"]):
+            reward_config = self._get_reward_config_for_player(player_index)
+            _validate_reward_config(reward_config)
+            for key, value in reward_config.items():
+                if isinstance(value, list):
+                    self._reward_schedules[player_index][key] = PiecewiseSchedule(
+                        endpoints=value, outside_value=value[-1][-1]
+                    )
+                else:
+                    self._reward_schedules[player_index][key] = ConstantSchedule(
+                        float(value)
+                    )
 
         # Commented out because now the environment DOES support mixed humans and non-humans working together
         # if any(
@@ -745,7 +761,9 @@ class MbagEnv(object):
                 goal_independent_reward += (
                     np.count_nonzero(new_inventory_obs)
                     - np.count_nonzero(prev_inventory_obs)
-                ) * self._get_resources_reward(player_index)
+                ) * self._get_reward(
+                    player_index, "get_resources", self.global_timestep
+                )
             else:
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
@@ -783,13 +801,13 @@ class MbagEnv(object):
             )
 
         if noop:
-            goal_independent_reward += self._get_reward_config_for_player(player_index)[
-                "noop"
-            ]
+            goal_independent_reward += self._get_reward(
+                player_index, "noop", self.global_timestep
+            )
         else:
-            goal_independent_reward += self._get_reward_config_for_player(player_index)[
-                "action"
-            ]
+            goal_independent_reward += self._get_reward(
+                player_index, "action", self.global_timestep
+            )
 
         reward = goal_dependent_reward + goal_independent_reward
 
@@ -1277,7 +1295,7 @@ class MbagEnv(object):
             similarity[
                 (goal_block_id != MinecraftBlocks.AIR)
                 & (current_block_id != MinecraftBlocks.AIR)
-            ] = self._get_reward_config_for_player(player_index)["place_wrong"]
+            ] = self._get_reward(player_index, "place_wrong", self.global_timestep)
         similarity[goal_block_id == current_block_id] = 1
         return similarity
 
@@ -1349,31 +1367,23 @@ class MbagEnv(object):
                 ), "players are overlapping"
             world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
+    def _get_reward(
+        self, player_index: int, reward: str, global_timestep: int
+    ) -> float:
+        return cast(
+            float, self._reward_schedules[player_index][reward].value(global_timestep)
+        )
+
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         return self.config["players"][player_index]["rewards"]
 
     def _get_own_reward_prop(self, player_index: int) -> float:
-        reward_config = self._get_reward_config_for_player(player_index)
-        own_reward_prop = reward_config["own_reward_prop"]
-        own_reward_prop_horizon = reward_config["own_reward_prop_horizon"]
-        return _get_linear_horizon_reward(
-            own_reward_prop, self.global_timestep, horizon=own_reward_prop_horizon
-        )
-
-    def _get_resources_reward(self, player_index: int) -> float:
-        reward_config = self._get_reward_config_for_player(player_index)
-        get_resources_reward = reward_config["get_resources"]
-        get_resources_reward_horizon = reward_config["get_resources_horizon"]
-        return _get_linear_horizon_reward(
-            get_resources_reward,
-            self.global_timestep,
-            horizon=get_resources_reward_horizon,
-        )
+        return self._get_reward(player_index, "own_reward_prop", self.global_timestep)
 
     def _get_player_reward(
         self, player_index: int, reward: float, own_reward: float
     ) -> float:
-        own_reward_prop = self._get_own_reward_prop(player_index)
+        own_reward_prop = self._get_reward(player_index, reward, self.global_timestep)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
 
     def _update_state_from_malmo(self, infos: List[MbagInfoDict]) -> List[MbagInfoDict]:

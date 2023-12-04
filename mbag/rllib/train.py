@@ -91,7 +91,6 @@ def sacred_config(_log):  # noqa
     random_start_locations = False
     noop_reward = 0
     get_resources_reward = 0
-    get_resources_reward_horizon: Optional[int] = None
     action_reward = 0
     place_wrong_reward = -1
     teleportation = True
@@ -101,7 +100,6 @@ def sacred_config(_log):  # noqa
     timestep_skip = [1] * num_players
     is_human = [False] * num_players
     own_reward_prop = 0
-    own_reward_prop_horizon: Optional[int] = None
     goal_generator_config = {"subset": goal_subset}
 
     goal_transforms: List[GoalTransformSpec] = []
@@ -212,9 +210,7 @@ def sacred_config(_log):  # noqa
             "action": action_reward,
             "place_wrong": place_wrong_reward,
             "own_reward_prop": own_reward_prop,
-            "own_reward_prop_horizon": own_reward_prop_horizon,
             "get_resources": get_resources_reward,
-            "get_resources_horizon": get_resources_reward_horizon,
         },
         "abilities": {
             "teleportation": teleportation,
