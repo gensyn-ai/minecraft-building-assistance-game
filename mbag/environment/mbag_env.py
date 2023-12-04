@@ -54,6 +54,10 @@ if TYPE_CHECKING:
     from .malmo import MalmoObservationDict
 
 
+RewardEndpoints = List[Tuple[int, float]]
+RewardType = Union[float, RewardEndpoints]
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,48 +104,36 @@ class MalmoConfigDict(TypedDict, total=False):
 
 
 class RewardsConfigDict(TypedDict, total=False):
-    noop: float
+    noop: RewardType
     """
     The reward for doing any action which does nothing. This is usually either zero,
     or negative to discourage noops.
     """
 
-    action: float
+    action: RewardType
     """
     The reward for doing any action which is not a noop. This could be negative to
     introduce some cost for acting.
     """
 
-    place_wrong: float
+    place_wrong: RewardType
     """
     The reward for placing a block which is not correct, but in a place where a block
     should go. The negative of this is also given for breaking a block which is not
     correct.
     """
 
-    own_reward_prop: float
+    own_reward_prop: RewardType
     """
     A number from 0 to 1. At 0, it gives the normal reward function which takes into
     account all players actions. At 1, it gives only reward for actions that the
     specific player took.
     """
 
-    own_reward_prop_horizon: Optional[int]
-    """
-    Decay own_reward_prop to 0 over this horizon. This requires calling
-    set_global_timestep on the environment to update the global timestep.
-    """
-
-    get_resources: float
+    get_resources: RewardType
     """
     The reward for getting a resource block from the palette that the player
     did not have in their inventory previously.
-    """
-
-    get_resources_horizon: Optional[int]
-    """
-    Decay get_resources to 0 over this horizon. This requires calling
-    set_global_timestep on the environment to update the global timestep.
     """
 
 
