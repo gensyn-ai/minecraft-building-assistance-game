@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import collections
 import copy
 import logging
 import random
 import time
-from collections.abc import Iterable
 from typing import (
     TYPE_CHECKING,
-    Any,
     Dict,
     List,
     Optional,
@@ -22,7 +19,6 @@ from typing import (
 import numpy as np
 from gymnasium import spaces
 from ray.rllib.utils.schedules import ConstantSchedule, PiecewiseSchedule, Schedule
-from sacred.config.custom_containers import DogmaticDict, DogmaticList
 from typing_extensions import Literal, TypedDict
 
 from .blocks import MinecraftBlocks
@@ -299,21 +295,6 @@ OTHER_PLAYER = 2
 NO_INTERACTION = -1
 
 
-def _convert_dogmatics_to_standard(obj: Any) -> Any:
-    """Recursively converts an object with Sacred Dogmatics to a standard Python object."""
-    if isinstance(obj, DogmaticDict):
-        return {k: _convert_dogmatics_to_standard(v) for k, v in obj.items()}
-    elif isinstance(obj, DogmaticList):
-        return [_convert_dogmatics_to_standard(elem) for elem in obj]
-    elif isinstance(obj, collections.abc.Mapping):
-        return {k: _convert_dogmatics_to_standard(v) for k, v in obj.items()}
-    elif isinstance(obj, Iterable) and not isinstance(obj, str):
-        # Exclude strings as they are also iterable but should not be treated as a list of characters here.
-        return [_convert_dogmatics_to_standard(elem) for elem in obj]
-    else:
-        return obj
-
-
 class MbagStateDict(TypedDict):
     current_blocks: MinecraftBlocks
     goal_blocks: MinecraftBlocks
@@ -348,7 +329,12 @@ class MbagEnv(object):
     """The maximum number of blocks a player can carry in a stack."""
 
     def __init__(self, config: MbagConfigDict):
+        # TODO: remove print statements from this file.
+        print("[before get_config] config:", config)
+        print("[before get_config] config['rewards']:", config["rewards"])
         self.config = self.get_config(config)
+        print("[after get_config] config:", config)
+        print("[after get_config] config['rewards']:", config["rewards"])
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
@@ -400,8 +386,10 @@ class MbagEnv(object):
         for player_index in range(self.config["num_players"]):
             player_reward_schedule: Dict[str, Schedule] = {}
             reward_config = self._get_reward_config_for_player(player_index)
+            print("reward_config", reward_config)
             for key, value in reward_config.items():
                 if isinstance(value, list):
+                    print(f"{key}:", value)
                     player_reward_schedule[key] = PiecewiseSchedule(
                         endpoints=value, outside_value=value[-1][-1]
                     )
@@ -425,7 +413,6 @@ class MbagEnv(object):
     def get_config(partial_config: MbagConfigDict) -> MbagConfigDict:
         """Get a fully populated config dict by adding defaults where necessary."""
 
-        partial_config = _convert_dogmatics_to_standard(partial_config)
         partial_config = copy.deepcopy(partial_config)
         config = copy.deepcopy(DEFAULT_CONFIG)
         config.update(partial_config)
@@ -465,20 +452,6 @@ class MbagEnv(object):
             and not config["malmo"]["use_spectator"]
         ):
             raise ValueError("Video recording requires using a spectator")
-
-        # Convert reward config to the right format.
-        for player_config in config["players"]:
-            reward_config = player_config["rewards"]
-            for key, value in reward_config.items():
-                if isinstance(value, (list, tuple)):
-                    reward_config[key] = [tuple(points) for points in value]
-                elif isinstance(value, (float, int)):
-                    reward_config[key] = float(value)
-                else:
-                    raise ValueError(
-                        f"Reward config for {key} must be a number or a "
-                        f"list/tuple of (timestep, value) tuples. Got {value}"
-                    )
 
         return config
 

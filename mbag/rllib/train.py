@@ -1,8 +1,10 @@
+import collections
 import faulthandler
 import os
 import signal
 import sys
 import tempfile
+from collections.abc import Iterable
 from datetime import datetime
 from logging import Logger
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type, Union, cast
@@ -21,7 +23,7 @@ from ray.rllib.utils.typing import MultiAgentPolicyConfigDict
 from ray.tune.registry import ENV_CREATOR, _global_registry, get_trainable_cls
 from sacred import SETTINGS as SACRED_SETTINGS
 from sacred import Experiment
-from sacred.config.custom_containers import DogmaticDict
+from sacred.config.custom_containers import DogmaticDict, DogmaticList
 from sacred.observers import FileStorageObserver
 from typing_extensions import Literal
 
@@ -37,7 +39,11 @@ from mbag.environment.goals.transforms import (
     CropLowDensityBottomLayersTransformConfig,
     CropTransformConfig,
 )
-from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
+from mbag.environment.mbag_env import (
+    MbagConfigDict,
+    MbagPlayerConfigDict,
+    RewardsConfigDict,
+)
 from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
 
@@ -218,6 +224,10 @@ def sacred_config(_log):  # noqa
             "inf_blocks": inf_blocks,
         },
     }
+    # Convert Sacred DogmaticDicts and DogmaticLists to standard Python dicts and lists.
+    environment_params = _convert_dogmatics_to_standard(environment_params)
+    environment_params["rewards"] = _format_reward_config(environment_params["rewards"])
+
     env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, environment_name)(
         environment_params
     )
@@ -585,6 +595,36 @@ def sacred_config(_log):  # noqa
 
     observer = FileStorageObserver(experiment_dir)
     ex.observers.append(observer)
+
+
+def _convert_dogmatics_to_standard(obj: Any) -> Any:
+    """Recursively converts an object with Sacred Dogmatics to a standard Python object."""
+    if isinstance(obj, DogmaticDict):
+        return {k: _convert_dogmatics_to_standard(v) for k, v in obj.items()}
+    elif isinstance(obj, DogmaticList):
+        return [_convert_dogmatics_to_standard(elem) for elem in obj]
+    elif isinstance(obj, collections.abc.Mapping):
+        return {k: _convert_dogmatics_to_standard(v) for k, v in obj.items()}
+    elif isinstance(obj, Iterable) and not isinstance(obj, str):
+        # Exclude strings as they are also iterable but should not be treated as a list of characters here.
+        return [_convert_dogmatics_to_standard(elem) for elem in obj]
+    else:
+        return obj
+
+
+def _format_reward_config(reward_config: RewardsConfigDict) -> RewardsConfigDict:
+    formatted_reward_config: RewardsConfigDict = {}
+    for key, value in reward_config.items():
+        if isinstance(value, (list, tuple)):
+            formatted_reward_config[key] = [tuple(points) for points in value]
+        elif isinstance(value, (float, int)):
+            formatted_reward_config[key] = float(value)
+        else:
+            raise ValueError(
+                f"Reward config for {key} must be a number or a "
+                f"list/tuple of (timestep, value) tuples. Got {value}"
+            )
+    return formatted_reward_config
 
 
 @ex.automain
