@@ -53,4 +53,4 @@ jobs:
       - name: Run tests
         if: ${{ always() }}
         run: |
-          pytest -m "not uses_rllib and not uses_malmo"
+          pytest -m "not uses_rllib and not uses_malmo and not uses_cuda"
