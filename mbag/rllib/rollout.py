@@ -14,8 +14,8 @@ from ray.rllib.utils import merge_dicts  # type: ignore
 from ray.rllib.utils.typing import PolicyID
 from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import SETTINGS, Experiment
-from .os_utils import available_cpu_count
 
+from .os_utils import available_cpu_count
 from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
