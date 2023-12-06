@@ -7,7 +7,7 @@ exclude = ''
 [tool.pytest.ini_options]
 timeout = 10
 testpaths = ["tests"]
-markers = ["uses_rllib"]
+markers = ["uses_rllib", "uses_cuda", "uses_malmo"]
 
 [tool.isort]
 profile = "black"

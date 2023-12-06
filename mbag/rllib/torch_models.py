@@ -919,6 +919,22 @@ class SeparatedTransformerEncoder(nn.Module):
             self.add_module(f"layer_{layer_index}", layer)
             self.layers.append(layer)
 
+    def _layer_forward(self, layer: nn.TransformerEncoderLayer, x: torch.Tensor):
+        # PyTorch only supports batch sizes up to 2 ** 16 - 1, so we need to split
+        # the batch into smaller chunks.
+        batch_size = x.size()[0]
+        if batch_size <= 2**16 - 1:
+            return layer(x)
+        else:
+            minibatch_size = 2**15
+            num_minibatches = (batch_size + minibatch_size - 1) // minibatch_size
+            minibatch_outputs = []
+            for i in range(num_minibatches):
+                minibatch_outputs.append(
+                    layer(x[i * minibatch_size : (i + 1) * minibatch_size])
+                )
+            return torch.cat(minibatch_outputs, dim=0)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
         n_spatial_dims = len(x.size()) - 2
@@ -938,7 +954,7 @@ class SeparatedTransformerEncoder(nn.Module):
             )
             x_permuted = x.permute(*permutation)
             layer_input = x_permuted.flatten(end_dim=-3)
-            layer_output = layer(layer_input)
+            layer_output = self._layer_forward(layer, layer_input)
             x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
 
         return x
