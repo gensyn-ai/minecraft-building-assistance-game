@@ -242,6 +242,13 @@ class MbagConfigDict(TypedDict, total=False):
     have to gather resources, etc.).
     """
 
+    randomize_first_episode_length: bool
+    """
+    If True, the first episode will have a random length between 1 and horizon. This
+    can be useful when training with an algorithm like PPO so that fragments
+    of episodes are not strongly correlated across environments.
+    """
+
 
 DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
     "player_name": None,
@@ -378,6 +385,8 @@ class MbagEnv(object):
 
         self.human_action_detector = HumanActionDetector(self.config)
 
+        self.is_first_episode = True
+
         # Commented out because now the environment DOES support mixed humans and non-humans working together
         # if any(
         #     player_config["is_human"] for player_config in self.config["players"]
@@ -454,7 +463,12 @@ class MbagEnv(object):
     def reset(self) -> List[MbagObs]:
         """Reset Minecraft environment and return player observations for each player."""
 
-        self.timestep = 0
+        if self.is_first_episode and self.config.get(
+            "randomize_first_episode_length", False
+        ):
+            self.timestep = random.randrange(self.config["horizon"])
+        else:
+            self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
@@ -500,68 +514,7 @@ class MbagEnv(object):
         )
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_client.start_mission(
-                self.config, self.current_blocks, self.goal_blocks
-            )
-            time.sleep(1)  # Wait a second for the environment to load.
-
-            # Pre-episode setup in Malmo.
-            for player_index in range(self.config["num_players"]):
-                player_config = self.config["players"][player_index]
-                if not player_config["is_human"]:
-                    # Make players fly.
-                    for _ in range(2):
-                        self.malmo_client.send_command(player_index, "jump 1")
-                        time.sleep(0.1)
-                        self.malmo_client.send_command(player_index, "jump 0")
-                        time.sleep(0.1)
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, self.player_locations[player_index])),
-                )
-
-                # Give items to players.
-                for item in self.config["players"][player_index]["give_items"]:
-                    if "enchantments" not in item:
-                        item["enchantments"] = []
-
-                    for enchantment in item["enchantments"]:
-                        assert "id" in enchantment
-                        if "level" not in enchantment:
-                            enchantment["level"] = 32767
-
-                    enchantments_str = ",".join(
-                        [
-                            "{{id: {}, lvl: {}}}".format(
-                                enchantment["id"], enchantment["level"]
-                            )
-                            for enchantment in item["enchantments"]
-                        ]
-                    )
-
-                    self.malmo_client.send_command(
-                        player_index,
-                        "chat /give {} {} {} {} {}".format(
-                            "@p",
-                            item["id"],
-                            item["count"],
-                            0,
-                            "{{ench: [{}]}}".format(enchantments_str),
-                        ),
-                    )
-
-                    time.sleep(0.2)
-
-            # Convert players to survival mode.
-            # if not self.config["abilities"]["inf_blocks"]:
-            for player_index in range(self.config["num_players"]):
-                if self.config["players"][player_index]["is_human"]:
-                    self.malmo_client.send_command(player_index, "chat /gamemode 0")
-
-                # Disable chat messages from the palette
-                self.malmo_client.send_command(
-                    player_index, "chat /gamerule sendCommandFeedback false"
-                )
+            self._setup_malmo()
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -574,6 +527,70 @@ class MbagEnv(object):
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
         ]
+
+    def _setup_malmo(self):
+        self.malmo_client.start_mission(
+            self.config, self.current_blocks, self.goal_blocks
+        )
+        time.sleep(1)  # Wait a second for the environment to load.
+
+        # Pre-episode setup in Malmo.
+        for player_index in range(self.config["num_players"]):
+            player_config = self.config["players"][player_index]
+            if not player_config["is_human"]:
+                # Make players fly.
+                for _ in range(2):
+                    self.malmo_client.send_command(player_index, "jump 1")
+                    time.sleep(0.1)
+                    self.malmo_client.send_command(player_index, "jump 0")
+                    time.sleep(0.1)
+            self.malmo_client.send_command(
+                player_index,
+                "tp " + " ".join(map(str, self.player_locations[player_index])),
+            )
+
+            # Give items to players.
+            for item in self.config["players"][player_index]["give_items"]:
+                if "enchantments" not in item:
+                    item["enchantments"] = []
+
+                for enchantment in item["enchantments"]:
+                    assert "id" in enchantment
+                    if "level" not in enchantment:
+                        enchantment["level"] = 32767
+
+                enchantments_str = ",".join(
+                    [
+                        "{{id: {}, lvl: {}}}".format(
+                            enchantment["id"], enchantment["level"]
+                        )
+                        for enchantment in item["enchantments"]
+                    ]
+                )
+
+                self.malmo_client.send_command(
+                    player_index,
+                    "chat /give {} {} {} {} {}".format(
+                        "@p",
+                        item["id"],
+                        item["count"],
+                        0,
+                        "{{ench: [{}]}}".format(enchantments_str),
+                    ),
+                )
+
+                time.sleep(0.2)
+
+        # Convert players to survival mode.
+        # if not self.config["abilities"]["inf_blocks"]:
+        for player_index in range(self.config["num_players"]):
+            if self.config["players"][player_index]["is_human"]:
+                self.malmo_client.send_command(player_index, "chat /gamemode 0")
+
+            # Disable chat messages from the palette
+            self.malmo_client.send_command(
+                player_index, "chat /gamerule sendCommandFeedback false"
+            )
 
     def step(
         self, action_tuples: List[MbagActionTuple]
@@ -648,6 +665,9 @@ class MbagEnv(object):
             # Wait for a second for the final block to place and then end mission.
             time.sleep(1)
             self.malmo_client.end_mission()
+
+        if dones[0]:
+            self.is_first_episode = False
 
         return obs, rewards, dones, infos
 
