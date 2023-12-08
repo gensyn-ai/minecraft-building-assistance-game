@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     import torch
 
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.mbag_env import CURRENT_PLAYER, MbagConfigDict
+from mbag.environment.mbag_env import CURRENT_PLAYER, NO_ONE, MbagConfigDict
 from mbag.environment.types import (
     CURRENT_BLOCKS,
     PLAYER_LOCATIONS,
@@ -317,12 +317,11 @@ class MbagActionDistribution(object):
             # If we can't teleport, then we can only place or break blocks up to 3 blocks away
             player_location = world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER
             batch_indices, player_x, player_y, player_z = np.nonzero(player_location)
-            _, head_filter = np.unique(batch_indices, return_index=True)
-            head_filter[:-1] = head_filter[1:] - 1
-            head_filter[-1] = batch_indices.shape[0] - 1
-            head_x = player_x[head_filter]
-            head_y = player_y[head_filter]
-            head_z = player_z[head_filter]
+            _, feet_filter = np.unique(batch_indices, return_index=True)
+            feet_x = player_x[feet_filter]
+            feet_y = player_y[feet_filter]
+            feet_z = player_z[feet_filter]
+            head_x, head_y, head_z = feet_x, feet_y + 1, feet_z
 
             world_x, world_y, world_z = np.meshgrid(
                 np.arange(width), np.arange(height), np.arange(depth), indexing="ij"
@@ -347,6 +346,51 @@ class MbagActionDistribution(object):
             )
             mask[:, MbagActionDistribution.GIVE_BLOCK] &= reachable_1[:, None]
 
+            # We can only move in directions that are not blocked by solid blocks
+            # or players.
+            mask[
+                :, MbagActionDistribution.MOVE_POS_X
+            ] = MbagActionDistribution._is_valid_position_to_move_to(
+                config, world_obs, feet_x + 1, feet_y, feet_z
+            )[
+                :, None, None, None
+            ]
+            mask[
+                :, MbagActionDistribution.MOVE_NEG_X
+            ] = MbagActionDistribution._is_valid_position_to_move_to(
+                config, world_obs, feet_x - 1, feet_y, feet_z
+            )[
+                :, None, None, None
+            ]
+            mask[
+                :, MbagActionDistribution.MOVE_POS_Y
+            ] = MbagActionDistribution._is_valid_position_to_move_to(
+                config, world_obs, feet_x, feet_y + 1, feet_z
+            )[
+                :, None, None, None
+            ]
+            mask[
+                :, MbagActionDistribution.MOVE_NEG_Y
+            ] = MbagActionDistribution._is_valid_position_to_move_to(
+                config, world_obs, feet_x, feet_y - 1, feet_z
+            )[
+                :, None, None, None
+            ]
+            mask[
+                :, MbagActionDistribution.MOVE_POS_Z
+            ] = MbagActionDistribution._is_valid_position_to_move_to(
+                config, world_obs, feet_x, feet_y, feet_z + 1
+            )[
+                :, None, None, None
+            ]
+            mask[
+                :, MbagActionDistribution.MOVE_NEG_Z
+            ] = MbagActionDistribution._is_valid_position_to_move_to(
+                config, world_obs, feet_x, feet_y, feet_z - 1
+            )[
+                :, None, None, None
+            ]
+
         if not config["abilities"]["inf_blocks"]:
             # If we don't have infinite blocks, we can only place or give blocks we
             # have.
@@ -361,6 +405,54 @@ class MbagActionDistribution(object):
                 mask[:, channels][~have_blocks] = False
 
         return mask
+
+    @staticmethod
+    def _is_valid_position_to_move_to(
+        config: MbagConfigDict,
+        world_obs: np.ndarray,
+        new_feet_x: np.ndarray,
+        new_feet_y: np.ndarray,
+        new_feet_z: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Returns True if the given position is a valid position to move to.
+        """
+
+        width, height, depth = config["world_size"]
+        batch_size = world_obs.shape[0]
+        feet_world_obs = world_obs[
+            np.arange(batch_size),
+            :,
+            np.clip(new_feet_x, 0, width - 1),
+            np.clip(new_feet_y, 0, height - 1),
+            np.clip(new_feet_z, 0, depth - 1),
+        ]
+        head_world_obs = world_obs[
+            np.arange(batch_size),
+            :,
+            np.clip(new_feet_x, 0, width - 1),
+            np.clip(new_feet_y + 1, 0, height - 1),
+            np.clip(new_feet_z, 0, depth - 1),
+        ]
+        return cast(
+            np.ndarray,
+            (new_feet_x >= 0)
+            & (new_feet_x < width)
+            & (new_feet_y >= 0)
+            & (new_feet_y < height)
+            & (new_feet_z >= 0)
+            & (new_feet_z < depth)
+            & (feet_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+            & (head_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+            & (
+                (feet_world_obs[:, PLAYER_LOCATIONS] == NO_ONE)
+                | (feet_world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER)
+            )
+            & (
+                (head_world_obs[:, PLAYER_LOCATIONS] == NO_ONE)
+                | (head_world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER)
+            ),
+        )
 
     @staticmethod
     def get_mask_flat(config: MbagConfigDict, obs: MbagObs) -> np.ndarray:
