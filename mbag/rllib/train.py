@@ -84,6 +84,7 @@ def sacred_config(_log):  # noqa
     goal_generator = "craftassist"
     goal_subset = "train"
     horizon = 1000
+    randomize_first_episode_length = False
     num_players = 1
     height = 12
     width = 12
@@ -198,6 +199,7 @@ def sacred_config(_log):  # noqa
     environment_params: MbagConfigDict = {
         "num_players": num_players,
         "horizon": horizon,
+        "randomize_first_episode_length": randomize_first_episode_length,
         "world_size": (width, height, depth),
         "random_start_locations": random_start_locations,
         "goal_generator": TransformedGoalGenerator,
@@ -227,6 +229,9 @@ def sacred_config(_log):  # noqa
     # Training
     num_workers = 2
     num_cpus_per_worker = 0.5
+    num_envs = num_workers
+    assert num_envs % num_workers == 0
+    num_envs_per_worker = num_envs // num_workers
     input = "sampler"
     seed = 0
     num_gpus = 1 if torch.cuda.is_available() else 0
@@ -462,7 +467,7 @@ def sacred_config(_log):  # noqa
     config.framework("torch")
     config.rollouts(
         num_rollout_workers=num_workers,
-        num_envs_per_worker=1,
+        num_envs_per_worker=num_envs_per_worker,
         rollout_fragment_length=rollout_fragment_length,
         compress_observations=compress_observations,
     )
