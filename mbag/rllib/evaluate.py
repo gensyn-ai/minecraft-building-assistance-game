@@ -18,6 +18,7 @@ from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo, MbagEvaluator
 
 from .agents import RllibMbagAgent, RllibMbagAgentConfigDict
+from .os_utils import available_cpu_count
 from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -52,6 +53,7 @@ def main(
     _log: Logger,
 ):
     ray.init(
+        num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
     )
