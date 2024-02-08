@@ -278,9 +278,9 @@ def sacred_config(_log):  # noqa
     goal_loss_coeff, place_block_loss_coeff = 0.5, 1
 
     # Model
-    model: Literal[
-        "convolutional", "recurrent_convolutional", "transformer"
-    ] = "convolutional"
+    model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
+        "convolutional"
+    )
     max_seq_len = horizon
     embedding_size = 8
     position_embedding_size = 18

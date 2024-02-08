@@ -701,9 +701,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 actual_other_agent_action_dist.kl(predicted_other_agent_action_dist)
             )
 
-            model.tower_stats[
-                "other_agent_action_predictor_loss"
-            ] = other_agent_action_predictor_loss
+            model.tower_stats["other_agent_action_predictor_loss"] = (
+                other_agent_action_predictor_loss
+            )
             total_loss = (
                 total_loss
                 + self.config["other_agent_action_predictor_loss_coeff"]
@@ -889,9 +889,11 @@ class MbagAlphaZero(AlphaZero):
 
         if self.local_replay_buffer is not None:
             cur_ts = self._counters[
-                NUM_AGENT_STEPS_SAMPLED
-                if self.config.count_steps_by == "agent_steps"
-                else NUM_ENV_STEPS_SAMPLED
+                (
+                    NUM_AGENT_STEPS_SAMPLED
+                    if self.config.count_steps_by == "agent_steps"
+                    else NUM_ENV_STEPS_SAMPLED
+                )
             ]
 
             if cur_ts > self.config.num_steps_sampled_before_learning_starts:

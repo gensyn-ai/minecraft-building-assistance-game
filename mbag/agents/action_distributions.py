@@ -348,48 +348,36 @@ class MbagActionDistribution(object):
 
             # We can only move in directions that are not blocked by solid blocks
             # or players.
-            mask[
-                :, MbagActionDistribution.MOVE_POS_X
-            ] = MbagActionDistribution._is_valid_position_to_move_to(
-                config, world_obs, feet_x + 1, feet_y, feet_z
-            )[
-                :, None, None, None
-            ]
-            mask[
-                :, MbagActionDistribution.MOVE_NEG_X
-            ] = MbagActionDistribution._is_valid_position_to_move_to(
-                config, world_obs, feet_x - 1, feet_y, feet_z
-            )[
-                :, None, None, None
-            ]
-            mask[
-                :, MbagActionDistribution.MOVE_POS_Y
-            ] = MbagActionDistribution._is_valid_position_to_move_to(
-                config, world_obs, feet_x, feet_y + 1, feet_z
-            )[
-                :, None, None, None
-            ]
-            mask[
-                :, MbagActionDistribution.MOVE_NEG_Y
-            ] = MbagActionDistribution._is_valid_position_to_move_to(
-                config, world_obs, feet_x, feet_y - 1, feet_z
-            )[
-                :, None, None, None
-            ]
-            mask[
-                :, MbagActionDistribution.MOVE_POS_Z
-            ] = MbagActionDistribution._is_valid_position_to_move_to(
-                config, world_obs, feet_x, feet_y, feet_z + 1
-            )[
-                :, None, None, None
-            ]
-            mask[
-                :, MbagActionDistribution.MOVE_NEG_Z
-            ] = MbagActionDistribution._is_valid_position_to_move_to(
-                config, world_obs, feet_x, feet_y, feet_z - 1
-            )[
-                :, None, None, None
-            ]
+            mask[:, MbagActionDistribution.MOVE_POS_X] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x + 1, feet_y, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_NEG_X] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x - 1, feet_y, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_POS_Y] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y + 1, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_NEG_Y] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y - 1, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_POS_Z] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y, feet_z + 1
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_NEG_Z] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y, feet_z - 1
+                )[:, None, None, None]
+            )
 
         if not config["abilities"]["inf_blocks"]:
             # If we don't have infinite blocks, we can only place or give blocks we

@@ -41,8 +41,7 @@ class MbagModel(ABC, TorchModelV2):
     def block_id_model(
         self,
         inputs: torch.Tensor,
-    ) -> torch.Tensor:
-        ...
+    ) -> torch.Tensor: ...  # noqa: E704
 
 
 class MbagModelConfig(TypedDict, total=False):
@@ -208,12 +207,16 @@ class MbagTorchModel(ActorCriticModel):
         for layer_index in range(self.num_action_layers):
             action_head_layers.append(
                 nn.Conv3d(
-                    self._get_head_in_channels()
-                    if layer_index == 0
-                    else self.hidden_size,
-                    MbagActionDistribution.NUM_CHANNELS
-                    if layer_index == self.num_action_layers - 1
-                    else self.hidden_size,
+                    (
+                        self._get_head_in_channels()
+                        if layer_index == 0
+                        else self.hidden_size
+                    ),
+                    (
+                        MbagActionDistribution.NUM_CHANNELS
+                        if layer_index == self.num_action_layers - 1
+                        else self.hidden_size
+                    ),
                     kernel_size=1,
                 )
             )
@@ -245,9 +248,11 @@ class MbagTorchModel(ActorCriticModel):
         for layer_index in range(self.num_value_layers):
             value_head_layers.append(
                 nn.Linear(
-                    self._get_head_in_channels()
-                    if layer_index == 0
-                    else self.hidden_size,
+                    (
+                        self._get_head_in_channels()
+                        if layer_index == 0
+                        else self.hidden_size
+                    ),
                     1 if layer_index == self.num_value_layers - 1 else self.hidden_size,
                 )
             )
@@ -1017,14 +1022,12 @@ class MbagTransformerModel(MbagTorchModel):
             torch.zeros(self.world_size + (self.position_embedding_size,))
         )
         dim_embedding_size = self.position_embedding_size // 6 * 2
-        self.position_embedding.data[
-            ..., :dim_embedding_size
-        ] = self._get_position_embedding(
-            self.position_embedding.size()[0],
-            dim_embedding_size,
-        )[
-            :, None, None
-        ]
+        self.position_embedding.data[..., :dim_embedding_size] = (
+            self._get_position_embedding(
+                self.position_embedding.size()[0],
+                dim_embedding_size,
+            )[:, None, None]
+        )
         self.position_embedding.data[
             ..., dim_embedding_size : dim_embedding_size * 2
         ] = self._get_position_embedding(

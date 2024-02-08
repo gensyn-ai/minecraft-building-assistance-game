@@ -608,9 +608,9 @@ class MbagEnv(object):
         # Process give block actions before movement actions
         action_tuples_sorted_labeled = sorted(
             list(enumerate(action_tuples)),
-            key=lambda player_index_action_tuple: 0
-            if player_index_action_tuple[1][0] == MbagAction.GIVE_BLOCK
-            else 1,
+            key=lambda player_index_action_tuple: (
+                0 if player_index_action_tuple[1][0] == MbagAction.GIVE_BLOCK else 1
+            ),
         )
 
         for player_index, player_action_tuple in action_tuples_sorted_labeled:
@@ -687,12 +687,12 @@ class MbagEnv(object):
 
         shape = small_goal.size
 
-        goal.blocks[
-            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
-        ] = small_goal.blocks
-        goal.block_states[
-            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
-        ] = small_goal.block_states
+        goal.blocks[1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1] = (
+            small_goal.blocks
+        )
+        goal.block_states[1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1] = (
+            small_goal.block_states
+        )
 
         if not self.config["abilities"]["inf_blocks"]:
             for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
@@ -1333,9 +1333,9 @@ class MbagEnv(object):
                 )
 
         for other_player_index in range(self.config["num_players"]):
-            world_obs[LAST_INTERACTED][
-                self.last_interacted == other_player_index
-            ] = player_marker_map[other_player_index]
+            world_obs[LAST_INTERACTED][self.last_interacted == other_player_index] = (
+                player_marker_map[other_player_index]
+            )
 
         return (
             world_obs,

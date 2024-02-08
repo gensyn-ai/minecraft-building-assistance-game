@@ -83,9 +83,11 @@ class MbagAgentPolicy(Policy):
         prev_state: Sequence[np.ndarray]
         for obs, prev_state in zip(
             zip(*unflattened_obs_batch),
-            zip(*state_batches)
-            if state_batches != []
-            else [[] for _ in range(len(obs_batch))],
+            (
+                zip(*state_batches)
+                if state_batches != []
+                else [[] for _ in range(len(obs_batch))]
+            ),
         ):
             self.agent.set_state(list(prev_state))
             try:
