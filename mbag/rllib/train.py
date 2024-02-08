@@ -229,9 +229,9 @@ def sacred_config(_log):  # noqa
     # Training
     num_workers = 2
     num_cpus_per_worker = 0.5
-    num_envs = num_workers
-    assert num_envs % num_workers == 0
-    num_envs_per_worker = num_envs // num_workers
+    num_envs = max(num_workers, 1)
+    assert num_envs % max(num_workers, 1) == 0
+    num_envs_per_worker = num_envs // max(num_workers, 1)
     input = "sampler"
     seed = 0
     num_gpus = 1 if torch.cuda.is_available() else 0

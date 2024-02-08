@@ -14,7 +14,7 @@ from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
 from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
 from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
-from ray.rllib.models import ActionDistribution, ModelCatalog, ModelV2
+from ray.rllib.models import ActionDistribution, ModelV2
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.policy.sample_batch import concat_samples
@@ -323,64 +323,104 @@ class MbagMCTS(MCTS):
             self.temperature = self._temperature_schedule.value(global_timestep)
 
     def compute_action(self, node: MbagMCTSNode):
+        tree_policies, actions, children = self.compute_actions([node])
+        return tree_policies[0], actions[0], children[0]
+
+    def _stack_obs(self, obs: list):
+        if isinstance(obs[0], dict):
+            stacked_obs = {}
+            for key in obs[0].keys():
+                stacked_obs[key] = self._stack_obs([o[key] for o in obs])
+            return stacked_obs
+        elif isinstance(obs[0], tuple):
+            return tuple(
+                self._stack_obs([o[i] for o in obs]) for i in range(len(obs[0]))
+            )
+        else:
+            return np.stack(obs, axis=0)
+
+    def compute_actions(
+        self, nodes: List[MbagMCTSNode]
+    ) -> Tuple[np.ndarray, np.ndarray, List[MbagMCTSNode]]:
         for _ in range(self.num_sims):
-            leaf: MbagMCTSNode = node.select()
-            if leaf.done:
-                value = 0
+            leaves: List[MbagMCTSNode] = [node.select() for node in nodes]
+            # obs = self._stack_obs([leaf.obs for leaf in leaves])
+            obs = [leaf.obs["obs"] for leaf in leaves]
+            model_state_len = len(leaves[0].model_state_in)
+            model_state_in = [
+                np.stack([leaf.model_state_in[state_index] for leaf in leaves], axis=0)
+                for state_index in range(model_state_len)
+            ]
+            child_priors: np.ndarray
+            values: np.ndarray
+            model_state_out: List[np.ndarray]
+
+            child_priors, values, model_state_out = self.model.compute_priors_and_value(
+                obs, model_state_in
+            )
+            child_priors = child_priors**self.prior_temperature
+            child_priors /= child_priors.sum(axis=1, keepdims=True)
+            if not self.use_critic:
+                values[:] = 0
+
+            goal_logits: Optional[np.ndarray]
+            if self.use_goal_predictor:
+                goal_logits = convert_to_numpy(self.model.goal_predictor())
             else:
-                self.model.eval()
-                child_priors, value, state_out = self.model.compute_priors_and_value(
-                    leaf.obs,
-                    leaf.model_state_in,
-                )
+                goal_logits = None
 
-                child_priors = child_priors**self.prior_temperature
-                child_priors /= child_priors.sum()
+            other_agent_action_dists: Optional[np.ndarray] = None
+            if isinstance(self.model, OtherAgentActionPredictorMixin):
+                other_agent_action_dists = convert_to_numpy(
+                    self.model.predict_other_agent_action().softmax(1)
+                )[0]
 
-                if not self.use_critic:
-                    value = 0
-
-                goal_logits: Optional[np.ndarray]
-                if self.use_goal_predictor:
-                    goal_logits = convert_to_numpy(self.model.goal_predictor())[0]
+            for env_index, leaf in enumerate(leaves):
+                if leaf.done:
+                    value = 0.0
                 else:
-                    goal_logits = None
-
-                other_agent_action_dist: Optional[np.ndarray] = None
-                if isinstance(self.model, OtherAgentActionPredictorMixin):
-                    other_agent_action_dist = convert_to_numpy(
-                        self.model.predict_other_agent_action().softmax(1)
-                    )[0]
-
-                leaf.expand(
-                    child_priors,
-                    goal_logits=goal_logits,
-                    other_agent_action_dist=other_agent_action_dist,
-                    add_dirichlet_noise=self.add_dirichlet_noise and leaf == node,
-                    model_state_out=state_out,
-                )
-
-            leaf.backup(value)
+                    value = float(values[env_index])
+                    leaf.expand(
+                        child_priors[env_index],
+                        goal_logits=(
+                            goal_logits[env_index] if goal_logits is not None else None
+                        ),
+                        other_agent_action_dist=(
+                            other_agent_action_dists[env_index]
+                            if other_agent_action_dists is not None
+                            else None
+                        ),
+                        add_dirichlet_noise=self.add_dirichlet_noise
+                        and leaf == nodes[env_index],
+                        model_state_out=[state[env_index] for state in model_state_out],
+                    )
+                leaf.backup(value)
 
         # Tree policy target (TPT)
-        tree_policy = node.child_number_visits / node.number_visits
-        tree_policy = tree_policy / np.max(
-            tree_policy
-        )  # to avoid overflows when computing softmax
-        tree_policy = np.power(tree_policy, self.temperature)
-        tree_policy = tree_policy / np.sum(tree_policy)
+        tree_policies = np.stack(
+            [node.child_number_visits / node.number_visits for node in nodes], axis=0
+        )
+        tree_policies = tree_policies / np.max(
+            tree_policies, axis=1, keepdims=True
+        )  # to avoid overflows with temperature scaling
+        tree_policies = np.power(tree_policies, self.temperature)
+        tree_policies = tree_policies / np.sum(tree_policies, axis=1, keepdims=True)
 
         if self.exploit:
             # if exploit then choose action that has the maximum
             # tree policy probability
-            action = int(np.argmax(tree_policy))
+            actions = np.argmax(tree_policies, axis=1)
         else:
             # otherwise sample an action according to tree policy probabilities
-            action = int(
-                np.random.choice(np.arange(node.action_space_size), p=tree_policy)
+            actions = np.array(
+                [
+                    np.random.choice(np.arange(node.action_space_size), p=tree_policy)
+                    for node, tree_policy in zip(nodes, tree_policies)
+                ]
             )
 
         if logger.isEnabledFor(logging.DEBUG):
+            node, action, tree_policy = nodes[0], actions[0], tree_policies[0]
             child = node.get_child(action)
             logger.debug(
                 "\t".join(
@@ -401,8 +441,10 @@ class MbagMCTS(MCTS):
             )
 
             self.model.eval()
-            _, value = self.model.compute_priors_and_value(node.obs)
-            logger.debug(f"{value} {node.total_value / node.number_visits}")
+            _, values, _ = self.model.compute_priors_and_value(
+                [node.obs["obs"]], [state[None] for state in node.model_state_in]
+            )
+            logger.debug(f"{values[0]} {node.total_value / node.number_visits}")
 
             plan = []
             current = node
@@ -412,17 +454,31 @@ class MbagMCTS(MCTS):
                 plan.append((node.get_mbag_action(plan_action), current.reward))
             logger.debug(plan)
 
-        return tree_policy, action, node.get_child(action)
+        return (
+            tree_policies,
+            actions,
+            [node.get_child(action) for node, action in zip(nodes, actions)],
+        )
 
 
 class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     mcts: MbagMCTS
-    env: MbagEnvModel
+    envs: List[MbagEnvModel]
     config: Dict[str, Any]
 
-    def __init__(self, obs_space, action_space, config):
-        model = ModelCatalog.get_model_v2(
-            obs_space, action_space, action_space.n, config["model"], "torch"
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        config,
+        **kwargs,
+    ):
+        TorchPolicy.__init__(
+            self,
+            observation_space,
+            action_space,
+            config,
+            **kwargs,
         )
 
         def env_creator():
@@ -435,25 +491,19 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         def mcts_creator():
             return MbagMCTS(
-                model,
+                self.model,
                 config["mcts_config"],
                 config["gamma"],
                 use_critic=config["use_critic"],
                 use_goal_predictor=config["use_goal_predictor"],
             )
 
-        super().__init__(
-            obs_space,
-            action_space,
-            config,
-            model=model,
-            loss=None,
-            action_distribution_class=TorchCategorical,
-            mcts_creator=mcts_creator,
-            env_creator=env_creator,
-        )
-
-        self.mcts.model = self.model
+        self.env_creator = env_creator
+        self.mcts = mcts_creator()
+        self.envs = [env_creator() for _ in range(config["num_envs_per_worker"])]
+        for env in self.envs:
+            env.reset()
+        self.obs_space = observation_space
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -464,7 +514,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
     ):
         assert self.mcts.model == self.model
 
-        model_state_len = sum(k[:8] == "state_in" for k in input_dict.keys())
+        model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
         state_out = [
             np.empty_like(input_dict[f"state_in_{state_index}"])
             for state_index in range(model_state_len)
@@ -473,93 +523,86 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             for state_out_part in state_out:
                 state_out_part[:] = 0
 
-        player_index = int(input_dict[SampleBatch.AGENT_INDEX])
-        self.env.set_player_index(player_index)
+        for env_index, player_index in enumerate(input_dict[SampleBatch.AGENT_INDEX]):
+            self.envs[env_index].set_player_index(player_index)
+
+        assert isinstance(self.action_space, spaces.Discrete)
 
         with torch.no_grad():
-            actions = []
-            expected_rewards: List[float] = []
-            expected_own_rewards: List[float] = []
             episode: Episode
 
-            for episode_index, episode in enumerate(episodes):
+            if self.config["pretrain"]:
+                actions = np.array([0] * len(episodes))
+                expected_rewards = np.zeros(len(episodes))
+                expected_own_rewards = np.zeros(len(episodes))
+                mcts_policies = np.zeros((len(episodes), self.action_space.n))
+                mcts_policies[:, 0] = 1
+            else:
+                nodes: List[MbagMCTSNode] = []
+                for env_index, episode in enumerate(episodes):
+                    env_state = episode.user_data["state"]
+                    model_state = [
+                        input_dict[f"state_in_{state_index}"][env_index]
+                        for state_index in range(model_state_len)
+                    ]
+                    obs = self.envs[env_index].set_state(env_state)
+                    nodes.append(
+                        MbagMCTSNode(
+                            state=env_state,
+                            obs=obs,
+                            reward=0,
+                            done=False,
+                            info=None,
+                            action=None,
+                            parent=MbagRootParentNode(env=self.envs[env_index]),
+                            model_state_in=model_state,
+                            mcts=self.mcts,
+                        )
+                    )
+
+                mcts_policies, actions, action_nodes = self.mcts.compute_actions(nodes)
+
+                expected_rewards = np.array(
+                    [action_node.reward for action_node in action_nodes]
+                )
+                expected_own_rewards = np.array(
+                    [
+                        (
+                            action_node.info["own_reward"]
+                            if action_node.info is not None
+                            else np.nan
+                        )
+                        for action_node in action_nodes
+                    ]
+                )
+                for state_index in range(model_state_len):
+                    state_out[state_index] = np.stack(
+                        [
+                            action_node.model_state_out[state_index]
+                            for action_node in action_nodes
+                        ],
+                        axis=0,
+                    )
+
+            for env_index, episode in enumerate(episodes):
                 if episode.length == 0:
                     episode.user_data[MCTS_POLICIES] = []
+                episode.user_data[MCTS_POLICIES].append(mcts_policies[env_index])
 
-                if self.config["pretrain"]:
-                    actions.append(0)
-                    expected_rewards.append(0)
-                    expected_own_rewards.append(0)
-                    assert isinstance(self.action_space, spaces.Discrete)
-                    mcts_policy = np.zeros((self.action_space.n,))
-                    mcts_policy[0] = 1
-                    episode.user_data[MCTS_POLICIES].append(mcts_policy)
-                    continue
-
-                env_state = episode.user_data["state"]
-                model_state = [
-                    input_dict[f"state_in_{state_index}"][episode_index]
-                    for state_index in range(model_state_len)
-                ]
-                # verify if env has been wrapped for ranked rewards
-                if self.env.__class__.__name__ == "RankedRewardsEnvWrapper":
-                    # r2 env state contains also the rewards buffer state
-                    env_state = {"env_state": env_state, "buffer_state": None}
-                # create tree root node
-                obs = self.env.set_state(env_state)
-                tree_node = MbagMCTSNode(
-                    state=env_state,
-                    obs=obs,
-                    reward=0,
-                    done=False,
-                    info=None,
-                    action=None,
-                    parent=MbagRootParentNode(env=self.env),
-                    model_state_in=model_state,
-                    mcts=self.mcts,
-                )
-
-                # run monte carlo simulations to compute the actions
-                # and record the tree
-                mcts_policy, action, action_node = self.mcts.compute_action(tree_node)
-                # record action
-                actions.append(action)
-
-                # Store MCTS policies vectors and other info.
-                episode.user_data[MCTS_POLICIES].append(mcts_policy)
-                expected_rewards.append(action_node.reward)
-                if action_node.info is not None:
-                    expected_own_rewards.append(action_node.info["own_reward"])
-                else:
-                    expected_own_rewards.append(np.nan)
-
-                policy_id = self.config["__policy_id"]
-                for metric_id, metric_value in [
-                    ("expected_reward", expected_rewards[-1]),
-                    ("expected_own_reward", expected_own_rewards[-1]),
-                ]:
-                    metric_key = f"{policy_id}/{metric_id}"
-                    if metric_key not in episode.custom_metrics:
-                        episode.custom_metrics[metric_key] = 0
-                    episode.custom_metrics[metric_key] += metric_value
-
-                for state_index, state in enumerate(tree_node.model_state_out):
-                    state_out[state_index][episode_index] = state
-
-            return (
-                np.array(actions),
-                state_out,
-                {
-                    **self.extra_action_out(
-                        input_dict,
-                        kwargs.get("state_batches", []),
-                        self.model,
-                        cast(Any, None),
-                    ),
-                    "expected_reward": np.array(expected_rewards),
-                    "expected_own_reward": np.array(expected_own_rewards),
-                },
-            )
+        return (
+            np.array(actions),
+            state_out,
+            {
+                **self.extra_action_out(
+                    input_dict,
+                    kwargs.get("state_batches", []),
+                    self.model,
+                    cast(Any, None),
+                ),
+                "expected_reward": expected_rewards,
+                "expected_own_reward": expected_own_rewards,
+            },
+        )
 
     def postprocess_trajectory(
         self,
@@ -653,7 +696,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
         )
 
-        entropy = reduce_mean_valid(dist.entropy())
+        entropy = reduce_mean_valid(dist.entropy()) 
 
         # Compute goal prediction loss.
         goal_logits = model.goal_predictor()

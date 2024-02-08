@@ -157,6 +157,10 @@ class MbagTorchModel(ActorCriticModel):
                 batch_first=True,
             )
 
+    @property
+    def device(self) -> torch.device:
+        return self.block_id_embedding.weight.device
+
     def _get_in_planes(self) -> int:
         """
         Return how many "planes" of data of size embedding_size are present in the
@@ -372,19 +376,17 @@ class MbagTorchModel(ActorCriticModel):
             obs = input_dict
 
         self._world_obs, self._inventory_obs, self._timestep = obs
-        self._world_obs = self._world_obs.long()
-        self._inventory_obs = self._inventory_obs.long()
+        self._world_obs = self._world_obs.to(self.device).long()
+        self._inventory_obs = self._inventory_obs.to(self.device).long()
+        self._timestep = self._timestep.to(self.device)
         self._embedded_obs = self._get_embedded_obs(
             self._world_obs,
             self._inventory_obs,
             self._timestep,
         )
-        if self._embedded_obs.requires_grad:
-            self._embedded_obs.retain_grad()  # TODO: remove
 
         self._amp_or_nothing: ContextManager = contextlib.nullcontext()
-        device = self._embedded_obs.device
-        if device.type == "cuda" and torch.cuda.is_bf16_supported():
+        if self.device.type == "cuda" and torch.cuda.is_bf16_supported():
             self._amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
 
         with self._amp_or_nothing:
@@ -456,26 +458,28 @@ class MbagTorchModel(ActorCriticModel):
             else:
                 return super().get_initial_state()
 
-    def compute_priors_and_value(self, input_dict, state_in=[]):
+    def compute_priors_and_value(self, obs, state_in=[]):
+        batch_size = len(obs)
         obs = convert_to_torch_tensor(
-            self.preprocessor.transform(input_dict["obs"])[None]
+            np.stack([self.preprocessor.transform(o) for o in obs], axis=0)
         )
         input_dict = restore_original_dimensions(obs, self.obs_space, "torch")
-        tensor_state_in = [convert_to_torch_tensor(state)[None] for state in state_in]
+        tensor_state_in = [convert_to_torch_tensor(state) for state in state_in]
 
         with torch.no_grad():
-            model_out = self.forward(
-                input_dict, tensor_state_in, np.array([1]), mask_logits=False
+            logits, state_out = self.forward(
+                input_dict,
+                tensor_state_in,
+                np.ones(batch_size, dtype=int),
+                mask_logits=False,
             )
-            logits, state_out = model_out
             value = self.value_function()
-            logits, value = torch.squeeze(logits), torch.squeeze(value)
-            priors = nn.Softmax(dim=-1)(logits)
+            priors = logits.softmax(dim=-1)
 
             priors = priors.cpu().numpy()
             value = value.cpu().numpy()
 
-            return priors, value, [state[0].cpu().numpy() for state in state_out]
+            return priors, value, [state.cpu().numpy() for state in state_out]
 
 
 class ResidualBlock(nn.Module):
