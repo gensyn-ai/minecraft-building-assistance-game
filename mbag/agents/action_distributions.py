@@ -408,29 +408,66 @@ class MbagActionDistribution(object):
 
         width, height, depth = config["world_size"]
         batch_size = world_obs.shape[0]
-        feet_world_obs = world_obs[
-            np.arange(batch_size),
-            :,
-            np.clip(new_feet_x, 0, width - 1),
-            np.clip(new_feet_y, 0, height - 1),
-            np.clip(new_feet_z, 0, depth - 1),
-        ]
-        head_world_obs = world_obs[
-            np.arange(batch_size),
-            :,
-            np.clip(new_feet_x, 0, width - 1),
-            np.clip(new_feet_y + 1, 0, height - 1),
-            np.clip(new_feet_z, 0, depth - 1),
-        ]
-        return cast(
-            np.ndarray,
+
+        # Specialize for when batch_size is 1.
+        if batch_size == 1:
+            new_feet_x = new_feet_x[0]
+            new_feet_y = new_feet_y[0]
+            new_feet_z = new_feet_z[0]
+            if (
+                new_feet_x < 0
+                or new_feet_x >= width
+                or new_feet_y < 0
+                or new_feet_y >= height
+                or new_feet_z < 0
+                or new_feet_z >= depth
+            ):
+                valid_bool = False
+            else:
+                feet_world_obs = world_obs[0, :, new_feet_x, new_feet_y, new_feet_z]
+                head_world_obs = world_obs[
+                    0, :, new_feet_x, min(new_feet_y + 1, height - 1), new_feet_z
+                ]
+                valid_bool = (
+                    (feet_world_obs[CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+                    and (head_world_obs[CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+                    and (
+                        (feet_world_obs[PLAYER_LOCATIONS] == NO_ONE)
+                        or (feet_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER)
+                    )
+                    and (
+                        (head_world_obs[PLAYER_LOCATIONS] == NO_ONE)
+                        or (head_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER)
+                    )
+                )
+            return np.array([valid_bool])
+
+        valid = (
             (new_feet_x >= 0)
             & (new_feet_x < width)
             & (new_feet_y >= 0)
             & (new_feet_y < height)
             & (new_feet_z >= 0)
             & (new_feet_z < depth)
-            & (feet_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+        )
+
+        feet_world_obs = world_obs[
+            np.arange(batch_size)[valid],
+            :,
+            new_feet_x[valid],
+            new_feet_y[valid],
+            new_feet_z[valid],
+        ]
+        head_world_obs = world_obs[
+            np.arange(batch_size)[valid],
+            :,
+            new_feet_x[valid],
+            np.minimum(new_feet_y[valid] + 1, height - 1),
+            new_feet_z[valid],
+        ]
+
+        valid[valid] &= (
+            (feet_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
             & (head_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
             & (
                 (feet_world_obs[:, PLAYER_LOCATIONS] == NO_ONE)
@@ -439,8 +476,10 @@ class MbagActionDistribution(object):
             & (
                 (head_world_obs[:, PLAYER_LOCATIONS] == NO_ONE)
                 | (head_world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER)
-            ),
+            )
         )
+
+        return valid
 
     @staticmethod
     def get_mask_flat(config: MbagConfigDict, obs: MbagObs) -> np.ndarray:

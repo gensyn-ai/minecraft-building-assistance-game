@@ -59,6 +59,12 @@ class MbagRootParentNode(RootParentNode):
         self.action_mapping = MbagActionDistribution.get_action_mapping(
             unwrap_mbag_env(self.env).config
         )
+        self.action_type_masks: List[slice] = []
+        for action_type in range(MbagAction.NUM_ACTION_TYPES):
+            (mask,) = np.nonzero(self.action_mapping[:, 0] == action_type)
+            mask_slice = slice(mask[0], mask[-1] + 1) if len(mask) > 0 else slice(0, 0)
+            self.action_type_masks.append(mask_slice)
+            assert len(mask) == mask_slice.stop - mask_slice.start
 
 
 class MbagMCTSNode(Node):
@@ -66,6 +72,7 @@ class MbagMCTSNode(Node):
     mcts: "MbagMCTS"
     children: Dict[Tuple[int, ...], "MbagMCTSNode"]
     action_mapping: np.ndarray
+    action_type_masks: List[slice]
     parent: Union["MbagMCTSNode", MbagRootParentNode]
     goal_logits: Optional[np.ndarray]
     other_agent_action_dist: Optional[np.ndarray]
@@ -92,6 +99,18 @@ class MbagMCTSNode(Node):
         self.min_value = np.inf
         self.max_value = -np.inf
         self.action_mapping = self.parent.action_mapping
+        self.action_type_masks = self.parent.action_type_masks
+
+        self.valid_action_types: np.ndarray = (
+            np.bincount(
+                self.action_mapping[:, 0],
+                weights=self.valid_actions.astype(np.int32),
+                minlength=MbagAction.NUM_ACTION_TYPES,
+            )
+            > 0
+        )
+        self.action_type_total_value = np.zeros(MbagAction.NUM_ACTION_TYPES)
+        self.action_type_number_visits = np.zeros(MbagAction.NUM_ACTION_TYPES)
 
         self.action_type_dirichlet_noise = None
         self.dirichlet_noise = None
@@ -101,14 +120,14 @@ class MbagMCTSNode(Node):
 
         self.model_state_in = model_state_in
 
-    def child_Q(self):  # noqa: N802
-        Q = self.child_total_value / np.maximum(  # noqa: N806
-            self.child_number_visits, 1
+    def child_Q(self, mask=slice(None)):  # noqa: N802
+        Q = self.child_total_value[mask] / np.maximum(  # noqa: N806
+            self.child_number_visits[mask], 1
         )
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
         )
-        Q[self.child_number_visits == 0] = (
+        Q[self.child_number_visits[mask] == 0] = (
             self.max_value if self.mcts.init_q_with_max else V
         )
         Q = (Q - self.min_value) / max(  # noqa: N806
@@ -116,13 +135,16 @@ class MbagMCTSNode(Node):
         )
         return Q
 
+    def child_U(self, mask=slice(None)):  # noqa: N802
+        return (
+            np.sqrt(self.number_visits)
+            * self.child_priors[mask]
+            / (1 + self.child_number_visits[mask])
+        )
+
     def action_type_Q(self):  # noqa: N802
-        total_value = np.bincount(
-            self.action_mapping[:, 0], weights=self.child_total_value
-        )
-        number_visits = np.bincount(
-            self.action_mapping[:, 0], weights=self.child_number_visits
-        )
+        total_value = self.action_type_total_value
+        number_visits = self.action_type_number_visits
         Q = total_value / np.maximum(number_visits, 1)  # noqa: N806
         V = (  # noqa: N806
             self.total_value / self.number_visits if self.number_visits > 0 else 0
@@ -134,22 +156,10 @@ class MbagMCTSNode(Node):
         return Q
 
     def action_type_U(self):  # noqa: N802
-        number_visits: np.ndarray = np.bincount(
-            self.action_mapping[:, 0], weights=self.child_number_visits
-        )
-        priors = np.bincount(self.action_mapping[:, 0], weights=self.child_priors)
         return (
-            np.sqrt(1 + np.sum(self.child_number_visits)) * priors / (1 + number_visits)
-        )
-
-    @property
-    def valid_action_types(self) -> np.ndarray:
-        return cast(
-            np.ndarray,
-            np.bincount(
-                self.action_mapping[:, 0], weights=self.valid_actions.astype(np.int32)
-            )
-            > 0,
+            np.sqrt(self.number_visits)
+            * self.action_type_priors
+            / (1 + self.action_type_number_visits)
         )
 
     def best_action(self) -> int:
@@ -158,13 +168,13 @@ class MbagMCTSNode(Node):
                 self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
             )
             action_type_score[~self.valid_action_types] = -np.inf
-            action_type = np.argmax(action_type_score)
+            action_type = int(np.argmax(action_type_score))
 
-            child_score = self.child_Q() + self.mcts.c_puct * self.child_U()
+            mask = self.action_type_masks[action_type]
+            child_score = self.child_Q(mask) + self.mcts.c_puct * self.child_U(mask)
             masked_child_score = child_score
-            masked_child_score[~self.valid_actions] = -np.inf
-            masked_child_score[self.action_mapping[:, 0] != action_type] = -np.inf
-            return int(np.argmax(masked_child_score))
+            masked_child_score[~self.valid_actions[mask]] = -np.inf
+            return int(np.argmax(masked_child_score) + mask.start)
         else:
             return int(super().best_action())
 
@@ -237,6 +247,12 @@ class MbagMCTSNode(Node):
 
             assert abs(self.child_priors.sum() - 1) < 1e-2
 
+        self.action_type_priors = np.bincount(
+            self.action_mapping[:, 0],
+            weights=self.child_priors,
+            minlength=MbagAction.NUM_ACTION_TYPES,
+        )
+
     def get_child(self, action: int) -> "MbagMCTSNode":
         all_actions: Tuple[int, ...] = (action,)
         other_agent_actions: Optional[List[int]] = None
@@ -276,6 +292,13 @@ class MbagMCTSNode(Node):
             value += current.reward
             current.number_visits += 1
             current.total_value += value
+
+            if current.action is not None:
+                assert isinstance(current.parent, MbagMCTSNode)
+                action_type = int(self.action_mapping[current.action, 0])
+                current.parent.action_type_number_visits[action_type] += 1
+                current.parent.action_type_total_value[action_type] += value
+
             for node in [current, current.parent]:
                 if isinstance(node, MbagMCTSNode):
                     node.min_value = min(node.min_value, value)
@@ -696,7 +719,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
         )
 
-        entropy = reduce_mean_valid(dist.entropy()) 
+        entropy = reduce_mean_valid(dist.entropy())
 
         # Compute goal prediction loss.
         goal_logits = model.goal_predictor()
