@@ -38,10 +38,10 @@ class MbagModel(ABC, TorchModelV2):
     """
 
     @abstractmethod
-    def block_id_model(
+    def block_id_model(  # noqa: E704
         self,
         inputs: torch.Tensor,
-    ) -> torch.Tensor: ...  # noqa: E704
+    ) -> torch.Tensor: ...
 
 
 class MbagModelConfig(TypedDict, total=False):
