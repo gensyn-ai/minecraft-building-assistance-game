@@ -386,6 +386,7 @@ class MbagEnv(object):
         self.human_action_detector = HumanActionDetector(self.config)
 
         self.is_first_episode = True
+        self.any_step_since_last_reset = True
 
         # Commented out because now the environment DOES support mixed humans and non-humans working together
         # if any(
@@ -460,7 +461,7 @@ class MbagEnv(object):
                 )
             self.player_locations.append(player_location)
 
-    def reset(self) -> List[MbagObs]:
+    def reset(self, *, force_regenerate_goal=False) -> List[MbagObs]:
         """Reset Minecraft environment and return player observations for each player."""
 
         if self.is_first_episode and self.config.get(
@@ -477,7 +478,12 @@ class MbagEnv(object):
         self.last_interacted = np.zeros(self.config["world_size"])
         self.last_interacted[:] = NO_INTERACTION
 
-        self.goal_blocks = self._generate_goal()
+        if force_regenerate_goal or self.any_step_since_last_reset:
+            # Generating goals is expensive, so don't do it if there haven't been
+            # any steps taken since the last reset (unless force_regenerate_goal
+            # is True).
+            self.goal_blocks = self._generate_goal()
+            self.any_step_since_last_reset = False
 
         # Place players in the world.
         if self.config["random_start_locations"]:
@@ -668,6 +674,7 @@ class MbagEnv(object):
 
         if dones[0]:
             self.is_first_episode = False
+        self.any_step_since_last_reset = True
 
         return obs, rewards, dones, infos
 
