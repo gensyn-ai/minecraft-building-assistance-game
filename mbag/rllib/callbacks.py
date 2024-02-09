@@ -32,6 +32,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         base_env: BaseEnv,
         policies: Dict[PolicyID, Policy],
         episode: Union[Episode, EpisodeV2],
+        env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().on_episode_start(
@@ -42,7 +43,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             **kwargs,
         )
 
-        env = base_env.get_sub_environments()[0]
+        env = base_env.get_sub_environments()[env_index or 0]
         state = env.get_state()
         episode.user_data["state"] = state
 
@@ -61,11 +62,12 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         base_env: BaseEnv,
         policies: Optional[Dict[PolicyID, Policy]] = None,
         episode: Union[Episode, EpisodeV2],
+        env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         assert policies is not None
 
-        env = base_env.get_sub_environments()[0]
+        env = base_env.get_sub_environments()[env_index or 0]
         state = env.get_state()
         episode.user_data["state"] = state
 
@@ -130,7 +132,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         info_dict = cast(MbagInfoDict, self._get_last_info(episode, "player_0"))
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
-        env = unwrap_mbag_env(base_env.get_sub_environments()[0])
+        env = unwrap_mbag_env(base_env.get_sub_environments()[env_index or 0])
         width, height, depth = env.config["world_size"]
         episode.custom_metrics["goal_distance"] = (
             width * height * depth - info_dict["goal_similarity"]
