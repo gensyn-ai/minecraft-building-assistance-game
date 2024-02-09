@@ -344,11 +344,6 @@ class MbagMCTSNode(Node):
 
             assert abs(self.child_priors.sum() - 1) < 1e-2
 
-        # self.action_type_priors = np.bincount(
-        #     self.action_mapping[:, 0],
-        #     weights=self.child_priors,
-        #     minlength=MbagAction.NUM_ACTION_TYPES,
-        # ).astype(np.float32)
         self.action_type_priors = np.array(
             [
                 np.sum(self.child_priors[self.action_type_slices[action_type]])
@@ -740,7 +735,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         episode=None,
     ):
         with torch.no_grad():
-            last_r = 0
+            input_dict = sample_batch.get_single_step_input_dict(
+                self.view_requirements, index="last"
+            )
+            input_dict = SampleBatch(input_dict)
+            input_dict = self._lazy_tensor_dict(input_dict)
+            assert self.model is not None
+            self.model(input_dict)
+            last_r = self.model.value_function()[0].item()
             rewards_plus_v = np.concatenate(
                 [sample_batch[SampleBatch.REWARDS], np.array([last_r])]
             )
