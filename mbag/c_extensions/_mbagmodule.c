@@ -8,10 +8,12 @@
 #include "constants.h"
 #include "action_distributions.h"
 #include "blocks.h"
+#include "mcts.h"
 
 static PyMethodDef MbagMethods[] = {
     {"get_action_distribution_mask", (PyCFunction) _mbag_get_action_distribution_mask, METH_VARARGS | METH_KEYWORDS, "Get the action mask given an MBAG observation."},
     {"get_viewpoint_click_candidates", (PyCFunction) _mbag_get_viewpoint_click_candidates, METH_VARARGS | METH_KEYWORDS, "Get viewpoint-click candidates for placing or breaking a block."},
+    {"mcts_best_action", (PyCFunction) _mbag_mcts_best_action, METH_VARARGS | METH_KEYWORDS, "Select the best action to expand with MCTS."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

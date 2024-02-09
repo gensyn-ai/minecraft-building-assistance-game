@@ -1,5 +1,6 @@
 import copy
 import logging
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 import numpy as np
@@ -56,6 +57,8 @@ logger = logging.getLogger(__name__)
 class MbagRootParentNode(RootParentNode):
     def __init__(self, env):
         super().__init__(env)
+        self.child_number_visits = defaultdict(int)
+
         self.action_mapping = MbagActionDistribution.get_action_mapping(
             unwrap_mbag_env(self.env).config
         )
@@ -111,8 +114,14 @@ class MbagMCTSNode(Node):
             )
             > 0
         )
-        self.action_type_total_value = np.zeros(MbagAction.NUM_ACTION_TYPES)
-        self.action_type_number_visits = np.zeros(MbagAction.NUM_ACTION_TYPES)
+        self.action_type_total_value = np.zeros(
+            MbagAction.NUM_ACTION_TYPES, dtype=np.float32
+        )
+        self.action_type_number_visits = np.zeros(
+            MbagAction.NUM_ACTION_TYPES, dtype=np.int64
+        )
+
+        self.child_number_visits = self.child_number_visits.astype(np.int64)
 
         self.action_type_dirichlet_noise = None
         self.dirichlet_noise = None
@@ -164,13 +173,43 @@ class MbagMCTSNode(Node):
             / (1 + self.action_type_number_visits)
         )
 
-    def best_action(self) -> int:
-        if self.mcts.use_bilevel_action_selection:
-            action_type_score = (
-                self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
+    def best_action(self, force_python_impl=False) -> int:
+        if self.mcts.init_q_with_max:
+            init_q_value = self.max_value
+        else:
+            init_q_value = (
+                self.total_value / self.number_visits if self.number_visits > 0 else 0
             )
-            action_type_score[~self.valid_action_types] = -np.inf
-            action_type = int(np.argmax(action_type_score))
+
+        if self.mcts.use_bilevel_action_selection:
+            action_type_c = None
+            try:
+                import _mbag
+
+                action_type_c = _mbag.mcts_best_action(
+                    self.action_type_total_value,
+                    self.action_type_number_visits,
+                    self.action_type_priors,
+                    self.number_visits,
+                    self.mcts.c_puct,
+                    init_q_value,
+                    self.max_value,
+                    self.min_value,
+                    np.nonzero(self.valid_action_types)[0],
+                )
+            except ImportError:
+                if not force_python_impl:
+                    logger.warning("C implementation of best_action not found")
+
+            if force_python_impl or action_type_c is None:
+                action_type_score = (
+                    self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
+                )
+                action_type_score[~self.valid_action_types] = -np.inf
+                action_type = int(np.argmax(action_type_score))
+                assert action_type == action_type_c
+            else:
+                action_type = action_type_c
 
             action_type_slice = self.action_type_slices[action_type]
             valid_action_indices = (
@@ -178,15 +217,65 @@ class MbagMCTSNode(Node):
                 + action_type_slice.start
             )
 
-            if len(valid_action_indices) == 1:
-                return int(valid_action_indices[0])
+            action_c = None
+            try:
+                import _mbag
+
+                action_c = _mbag.mcts_best_action(
+                    self.child_total_value,
+                    self.child_number_visits,
+                    self.child_priors,
+                    self.number_visits,
+                    self.mcts.c_puct,
+                    init_q_value,
+                    self.max_value,
+                    self.min_value,
+                    valid_action_indices,
+                )
+            except ImportError:
+                if not force_python_impl:
+                    logger.warning("C implementation of best_action not found")
+
+            if force_python_impl or action_c is None:
+                if len(valid_action_indices) == 1:
+                    action = int(valid_action_indices[0])
+                else:
+                    child_score = self.child_Q(
+                        valid_action_indices
+                    ) + self.mcts.c_puct * self.child_U(valid_action_indices)
+                    action = int(valid_action_indices[np.argmax(child_score)])
+                assert action == action_c
             else:
-                child_score = self.child_Q(
-                    valid_action_indices
-                ) + self.mcts.c_puct * self.child_U(valid_action_indices)
-                return int(valid_action_indices[np.argmax(child_score)])
+                action = action_c
+
+            return action
         else:
-            return int(super().best_action())
+            action_c = None
+            try:
+                import _mbag
+
+                action_c = _mbag.mcts_best_action(
+                    self.child_total_value,
+                    self.child_number_visits,
+                    self.child_priors,
+                    self.number_visits,
+                    self.mcts.c_puct,
+                    init_q_value,
+                    self.max_value,
+                    self.min_value,
+                    np.nonzero(self.valid_actions)[0],
+                )
+            except ImportError:
+                if not force_python_impl:
+                    logger.warning("C implementation of best_action not found")
+
+            if force_python_impl or action_c is None:
+                action = super().best_action()
+                assert action == action_c
+            else:
+                action = action_c
+
+            return action
 
     def expand(
         self,
@@ -261,7 +350,7 @@ class MbagMCTSNode(Node):
             self.action_mapping[:, 0],
             weights=self.child_priors,
             minlength=MbagAction.NUM_ACTION_TYPES,
-        )
+        ).astype(np.float32)
 
     def get_child(self, action: int) -> "MbagMCTSNode":
         all_actions: Tuple[int, ...] = (action,)
