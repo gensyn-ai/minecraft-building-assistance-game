@@ -77,7 +77,7 @@ def test_get_viewpoint_click_candidates_c_extension():
             )
             width, height, depth = env.config["world_size"]
             for _ in range(10):
-                env.reset()
+                env.reset(force_regenerate_goal=True)
                 if teleportation:
                     player_location = None
                 else:
