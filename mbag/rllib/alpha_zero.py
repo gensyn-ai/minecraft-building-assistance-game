@@ -59,12 +59,14 @@ class MbagRootParentNode(RootParentNode):
         self.action_mapping = MbagActionDistribution.get_action_mapping(
             unwrap_mbag_env(self.env).config
         )
-        self.action_type_masks: List[slice] = []
+        self.action_type_slices: List[slice] = []
         for action_type in range(MbagAction.NUM_ACTION_TYPES):
             (mask,) = np.nonzero(self.action_mapping[:, 0] == action_type)
-            mask_slice = slice(mask[0], mask[-1] + 1) if len(mask) > 0 else slice(0, 0)
-            self.action_type_masks.append(mask_slice)
-            assert len(mask) == mask_slice.stop - mask_slice.start
+            action_type_slice = (
+                slice(mask[0], mask[-1] + 1) if len(mask) > 0 else slice(0, 0)
+            )
+            self.action_type_slices.append(action_type_slice)
+            assert len(mask) == action_type_slice.stop - action_type_slice.start
 
 
 class MbagMCTSNode(Node):
@@ -72,7 +74,7 @@ class MbagMCTSNode(Node):
     mcts: "MbagMCTS"
     children: Dict[Tuple[int, ...], "MbagMCTSNode"]
     action_mapping: np.ndarray
-    action_type_masks: List[slice]
+    action_type_slices: List[slice]
     parent: Union["MbagMCTSNode", MbagRootParentNode]
     goal_logits: Optional[np.ndarray]
     other_agent_action_dist: Optional[np.ndarray]
@@ -99,7 +101,7 @@ class MbagMCTSNode(Node):
         self.min_value = np.inf
         self.max_value = -np.inf
         self.action_mapping = self.parent.action_mapping
-        self.action_type_masks = self.parent.action_type_masks
+        self.action_type_slices = self.parent.action_type_slices
 
         self.valid_action_types: np.ndarray = (
             np.bincount(
@@ -170,11 +172,19 @@ class MbagMCTSNode(Node):
             action_type_score[~self.valid_action_types] = -np.inf
             action_type = int(np.argmax(action_type_score))
 
-            mask = self.action_type_masks[action_type]
-            child_score = self.child_Q(mask) + self.mcts.c_puct * self.child_U(mask)
-            masked_child_score = child_score
-            masked_child_score[~self.valid_actions[mask]] = -np.inf
-            return int(np.argmax(masked_child_score) + mask.start)
+            action_type_slice = self.action_type_slices[action_type]
+            valid_action_indices = (
+                np.nonzero(self.valid_actions[action_type_slice])[0]
+                + action_type_slice.start
+            )
+
+            if len(valid_action_indices) == 1:
+                return int(valid_action_indices[0])
+            else:
+                child_score = self.child_Q(
+                    valid_action_indices
+                ) + self.mcts.c_puct * self.child_U(valid_action_indices)
+                return int(valid_action_indices[np.argmax(child_score)])
         else:
             return int(super().best_action())
 

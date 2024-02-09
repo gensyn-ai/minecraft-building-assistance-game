@@ -33,6 +33,20 @@ def default_config():
 
 
 @pytest.fixture(scope="session")
+def default_alpha_zero_config():
+    return {
+        "run": "MbagAlphaZero",
+        "goal_generator": "random",
+        "use_replay_buffer": False,
+        "hidden_size": 64,
+        "num_simulations": 5,
+        "sample_batch_size": 100,
+        "train_batch_size": 1,
+        "num_sgd_iter": 1,
+    }
+
+
+@pytest.fixture(scope="session")
 def dummy_ppo_checkpoint_fname(default_config):
     # Execute short dummy run and return the file where the checkpoint is stored.
     checkpoint_dir = tempfile.mkdtemp()
@@ -158,15 +172,11 @@ def test_train_together(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
-def test_alpha_zero(default_config):
+def test_alpha_zero(default_config, default_alpha_zero_config):
     result = ex.run(
         config_updates={
             **default_config,
-            "run": "MbagAlphaZero",
-            "goal_generator": "random",
-            "use_replay_buffer": False,
-            "hidden_size": 64,
-            "num_simulations": 5,
+            **default_alpha_zero_config,
         }
     ).result
     assert result is not None
@@ -174,13 +184,27 @@ def test_alpha_zero(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
+def test_alpha_zero_multiple_envs(default_config, default_alpha_zero_config):
     result = ex.run(
         config_updates={
             **default_config,
-            "run": "MbagAlphaZero",
-            "goal_generator": "random",
-            "use_replay_buffer": False,
+            **default_alpha_zero_config,
+            "num_envs_per_worker": 4,
+            "num_workers": 0,
+        }
+    ).result
+    assert result is not None
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+def test_alpha_zero_assistant(
+    default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
+):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
             "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
@@ -189,8 +213,6 @@ def test_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
             "load_policies_mapping": {"human": "human"},
             "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
-            "hidden_size": 64,
-            "num_simulations": 5,
         }
     ).result
     assert result is not None
@@ -199,13 +221,13 @@ def test_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
-def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
+def test_lstm_alpha_zero_assistant(
+    default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
+):
     result = ex.run(
         config_updates={
             **default_config,
-            "run": "MbagAlphaZero",
-            "goal_generator": "random",
-            "use_replay_buffer": False,
+            **default_alpha_zero_config,
             "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
@@ -214,12 +236,10 @@ def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
             "load_policies_mapping": {"human": "human"},
             "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
-            "hidden_size": 64,
             "use_per_location_lstm": True,
             "max_seq_len": 5,
             "sgd_minibatch_size": 20,
             "vf_share_layers": True,
-            "num_simulations": 5,
         }
     ).result
     assert result is not None
@@ -228,22 +248,20 @@ def test_lstm_alpha_zero_assistant(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
-def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
+def test_alpha_zero_assistant_with_lowest_block_agent(
+    default_config, default_alpha_zero_config
+):
     result = ex.run(
         config_updates={
             **default_config,
-            "run": "MbagAlphaZero",
-            "goal_generator": "random",
-            "use_replay_buffer": False,
+            **default_alpha_zero_config,
             "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
             "policies_to_train": ["human"],
             "model": "transformer_alpha_zero",
-            "hidden_size": 64,
             "heuristic": "lowest_block",
-            "num_simulations": 5,
         }
     ).result
     assert result is not None
@@ -252,13 +270,13 @@ def test_alpha_zero_assistant_with_lowest_block_agent(default_config):
 
 
 @pytest.mark.uses_rllib
-def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_fname):
+def test_alpha_zero_assistant_pretraining(
+    default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
+):
     result = ex.run(
         config_updates={
             **default_config,
-            "run": "MbagAlphaZero",
-            "goal_generator": "random",
-            "use_replay_buffer": False,
+            **default_alpha_zero_config,
             "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
@@ -267,9 +285,7 @@ def test_alpha_zero_assistant_pretraining(default_config, dummy_ppo_checkpoint_f
             "load_policies_mapping": {"human": "human"},
             "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
-            "hidden_size": 64,
             "pretrain": True,
-            "num_simulations": 5,
         }
     ).result
     assert result is not None
