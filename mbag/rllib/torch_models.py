@@ -929,18 +929,34 @@ class SeparatedTransformerEncoder(nn.Module):
             self.layers.append(layer)
 
     def _layer_forward(self, layer: nn.TransformerEncoderLayer, x: torch.Tensor):
+        # Pad to a multiple of 8 for the sequence length, which lets us use the
+        # tensor core on GPUs.
+        # sequence_length = x.size()[1]
+        # padded_sequence_length = (sequence_length + 7) // 8 * 8
+        # padding = padded_sequence_length - sequence_length
+        # x_padded = F.pad(x, (0, 0, 0, padding))
+        # mask = torch.zeros((padded_sequence_length, padded_sequence_length), dtype=bool, device=x.device)
+        # mask[:sequence_length, :sequence_length] = True
+        # return layer(x_padded, src_mask=mask)[:, :sequence_length]
+        return layer(x)
+
+    def _batched_layer_forward(
+        self, layer: nn.TransformerEncoderLayer, x: torch.Tensor
+    ):
         # PyTorch only supports batch sizes up to 2 ** 16 - 1, so we need to split
         # the batch into smaller chunks.
         batch_size = x.size()[0]
         if batch_size <= 2**16 - 1:
-            return layer(x)
+            return self._layer_forward(layer, x)
         else:
             minibatch_size = 2**15
             num_minibatches = (batch_size + minibatch_size - 1) // minibatch_size
             minibatch_outputs = []
             for i in range(num_minibatches):
                 minibatch_outputs.append(
-                    layer(x[i * minibatch_size : (i + 1) * minibatch_size])
+                    self._layer_forward(
+                        layer, x[i * minibatch_size : (i + 1) * minibatch_size]
+                    )
                 )
             return torch.cat(minibatch_outputs, dim=0)
 
@@ -963,7 +979,7 @@ class SeparatedTransformerEncoder(nn.Module):
             )
             x_permuted = x.permute(*permutation)
             layer_input = x_permuted.flatten(end_dim=-3)
-            layer_output = self._layer_forward(layer, layer_input)
+            layer_output = self._batched_layer_forward(layer, layer_input)
             x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
 
         return x
