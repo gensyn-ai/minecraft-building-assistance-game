@@ -1,6 +1,6 @@
 import numpy as np
 
-def get_mask(
+def get_action_distribution_mask(
     world_obs: np.ndarray,
     inventory_obs: np.ndarray,
     timestep: int,

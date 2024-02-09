@@ -140,7 +140,7 @@ def test_mask():
 
 
 def test_mask_c_extension():
-    import _mbag_action_distributions  # noqa: F401
+    import _mbag  # noqa: F401
 
     for inf_blocks in [True, False]:
         for teleportation in [True, False]:

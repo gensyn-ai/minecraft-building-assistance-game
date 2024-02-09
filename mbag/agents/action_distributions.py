@@ -259,12 +259,12 @@ class MbagActionDistribution(object):
 
         if not force_python_impl and batch_size == 1:
             try:
-                import _mbag_action_distributions
+                import _mbag
 
                 try:
                     return cast(
                         np.ndarray,
-                        _mbag_action_distributions.get_mask(
+                        _mbag.get_action_distribution_mask(
                             world_obs[0].astype(np.uint8),
                             inventory_obs[0].astype(np.int32),
                             int(timestep[0]),

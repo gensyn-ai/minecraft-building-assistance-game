@@ -2,9 +2,11 @@ from distutils.core import setup, Extension
 import numpy as np
 
 action_distributions_extension = Extension(
-    "_mbag_action_distributions",
+    "_mbag",
     sources=[
-        "mbag/agents/_mbag_action_distributionsmodule.c",
+        "mbag/c_extensions/_mbagmodule.c",
+        "mbag/c_extensions/action_distributions.c",
+
     ],
     include_dirs=[np.get_include()],
 )

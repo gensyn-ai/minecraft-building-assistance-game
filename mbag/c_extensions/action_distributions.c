@@ -1,46 +1,15 @@
 
 #define PY_SSIZE_T_CLEAN
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
-/*
-    A bunch of constants. These are checked against the corresponding Python ones when
-    the C module is loaded.
-*/
-#define NUM_ACTION_TYPES 10
-#define NUM_BLOCKS 10
-#define NUM_CHANNELS (NUM_ACTION_TYPES + 2 * (NUM_BLOCKS - 1))
-#define NOOP_CHANNEL 0
-#define PLACE_BLOCK_CHANNEL 1
-#define BREAK_BLOCK_CHANNEL (1 + NUM_BLOCKS)
-#define MOVE_POS_X_CHANNEL (2 + NUM_BLOCKS)
-#define MOVE_NEG_X_CHANNEL (3 + NUM_BLOCKS)
-#define MOVE_POS_Y_CHANNEL (4 + NUM_BLOCKS)
-#define MOVE_NEG_Y_CHANNEL (5 + NUM_BLOCKS)
-#define MOVE_POS_Z_CHANNEL (6 + NUM_BLOCKS)
-#define MOVE_NEG_Z_CHANNEL (7 + NUM_BLOCKS)
-#define GIVE_BLOCK_CHANNEL (8 + NUM_BLOCKS)
-#define NOOP 0
-#define PLACE_BLOCK 1
-#define BREAK_BLOCK 2
-#define MOVE_POS_X 3
-#define MOVE_NEG_X 4
-#define MOVE_POS_Y 5
-#define MOVE_NEG_Y 6
-#define MOVE_POS_Z 7
-#define MOVE_NEG_Z 8
-#define GIVE_BLOCK 9
-#define CURRENT_BLOCKS 0
-#define PLAYER_LOCATIONS 4
-#define NO_ONE 0
-#define CURRENT_PLAYER 1
-#define AIR 0
-#define BEDROCK 1
-#define MAX_PLAYER_REACH 4.5
+#include "action_distributions.h"
+#include "constants.h"
 
 
 static bool _is_valid_position_to_move_to(int x, int y_feet, int z, int width, int height, int depth, PyArrayObject *world_obs_array) {
@@ -65,10 +34,11 @@ static bool _is_valid_position_to_move_to(int x, int y_feet, int z, int width, i
 }
 
 
-// get_mask(world_obs, inventory_obs, timestep, teleportation, inf_blocks)
-static PyObject *
-_mbag_action_distributions_get_mask(PyObject *self, PyObject *args, PyObject *kwargs)
+// get_action_distribution_mask(world_obs, inventory_obs, timestep, teleportation, inf_blocks)
+PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyObject *kwargs)
 {
+    import_array();
+
     // Arguments
     PyArrayObject *world_obs_array;
     PyArrayObject *inventory_obs_array;
@@ -291,91 +261,5 @@ _mbag_action_distributions_get_mask(PyObject *self, PyObject *args, PyObject *kw
         }
     }
 
-    return valid_array;
-}
-
-static PyMethodDef ActionDistributionsMethods[] = {
-    {"get_mask", (PyCFunction) _mbag_action_distributions_get_mask,
-     METH_VARARGS | METH_KEYWORDS, "Get the action mask given an MBAG observation."},
-    {NULL, NULL, 0, NULL}        /* Sentinel */
-};
-
-static struct PyModuleDef _mbag_action_distributionsmodule = {
-    PyModuleDef_HEAD_INIT,
-    "_mbag_action_distributions",   /* name of module */
-    NULL, /* module documentation, may be NULL */
-    -1,       /* size of per-interpreter state of the module,
-                 or -1 if the module keeps state in global variables. */
-    ActionDistributionsMethods
-};
-
-PyMODINIT_FUNC
-PyInit__mbag_action_distributions(void)
-{
-    import_array();
-
-    PyObject *blocks_module = PyImport_ImportModule("mbag.environment.blocks");
-    double max_player_reach = PyFloat_AsDouble(PyObject_GetAttrString(blocks_module, "MAX_PLAYER_REACH"));
-    if (abs(max_player_reach - MAX_PLAYER_REACH) > 1e-6) {
-        PyErr_SetString(PyExc_RuntimeError, "MAX_PLAYER_REACH does not match the expected value");
-        return NULL;
-    }
-    PyObject *MinecraftBlocks = PyObject_GetAttrString(blocks_module, "MinecraftBlocks");
-    long num_blocks = PyLong_AsLong(PyObject_GetAttrString(MinecraftBlocks, "NUM_BLOCKS"));
-    if (num_blocks != NUM_BLOCKS) {
-        PyErr_SetString(PyExc_RuntimeError, "NUM_BLOCKS does not match the expected value");
-        return NULL;
-    }
-    long air = PyLong_AsLong(PyObject_GetAttrString(MinecraftBlocks, "AIR"));
-    if (air != AIR) {
-        PyErr_SetString(PyExc_RuntimeError, "AIR does not match the expected value");
-        return NULL;
-    }
-    long bedrock = PyLong_AsLong(PyObject_GetAttrString(MinecraftBlocks, "BEDROCK"));
-    if (bedrock != BEDROCK) {
-        PyErr_SetString(PyExc_RuntimeError, "BEDROCK does not match the expected value");
-        return NULL;
-    }
-
-    PyObject *types_module = PyImport_ImportModule("mbag.environment.types");
-    PyObject *MbagAction = PyObject_GetAttrString(types_module, "MbagAction");
-    int num_action_types = PyLong_AsLong(PyObject_GetAttrString(MbagAction, "NUM_ACTION_TYPES"));
-    if (num_action_types != NUM_ACTION_TYPES) {
-        PyErr_SetString(PyExc_RuntimeError, "NUM_ACTION_TYPES does not match the expected value");
-        return NULL;
-    }
-    int current_blocks = PyLong_AsLong(PyObject_GetAttrString(types_module, "CURRENT_BLOCKS"));
-    if (current_blocks != CURRENT_BLOCKS) {
-        PyErr_SetString(PyExc_RuntimeError, "CURRENT_BLOCKS does not match the expected value");
-        return NULL;
-    }
-    int player_locations = PyLong_AsLong(PyObject_GetAttrString(types_module, "PLAYER_LOCATIONS"));
-    if (player_locations != PLAYER_LOCATIONS) {
-        PyErr_SetString(PyExc_RuntimeError, "PLAYER_LOCATIONS does not match the expected value");
-        return NULL;
-    }
-
-    PyObject *mbag_env_module = PyImport_ImportModule("mbag.environment.mbag_env");
-    int no_one = PyLong_AsLong(PyObject_GetAttrString(mbag_env_module, "NO_ONE"));
-    if (no_one != NO_ONE) {
-        PyErr_SetString(PyExc_RuntimeError, "NO_ONE does not match the expected value");
-        return NULL;
-    }
-    int current_player = PyLong_AsLong(PyObject_GetAttrString(mbag_env_module, "CURRENT_PLAYER"));
-    if (current_player != CURRENT_PLAYER) {
-        PyErr_SetString(PyExc_RuntimeError, "CURRENT_PLAYER does not match the expected value");
-        return NULL;
-    }
-
-    PyObject *MbagActionDistribution = PyObject_GetAttrString(
-        PyImport_ImportModule("mbag.agents.action_distributions"),
-        "MbagActionDistribution"
-    );
-    int num_channels = PyLong_AsLong(PyObject_GetAttrString(MbagActionDistribution, "NUM_CHANNELS"));
-    if (num_channels != NUM_CHANNELS) {
-        PyErr_SetString(PyExc_RuntimeError, "NUM_CHANNELS does not match the expected value");
-        return NULL;
-    }
-
-    return PyModule_Create(&_mbag_action_distributionsmodule);
+    return (PyObject *) valid_array;
 }
