@@ -106,13 +106,11 @@ class MbagMCTSNode(Node):
         self.action_mapping = self.parent.action_mapping
         self.action_type_slices = self.parent.action_type_slices
 
-        self.valid_action_types: np.ndarray = (
-            np.bincount(
-                self.action_mapping[:, 0],
-                weights=self.valid_actions.astype(np.int32),
-                minlength=MbagAction.NUM_ACTION_TYPES,
-            )
-            > 0
+        self.valid_action_types = np.array(
+            [
+                np.any(self.valid_actions[self.action_type_slices[action_type]])
+                for action_type in range(MbagAction.NUM_ACTION_TYPES)
+            ]
         )
         self.action_type_total_value = np.zeros(
             MbagAction.NUM_ACTION_TYPES, dtype=np.float32
@@ -346,11 +344,18 @@ class MbagMCTSNode(Node):
 
             assert abs(self.child_priors.sum() - 1) < 1e-2
 
-        self.action_type_priors = np.bincount(
-            self.action_mapping[:, 0],
-            weights=self.child_priors,
-            minlength=MbagAction.NUM_ACTION_TYPES,
-        ).astype(np.float32)
+        # self.action_type_priors = np.bincount(
+        #     self.action_mapping[:, 0],
+        #     weights=self.child_priors,
+        #     minlength=MbagAction.NUM_ACTION_TYPES,
+        # ).astype(np.float32)
+        self.action_type_priors = np.array(
+            [
+                np.sum(self.child_priors[self.action_type_slices[action_type]])
+                for action_type in range(MbagAction.NUM_ACTION_TYPES)
+            ],
+            dtype=np.float32,
+        )
 
     def get_child(self, action: int) -> "MbagMCTSNode":
         all_actions: Tuple[int, ...] = (action,)
