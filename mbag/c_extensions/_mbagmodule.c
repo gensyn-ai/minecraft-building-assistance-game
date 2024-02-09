@@ -7,10 +7,11 @@
 
 #include "constants.h"
 #include "action_distributions.h"
+#include "blocks.h"
 
 static PyMethodDef MbagMethods[] = {
-    {"get_action_distribution_mask", (PyCFunction) _mbag_get_action_distribution_mask,
-     METH_VARARGS | METH_KEYWORDS, "Get the action mask given an MBAG observation."},
+    {"get_action_distribution_mask", (PyCFunction) _mbag_get_action_distribution_mask, METH_VARARGS | METH_KEYWORDS, "Get the action mask given an MBAG observation."},
+    {"get_viewpoint_click_candidates", (PyCFunction) _mbag_get_viewpoint_click_candidates, METH_VARARGS | METH_KEYWORDS, "Get viewpoint-click candidates for placing or breaking a block."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

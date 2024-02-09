@@ -261,5 +261,5 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
         }
     }
 
-    return (PyObject *) valid_array;
+    return PyArray_Return(valid_array);
 }
