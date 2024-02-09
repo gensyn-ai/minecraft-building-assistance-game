@@ -235,10 +235,12 @@ def sacred_config(_log):  # noqa
     input = "sampler"
     seed = 0
     num_gpus = 1 if torch.cuda.is_available() else 0
+    num_gpus_per_worker = 0
     sample_batch_size = 5000
     train_batch_size = 5000
     sgd_minibatch_size = 512
     rollout_fragment_length = horizon
+    batch_mode = "truncate_episodes"
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
     grad_clip = 0.1
@@ -469,11 +471,13 @@ def sacred_config(_log):  # noqa
         num_rollout_workers=num_workers,
         num_envs_per_worker=num_envs_per_worker,
         rollout_fragment_length=rollout_fragment_length,
+        batch_mode=batch_mode,
         compress_observations=compress_observations,
     )
     config.resources(
         num_cpus_per_worker=num_cpus_per_worker,
         num_gpus=num_gpus,
+        num_gpus_per_worker=num_gpus_per_worker,
     )
     config.debugging(seed=seed)
     config.environment(environment_name, env_config=dict(environment_params))
