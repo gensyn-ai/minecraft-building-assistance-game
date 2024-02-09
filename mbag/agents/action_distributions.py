@@ -265,7 +265,7 @@ class MbagActionDistribution(object):
                     return cast(
                         np.ndarray,
                         _mbag_action_distributions.get_mask(
-                            world_obs[0],
+                            world_obs[0].astype(np.uint8),
                             inventory_obs[0].astype(np.int32),
                             int(timestep[0]),
                             teleportation=config["abilities"]["teleportation"],
@@ -386,9 +386,9 @@ class MbagActionDistribution(object):
             conv_mask = np.ones((1, 3, 4, 3))
             conv_mask[0, 1, 1:2, 1] = 0
             reachable_1 = (
-                (world_x[None] - head_x[:, None, None, None] <= 1)
-                & (world_y[None] - head_y[:, None, None, None] <= 1)
-                & (world_z[None] - head_z[:, None, None, None] <= 1)
+                (np.abs(world_x[None] - head_x[:, None, None, None]) <= 1)
+                & (np.abs(world_y[None] - head_y[:, None, None, None]) <= 1)
+                & (np.abs(world_z[None] - head_z[:, None, None, None]) <= 1)
             )
             mask[:, MbagActionDistribution.GIVE_BLOCK] &= reachable_1[:, None]
 

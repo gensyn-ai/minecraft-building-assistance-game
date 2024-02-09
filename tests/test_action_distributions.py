@@ -219,15 +219,11 @@ def test_mask_no_teleportation_no_inf_blocks():
     assert np.all(world_obs[PLAYER_LOCATIONS][0, 2:4, 0] == 1)
     assert np.all(world_obs[PLAYER_LOCATIONS][1, 2:4, 0] == 2)
 
-    # They shouldn't be able to place/break blocks more than 3 blocks away.
+    # They shouldn't be able to place/break blocks more than 4.5 blocks away.
     assert np.all(
-        mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, 5:, :, :] == False
+        mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, 6:, :, 6:] == False
     )
-    assert np.all(
-        mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, :, :, 4:] == False
-    )
-    assert np.all(mask[0, MbagActionDistribution.BREAK_BLOCK, 5:, :, :] == False)
-    assert np.all(mask[0, MbagActionDistribution.BREAK_BLOCK, :, :, 4:] == False)
+    assert np.all(mask[0, MbagActionDistribution.BREAK_BLOCK, 6:, :, 6:] == False)
 
     # Can only place blocks we have.
     assert mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, 0, 2, 1] == True
