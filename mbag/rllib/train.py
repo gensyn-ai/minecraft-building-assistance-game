@@ -275,15 +275,20 @@ def sacred_config(_log):  # noqa
     argmax_tree_policy = False
     add_dirichlet_noise = True
     dirichlet_noise = 0.03
+    # If using bi-level action selection, the alpha parameter for the Dirichlet noise
+    # added to the second stage of action selection (after the action type is chosen)
+    # is dynamically set to dirichlet_action_subtype_noise_multiplier / num_valid_actions,
+    # where num_valid_actions is the number of valid actions at the current state.
+    dirichlet_action_subtype_noise_multiplier = 10
     prior_temperature = 1.0
     init_q_with_max = False
     use_bilevel_action_selection = True
     goal_loss_coeff, place_block_loss_coeff = 0.5, 1
 
     # Model
-    model: Literal[
-        "convolutional", "recurrent_convolutional", "transformer"
-    ] = "convolutional"
+    model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
+        "convolutional"
+    )
     max_seq_len = horizon
     embedding_size = 8
     position_embedding_size = 18
@@ -536,6 +541,7 @@ def sacred_config(_log):  # noqa
             ],
             "dirichlet_epsilon": dirichlet_epsilon,
             "dirichlet_noise": dirichlet_noise,
+            "dirichlet_action_subtype_noise_multiplier": dirichlet_action_subtype_noise_multiplier,
             "argmax_tree_policy": argmax_tree_policy,
             "add_dirichlet_noise": add_dirichlet_noise,
             "prior_temperature": prior_temperature,
