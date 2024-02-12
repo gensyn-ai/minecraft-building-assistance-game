@@ -32,5 +32,6 @@ def mcts_best_action(
     max_value: float,
     min_value: float,
     valid_action_indices: Optional[np.ndarray] = None,
+    prior_scale: float = 1.0,
 ) -> int:
     pass
