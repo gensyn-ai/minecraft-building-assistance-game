@@ -133,22 +133,43 @@ class MbagMCTSNode(Node):
         Q = self.child_total_value[mask] / np.maximum(  # noqa: N806
             self.child_number_visits[mask], 1
         )
-        V = (  # noqa: N806
-            self.total_value / self.number_visits if self.number_visits > 0 else 0
-        )
-        Q[self.child_number_visits[mask] == 0] = (
-            self.max_value if self.mcts.init_q_with_max else V
-        )
+
+        if self.mcts.init_q_with_max:
+            init_q_value = self.max_value
+        else:
+            if self.mcts.fix_bilevel_action_selection:
+                total_visits = np.sum(self.child_number_visits[mask])
+                init_q_value = (
+                    np.sum(self.child_total_value[mask]) / total_visits
+                    if total_visits > 0
+                    else self.min_value
+                )
+            else:
+                V = (  # noqa: N806
+                    self.total_value / self.number_visits
+                    if self.number_visits > 0
+                    else self.min_value
+                )
+                init_q_value = V
+
+        Q[self.child_number_visits[mask] == 0] = init_q_value
         Q = (Q - self.min_value) / max(  # noqa: N806
             self.max_value - self.min_value, 0.01
         )
         return Q
 
     def child_U(self, mask=slice(None)):  # noqa: N802
+        if self.mcts.fix_bilevel_action_selection:
+            number_visits = max(np.sum(self.child_number_visits[mask]), 1)
+        else:
+            number_visits = self.number_visits
+
+        child_priors = self.child_priors[mask]
+        if self.mcts.fix_bilevel_action_selection:
+            child_priors = child_priors / child_priors.sum()
+
         return (
-            np.sqrt(self.number_visits)
-            * self.child_priors[mask]
-            / (1 + self.child_number_visits[mask])
+            np.sqrt(number_visits) * child_priors / (1 + self.child_number_visits[mask])
         )
 
     def action_type_Q(self):  # noqa: N802
@@ -171,7 +192,7 @@ class MbagMCTSNode(Node):
             / (1 + self.action_type_number_visits)
         )
 
-    def best_action(self, force_python_impl=False) -> int:
+    def best_action(self, force_python_impl=True) -> int:
         if self.mcts.init_q_with_max:
             init_q_value = self.max_value
         else:
@@ -219,16 +240,30 @@ class MbagMCTSNode(Node):
             try:
                 import _mbag
 
+                if self.mcts.fix_bilevel_action_selection:
+                    number_visits = max(self.action_type_number_visits[action_type], 1)
+                    if not self.mcts.init_q_with_max:
+                        init_q_value = (
+                            self.action_type_total_value[action_type] / number_visits
+                            if number_visits > 0
+                            else self.min_value
+                        )
+                    prior_scale = 1.0 / self.action_type_priors[action_type]
+                else:
+                    number_visits = self.number_visits
+                    prior_scale = 1.0
+
                 action_c = _mbag.mcts_best_action(
                     self.child_total_value,
                     self.child_number_visits,
                     self.child_priors,
-                    self.number_visits,
+                    number_visits,
                     self.mcts.c_puct,
                     init_q_value,
                     self.max_value,
                     self.min_value,
                     valid_action_indices,
+                    prior_scale=prior_scale,
                 )
             except ImportError:
                 if not force_python_impl:
@@ -237,12 +272,17 @@ class MbagMCTSNode(Node):
             if force_python_impl or action_c is None:
                 if len(valid_action_indices) == 1:
                     action = int(valid_action_indices[0])
+                    assert action == action_c
                 else:
                     child_score = self.child_Q(
                         valid_action_indices
                     ) + self.mcts.c_puct * self.child_U(valid_action_indices)
                     action = int(valid_action_indices[np.argmax(child_score)])
-                assert action == action_c
+                    assert (
+                        child_score[np.where(valid_action_indices == action_c)[0][0]]
+                        >= child_score[np.where(valid_action_indices == action)[0][0]]
+                        - 1e-4
+                    )
             else:
                 action = action_c
 
@@ -438,6 +478,15 @@ class MbagMCTS(MCTS):
         self.init_q_with_max = mcts_param.get("init_q_with_max", False)
         self.use_bilevel_action_selection = mcts_param.get(
             "use_bilevel_action_selection", False
+        )
+
+        # Previously, we used a version of bilevel action selection that wasn't
+        # quite accurate. It used the number of visits to the whole state rather than
+        # for the particular action type to select the action within an action type, as
+        # well as initializing Q values based on the mean for the whole state rather
+        # than the action type. We keep this option around to reproduce old results.
+        self.fix_bilevel_action_selection = mcts_param.get(
+            "fix_bilevel_action_selection", False
         )
 
     def update_temperature(self, global_timestep: int):

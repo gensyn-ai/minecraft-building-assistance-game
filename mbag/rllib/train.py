@@ -277,6 +277,7 @@ def sacred_config(_log):  # noqa
     prior_temperature = 1.0
     init_q_with_max = False
     use_bilevel_action_selection = True
+    fix_bilevel_action_selection = False
     goal_loss_coeff, place_block_loss_coeff = 0.5, 1
 
     # Model
@@ -542,6 +543,7 @@ def sacred_config(_log):  # noqa
             "prior_temperature": prior_temperature,
             "init_q_with_max": init_q_with_max,
             "use_bilevel_action_selection": use_bilevel_action_selection,
+            "fix_bilevel_action_selection": fix_bilevel_action_selection,
         }
         config.training(
             lr=lr,
