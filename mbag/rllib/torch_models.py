@@ -65,6 +65,8 @@ class MbagModelConfig(TypedDict, total=False):
     """Include a LSTM operating per-location."""
     mask_action_distribution: bool
     """Mask invalid actions in the output action distribution."""
+    scale_obs: bool
+    """Scale inventory and timestep observations."""
 
 
 DEFAULT_CONFIG: MbagModelConfig = {
@@ -78,6 +80,7 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "num_value_layers": 1,
     "use_per_location_lstm": False,
     "mask_action_distribution": True,
+    "scale_obs": False,
 }
 
 
@@ -125,6 +128,7 @@ class MbagTorchModel(ActorCriticModel):
         self.num_value_layers = extra_config["num_value_layers"]
         self.use_per_location_lstm = extra_config.get("use_per_location_lstm", False)
         self.mask_action_distribution = extra_config["mask_action_distribution"]
+        self.scale_obs = extra_config["scale_obs"]
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -295,16 +299,18 @@ class MbagTorchModel(ActorCriticModel):
             world_obs[:, PLAYER_LOCATIONS]
         )
         embedded_obs_pieces.append(embedded_player_locations)
-        embedded_obs_pieces.append(
-            inventory_obs[:, None, None, None, :].expand(
-                *embedded_obs_pieces[0].size()[:-1], -1
-            )
+        inventory_piece = inventory_obs[:, None, None, None, :].expand(
+            *embedded_obs_pieces[0].size()[:-1], -1
         )
-        embedded_obs_pieces.append(
-            timestep[:, None, None, None, None].expand(
-                *embedded_obs_pieces[0].size()[:-1], 1
-            )
+        if self.scale_obs:
+            inventory_piece = inventory_piece / 64
+        embedded_obs_pieces.append(inventory_piece)
+        timestep_piece = timestep[:, None, None, None, None].expand(
+            *embedded_obs_pieces[0].size()[:-1], 1
         )
+        if self.scale_obs:
+            timestep_piece = timestep_piece / 1000
+        embedded_obs_pieces.append(timestep_piece)
         if self.use_extra_features:
             # Feature for if goal block is the same as the current block at each
             # location.

@@ -298,6 +298,7 @@ def sacred_config(_log):  # noqa
     num_value_layers = 2
     use_per_location_lstm = False
     mask_action_distribution = True
+    scale_obs = False
     num_heads = 4
     use_separated_transformer = False
     use_resnet = False
@@ -325,6 +326,7 @@ def sacred_config(_log):  # noqa
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
             "mask_action_distribution": mask_action_distribution,
+            "scale_obs": scale_obs,
             "num_unet_layers": num_unet_layers,
             "unet_grow_factor": unet_grow_factor,
             "unet_use_bn": unet_use_bn,
@@ -346,6 +348,7 @@ def sacred_config(_log):  # noqa
             "use_per_location_lstm": use_per_location_lstm,
             "use_separated_transformer": use_separated_transformer,
             "mask_action_distribution": mask_action_distribution,
+            "scale_obs": scale_obs,
         }
         model_config["custom_model_config"] = transformer_config
 
