@@ -1,4 +1,3 @@
-
 def init(
     address=None,
     *,

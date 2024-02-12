@@ -38,11 +38,10 @@ class MbagModel(ABC, TorchModelV2):
     """
 
     @abstractmethod
-    def block_id_model(
+    def block_id_model(  # noqa: E704
         self,
         inputs: torch.Tensor,
-    ) -> torch.Tensor:
-        ...
+    ) -> torch.Tensor: ...
 
 
 class MbagModelConfig(TypedDict, total=False):
@@ -158,6 +157,10 @@ class MbagTorchModel(ActorCriticModel):
                 batch_first=True,
             )
 
+    @property
+    def device(self) -> torch.device:
+        return self.block_id_embedding.weight.device
+
     def _get_in_planes(self) -> int:
         """
         Return how many "planes" of data of size embedding_size are present in the
@@ -208,12 +211,16 @@ class MbagTorchModel(ActorCriticModel):
         for layer_index in range(self.num_action_layers):
             action_head_layers.append(
                 nn.Conv3d(
-                    self._get_head_in_channels()
-                    if layer_index == 0
-                    else self.hidden_size,
-                    MbagActionDistribution.NUM_CHANNELS
-                    if layer_index == self.num_action_layers - 1
-                    else self.hidden_size,
+                    (
+                        self._get_head_in_channels()
+                        if layer_index == 0
+                        else self.hidden_size
+                    ),
+                    (
+                        MbagActionDistribution.NUM_CHANNELS
+                        if layer_index == self.num_action_layers - 1
+                        else self.hidden_size
+                    ),
                     kernel_size=1,
                 )
             )
@@ -245,9 +252,11 @@ class MbagTorchModel(ActorCriticModel):
         for layer_index in range(self.num_value_layers):
             value_head_layers.append(
                 nn.Linear(
-                    self._get_head_in_channels()
-                    if layer_index == 0
-                    else self.hidden_size,
+                    (
+                        self._get_head_in_channels()
+                        if layer_index == 0
+                        else self.hidden_size
+                    ),
                     1 if layer_index == self.num_value_layers - 1 else self.hidden_size,
                 )
             )
@@ -367,19 +376,17 @@ class MbagTorchModel(ActorCriticModel):
             obs = input_dict
 
         self._world_obs, self._inventory_obs, self._timestep = obs
-        self._world_obs = self._world_obs.long()
-        self._inventory_obs = self._inventory_obs.long()
+        self._world_obs = self._world_obs.to(self.device).long()
+        self._inventory_obs = self._inventory_obs.to(self.device).long()
+        self._timestep = self._timestep.to(self.device)
         self._embedded_obs = self._get_embedded_obs(
             self._world_obs,
             self._inventory_obs,
             self._timestep,
         )
-        if self._embedded_obs.requires_grad:
-            self._embedded_obs.retain_grad()  # TODO: remove
 
         self._amp_or_nothing: ContextManager = contextlib.nullcontext()
-        device = self._embedded_obs.device
-        if device.type == "cuda" and torch.cuda.is_bf16_supported():
+        if self.device.type == "cuda" and torch.cuda.is_bf16_supported():
             self._amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
 
         with self._amp_or_nothing:
@@ -451,26 +458,28 @@ class MbagTorchModel(ActorCriticModel):
             else:
                 return super().get_initial_state()
 
-    def compute_priors_and_value(self, input_dict, state_in=[]):
+    def compute_priors_and_value(self, obs, state_in=[]):
+        batch_size = len(obs)
         obs = convert_to_torch_tensor(
-            self.preprocessor.transform(input_dict["obs"])[None]
+            np.stack([self.preprocessor.transform(o) for o in obs], axis=0)
         )
         input_dict = restore_original_dimensions(obs, self.obs_space, "torch")
-        tensor_state_in = [convert_to_torch_tensor(state)[None] for state in state_in]
+        tensor_state_in = [convert_to_torch_tensor(state) for state in state_in]
 
         with torch.no_grad():
-            model_out = self.forward(
-                input_dict, tensor_state_in, np.array([1]), mask_logits=False
+            logits, state_out = self.forward(
+                input_dict,
+                tensor_state_in,
+                np.ones(batch_size, dtype=int),
+                mask_logits=False,
             )
-            logits, state_out = model_out
             value = self.value_function()
-            logits, value = torch.squeeze(logits), torch.squeeze(value)
-            priors = nn.Softmax(dim=-1)(logits)
+            priors = logits.softmax(dim=-1)
 
             priors = priors.cpu().numpy()
             value = value.cpu().numpy()
 
-            return priors, value, [state[0].cpu().numpy() for state in state_out]
+            return priors, value, [state.cpu().numpy() for state in state_out]
 
 
 class ResidualBlock(nn.Module):
@@ -919,6 +928,38 @@ class SeparatedTransformerEncoder(nn.Module):
             self.add_module(f"layer_{layer_index}", layer)
             self.layers.append(layer)
 
+    def _layer_forward(self, layer: nn.TransformerEncoderLayer, x: torch.Tensor):
+        # Pad to a multiple of 8 for the sequence length, which lets us use the
+        # tensor core on GPUs.
+        # sequence_length = x.size()[1]
+        # padded_sequence_length = (sequence_length + 7) // 8 * 8
+        # padding = padded_sequence_length - sequence_length
+        # x_padded = F.pad(x, (0, 0, 0, padding))
+        # mask = torch.zeros((padded_sequence_length, padded_sequence_length), dtype=bool, device=x.device)
+        # mask[:sequence_length, :sequence_length] = True
+        # return layer(x_padded, src_mask=mask)[:, :sequence_length]
+        return layer(x)
+
+    def _batched_layer_forward(
+        self, layer: nn.TransformerEncoderLayer, x: torch.Tensor
+    ):
+        # PyTorch only supports batch sizes up to 2 ** 16 - 1, so we need to split
+        # the batch into smaller chunks.
+        batch_size = x.size()[0]
+        if batch_size <= 2**16 - 1:
+            return self._layer_forward(layer, x)
+        else:
+            minibatch_size = 2**15
+            num_minibatches = (batch_size + minibatch_size - 1) // minibatch_size
+            minibatch_outputs = []
+            for i in range(num_minibatches):
+                minibatch_outputs.append(
+                    self._layer_forward(
+                        layer, x[i * minibatch_size : (i + 1) * minibatch_size]
+                    )
+                )
+            return torch.cat(minibatch_outputs, dim=0)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
         n_spatial_dims = len(x.size()) - 2
@@ -938,7 +979,7 @@ class SeparatedTransformerEncoder(nn.Module):
             )
             x_permuted = x.permute(*permutation)
             layer_input = x_permuted.flatten(end_dim=-3)
-            layer_output = layer(layer_input)
+            layer_output = self._batched_layer_forward(layer, layer_input)
             x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
 
         return x
@@ -1001,14 +1042,12 @@ class MbagTransformerModel(MbagTorchModel):
             torch.zeros(self.world_size + (self.position_embedding_size,))
         )
         dim_embedding_size = self.position_embedding_size // 6 * 2
-        self.position_embedding.data[
-            ..., :dim_embedding_size
-        ] = self._get_position_embedding(
-            self.position_embedding.size()[0],
-            dim_embedding_size,
-        )[
-            :, None, None
-        ]
+        self.position_embedding.data[..., :dim_embedding_size] = (
+            self._get_position_embedding(
+                self.position_embedding.size()[0],
+                dim_embedding_size,
+            )[:, None, None]
+        )
         self.position_embedding.data[
             ..., dim_embedding_size : dim_embedding_size * 2
         ] = self._get_position_embedding(

@@ -49,7 +49,7 @@ class BCTorchPolicy(TorchPolicy):
         episode_ids: Set[int] = set(train_batch[SampleBatch.EPS_ID].tolist())
         episode_in_validation: Dict[int, bool] = {
             episode_id: random.Random(episode_id).random()
-            < self.config["validation_prop"]
+            < self.config.get("validation_prop", 0)
             for episode_id in episode_ids
         }
         validation_mask = torch.tensor(

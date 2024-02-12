@@ -29,6 +29,11 @@ def kl_categorical_categorical_no_inf(p: Categorical, q: Categorical) -> torch.T
 
 
 class TorchCategoricalNoInf(TorchCategorical):
+    def entropy(self) -> TensorType:
+        t: torch.Tensor = self.dist.probs * self.dist.logits
+        t[(self.dist.probs == 0).expand_as(t)] = 0
+        return -t.sum(-1)
+
     def kl(self, other: ActionDistribution) -> TensorType:
         assert isinstance(other, TorchCategorical)
         return kl_categorical_categorical_no_inf(self.dist, other.dist)

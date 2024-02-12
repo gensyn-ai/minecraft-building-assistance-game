@@ -1,4 +1,6 @@
 import copy
+import logging
+import random
 from typing import cast
 
 import numpy as np
@@ -14,6 +16,8 @@ from mbag.environment.types import (
     MbagAction,
     MbagActionTuple,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def test_mapping():
@@ -135,6 +139,55 @@ def test_mask():
     assert mask[0, MbagActionDistribution.BREAK_BLOCK, 1, 2, 1] == True
 
 
+def test_mask_c_extension():
+    import _mbag  # noqa: F401
+
+    for inf_blocks in [True, False]:
+        for teleportation in [True, False]:
+            for num_players in [1, 2]:
+                logger.info(
+                    f"testing inf_blocks={inf_blocks}, teleportation={teleportation}, "
+                    f"num_players={num_players}"
+                )
+                env = MbagEnv(
+                    {
+                        "abilities": {
+                            "teleportation": teleportation,
+                            "inf_blocks": inf_blocks,
+                            "flying": True,
+                        },
+                        "num_players": num_players,
+                        "players": [{} for _ in range(num_players)],
+                    }
+                )
+                action_mapping = MbagActionDistribution.get_action_mapping(env.config)
+                player_obs = env.reset()
+                for t in range(10):
+                    actions = []
+                    for player_index in range(num_players):
+                        world_obs, inventory_obs, timestep = player_obs[player_index]
+                        obs_batch = world_obs[None], inventory_obs[None], timestep[None]
+                        mask_python = MbagActionDistribution.get_mask(
+                            env.config, obs_batch, force_python_impl=True
+                        )
+                        mask_c = MbagActionDistribution.get_mask(env.config, obs_batch)
+                        if not np.all(mask_python == mask_c):
+                            logger.error(f"timestep {timestep}")
+                            logger.error(np.nonzero(mask_python != mask_c))
+                        assert np.all(mask_python == mask_c)
+
+                        flat_mask = MbagActionDistribution.to_flat(
+                            env.config, mask_python, np.any
+                        )[0]
+                        possible_actions = action_mapping[flat_mask]
+                        action_type = random.choice(np.unique(possible_actions[:, 0]))
+                        action = random.choice(
+                            possible_actions[possible_actions[:, 0] == action_type]
+                        )
+                        actions.append(tuple(action))
+                    player_obs, _, _, _ = env.step(actions)
+
+
 def test_mask_no_teleportation_no_inf_blocks():
     env = MbagEnv(
         {
@@ -166,15 +219,11 @@ def test_mask_no_teleportation_no_inf_blocks():
     assert np.all(world_obs[PLAYER_LOCATIONS][0, 2:4, 0] == 1)
     assert np.all(world_obs[PLAYER_LOCATIONS][1, 2:4, 0] == 2)
 
-    # They shouldn't be able to place/break blocks more than 3 blocks away.
+    # They shouldn't be able to place/break blocks more than 4.5 blocks away.
     assert np.all(
-        mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, 5:, :, :] == False
+        mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, 6:, :, 6:] == False
     )
-    assert np.all(
-        mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, :, :, 4:] == False
-    )
-    assert np.all(mask[0, MbagActionDistribution.BREAK_BLOCK, 5:, :, :] == False)
-    assert np.all(mask[0, MbagActionDistribution.BREAK_BLOCK, :, :, 4:] == False)
+    assert np.all(mask[0, MbagActionDistribution.BREAK_BLOCK, 6:, :, 6:] == False)
 
     # Can only place blocks we have.
     assert mask[:, MbagActionDistribution.PLACE_BLOCK][0, dirt, 0, 2, 1] == True

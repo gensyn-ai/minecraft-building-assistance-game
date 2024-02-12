@@ -241,6 +241,13 @@ class MbagConfigDict(TypedDict, total=False):
     have to gather resources, etc.).
     """
 
+    randomize_first_episode_length: bool
+    """
+    If True, the first episode will have a random length between 1 and horizon. This
+    can be useful when training with an algorithm like PPO so that fragments
+    of episodes are not strongly correlated across environments.
+    """
+
 
 DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
     "player_name": None,
@@ -381,6 +388,9 @@ class MbagEnv(object):
 
         self.human_action_detector = HumanActionDetector(self.config)
 
+        self.is_first_episode = True
+        self.any_step_since_last_reset = True
+
         # Initialize reward schedules.
         self._reward_schedules: List[Dict[str, Schedule]] = []
         for player_index in range(self.config["num_players"]):
@@ -472,10 +482,15 @@ class MbagEnv(object):
                 )
             self.player_locations.append(player_location)
 
-    def reset(self) -> List[MbagObs]:
+    def reset(self, *, force_regenerate_goal=False) -> List[MbagObs]:
         """Reset Minecraft environment and return player observations for each player."""
 
-        self.timestep = 0
+        if self.is_first_episode and self.config.get(
+            "randomize_first_episode_length", False
+        ):
+            self.timestep = random.randrange(self.config["horizon"])
+        else:
+            self.timestep = 0
 
         self.current_blocks = MinecraftBlocks(self.config["world_size"])
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
@@ -484,7 +499,12 @@ class MbagEnv(object):
         self.last_interacted = np.zeros(self.config["world_size"])
         self.last_interacted[:] = NO_INTERACTION
 
-        self.goal_blocks = self._generate_goal()
+        if force_regenerate_goal or self.any_step_since_last_reset:
+            # Generating goals is expensive, so don't do it if there haven't been
+            # any steps taken since the last reset (unless force_regenerate_goal
+            # is True).
+            self.goal_blocks = self._generate_goal()
+            self.any_step_since_last_reset = False
 
         # Place players in the world.
         if self.config["random_start_locations"]:
@@ -521,68 +541,7 @@ class MbagEnv(object):
         )
 
         if self.config["malmo"]["use_malmo"]:
-            self.malmo_client.start_mission(
-                self.config, self.current_blocks, self.goal_blocks
-            )
-            time.sleep(1)  # Wait a second for the environment to load.
-
-            # Pre-episode setup in Malmo.
-            for player_index in range(self.config["num_players"]):
-                player_config = self.config["players"][player_index]
-                if not player_config["is_human"]:
-                    # Make players fly.
-                    for _ in range(2):
-                        self.malmo_client.send_command(player_index, "jump 1")
-                        time.sleep(0.1)
-                        self.malmo_client.send_command(player_index, "jump 0")
-                        time.sleep(0.1)
-                self.malmo_client.send_command(
-                    player_index,
-                    "tp " + " ".join(map(str, self.player_locations[player_index])),
-                )
-
-                # Give items to players.
-                for item in self.config["players"][player_index]["give_items"]:
-                    if "enchantments" not in item:
-                        item["enchantments"] = []
-
-                    for enchantment in item["enchantments"]:
-                        assert "id" in enchantment
-                        if "level" not in enchantment:
-                            enchantment["level"] = 32767
-
-                    enchantments_str = ",".join(
-                        [
-                            "{{id: {}, lvl: {}}}".format(
-                                enchantment["id"], enchantment["level"]
-                            )
-                            for enchantment in item["enchantments"]
-                        ]
-                    )
-
-                    self.malmo_client.send_command(
-                        player_index,
-                        "chat /give {} {} {} {} {}".format(
-                            "@p",
-                            item["id"],
-                            item["count"],
-                            0,
-                            "{{ench: [{}]}}".format(enchantments_str),
-                        ),
-                    )
-
-                    time.sleep(0.2)
-
-            # Convert players to survival mode.
-            # if not self.config["abilities"]["inf_blocks"]:
-            for player_index in range(self.config["num_players"]):
-                if self.config["players"][player_index]["is_human"]:
-                    self.malmo_client.send_command(player_index, "chat /gamemode 0")
-
-                # Disable chat messages from the palette
-                self.malmo_client.send_command(
-                    player_index, "chat /gamerule sendCommandFeedback false"
-                )
+            self._setup_malmo()
 
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
@@ -595,6 +554,70 @@ class MbagEnv(object):
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
         ]
+
+    def _setup_malmo(self):
+        self.malmo_client.start_mission(
+            self.config, self.current_blocks, self.goal_blocks
+        )
+        time.sleep(1)  # Wait a second for the environment to load.
+
+        # Pre-episode setup in Malmo.
+        for player_index in range(self.config["num_players"]):
+            player_config = self.config["players"][player_index]
+            if not player_config["is_human"]:
+                # Make players fly.
+                for _ in range(2):
+                    self.malmo_client.send_command(player_index, "jump 1")
+                    time.sleep(0.1)
+                    self.malmo_client.send_command(player_index, "jump 0")
+                    time.sleep(0.1)
+            self.malmo_client.send_command(
+                player_index,
+                "tp " + " ".join(map(str, self.player_locations[player_index])),
+            )
+
+            # Give items to players.
+            for item in self.config["players"][player_index]["give_items"]:
+                if "enchantments" not in item:
+                    item["enchantments"] = []
+
+                for enchantment in item["enchantments"]:
+                    assert "id" in enchantment
+                    if "level" not in enchantment:
+                        enchantment["level"] = 32767
+
+                enchantments_str = ",".join(
+                    [
+                        "{{id: {}, lvl: {}}}".format(
+                            enchantment["id"], enchantment["level"]
+                        )
+                        for enchantment in item["enchantments"]
+                    ]
+                )
+
+                self.malmo_client.send_command(
+                    player_index,
+                    "chat /give {} {} {} {} {}".format(
+                        "@p",
+                        item["id"],
+                        item["count"],
+                        0,
+                        "{{ench: [{}]}}".format(enchantments_str),
+                    ),
+                )
+
+                time.sleep(0.2)
+
+        # Convert players to survival mode.
+        # if not self.config["abilities"]["inf_blocks"]:
+        for player_index in range(self.config["num_players"]):
+            if self.config["players"][player_index]["is_human"]:
+                self.malmo_client.send_command(player_index, "chat /gamemode 0")
+
+            # Disable chat messages from the palette
+            self.malmo_client.send_command(
+                player_index, "chat /gamerule sendCommandFeedback false"
+            )
 
     def step(
         self, action_tuples: List[MbagActionTuple]
@@ -612,9 +635,9 @@ class MbagEnv(object):
         # Process give block actions before movement actions
         action_tuples_sorted_labeled = sorted(
             list(enumerate(action_tuples)),
-            key=lambda player_index_action_tuple: 0
-            if player_index_action_tuple[1][0] == MbagAction.GIVE_BLOCK
-            else 1,
+            key=lambda player_index_action_tuple: (
+                0 if player_index_action_tuple[1][0] == MbagAction.GIVE_BLOCK else 1
+            ),
         )
 
         for player_index, player_action_tuple in action_tuples_sorted_labeled:
@@ -670,6 +693,10 @@ class MbagEnv(object):
             time.sleep(1)
             self.malmo_client.end_mission()
 
+        if dones[0]:
+            self.is_first_episode = False
+        self.any_step_since_last_reset = True
+
         return obs, rewards, dones, infos
 
     def _generate_goal(self) -> MinecraftBlocks:
@@ -688,12 +715,12 @@ class MbagEnv(object):
 
         shape = small_goal.size
 
-        goal.blocks[
-            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
-        ] = small_goal.blocks
-        goal.block_states[
-            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
-        ] = small_goal.block_states
+        goal.blocks[1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1] = (
+            small_goal.blocks
+        )
+        goal.block_states[1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1] = (
+            small_goal.block_states
+        )
 
         if not self.config["abilities"]["inf_blocks"]:
             for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
@@ -1336,9 +1363,9 @@ class MbagEnv(object):
                 )
 
         for other_player_index in range(self.config["num_players"]):
-            world_obs[LAST_INTERACTED][
-                self.last_interacted == other_player_index
-            ] = player_marker_map[other_player_index]
+            world_obs[LAST_INTERACTED][self.last_interacted == other_player_index] = (
+                player_marker_map[other_player_index]
+            )
 
         return (
             world_obs,

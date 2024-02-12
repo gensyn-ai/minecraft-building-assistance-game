@@ -90,6 +90,7 @@ def sacred_config(_log):  # noqa
     goal_generator = "craftassist"
     goal_subset = "train"
     horizon = 1000
+    randomize_first_episode_length = False
     num_players = 1
     height = 12
     width = 12
@@ -203,6 +204,7 @@ def sacred_config(_log):  # noqa
     environment_params: MbagConfigDict = {
         "num_players": num_players,
         "horizon": horizon,
+        "randomize_first_episode_length": randomize_first_episode_length,
         "world_size": (width, height, depth),
         "random_start_locations": random_start_locations,
         "goal_generator": TransformedGoalGenerator,
@@ -235,13 +237,18 @@ def sacred_config(_log):  # noqa
     # Training
     num_workers = 2
     num_cpus_per_worker = 0.5
+    num_envs = max(num_workers, 1)
+    assert num_envs % max(num_workers, 1) == 0
+    num_envs_per_worker = num_envs // max(num_workers, 1)
     input = "sampler"
     seed = 0
     num_gpus = 1 if torch.cuda.is_available() else 0
+    num_gpus_per_worker = 0
     sample_batch_size = 5000
     train_batch_size = 5000
     sgd_minibatch_size = 512
     rollout_fragment_length = horizon
+    batch_mode = "truncate_episodes"
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
     grad_clip = 0.1
@@ -274,7 +281,7 @@ def sacred_config(_log):  # noqa
     dirichlet_epsilon = 0.25
     argmax_tree_policy = False
     add_dirichlet_noise = True
-    dirichlet_noise = 0.03
+    dirichlet_noise = 0.25
     # If using bi-level action selection, the alpha parameter for the Dirichlet noise
     # added to the second stage of action selection (after the action type is chosen)
     # is dynamically set to dirichlet_action_subtype_noise_multiplier / num_valid_actions,
@@ -475,13 +482,15 @@ def sacred_config(_log):  # noqa
     config.framework("torch")
     config.rollouts(
         num_rollout_workers=num_workers,
-        num_envs_per_worker=1,
+        num_envs_per_worker=num_envs_per_worker,
         rollout_fragment_length=rollout_fragment_length,
+        batch_mode=batch_mode,
         compress_observations=compress_observations,
     )
     config.resources(
         num_cpus_per_worker=num_cpus_per_worker,
         num_gpus=num_gpus,
+        num_gpus_per_worker=num_gpus_per_worker,
     )
     config.debugging(seed=seed)
     config.environment(environment_name, env_config=dict(environment_params))

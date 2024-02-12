@@ -56,7 +56,7 @@ def test_random_start_locations():
 
         all_location_obs = set()
         for episode_index in range(5):
-            obs = env.reset()
+            obs = env.reset(force_regenerate_goal=True)
             (
                 world_obs,
                 _,

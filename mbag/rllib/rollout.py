@@ -15,6 +15,7 @@ from ray.rllib.utils.typing import PolicyID
 from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import SETTINGS, Experiment
 
+from .os_utils import available_cpu_count
 from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -32,6 +33,10 @@ def sacred_config():
     policy_ids: Optional[List[str]] = None  # noqa: F841
     player_names = policy_ids  # noqa: F841
     seed = 0
+
+    experiment_tag = None
+    if experiment_tag is not None:
+        experiment_name += experiment_tag
 
     num_workers = 4
     output_max_file_size = 64 * 1024 * 1024
@@ -72,6 +77,7 @@ def main(
     _log,
 ):
     ray.init(
+        num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
     )

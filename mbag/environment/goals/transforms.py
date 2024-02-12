@@ -83,9 +83,9 @@ class AddGrassTransform(GoalTransform):
         elif mode == "surround":
             goal = self.goal_generator.generate_goal(size)
             bottom_layer = goal.blocks[:, 0, :]
-            bottom_layer[
-                bottom_layer == MinecraftBlocks.NAME2ID["air"]
-            ] = MinecraftBlocks.NAME2ID["grass"]
+            bottom_layer[bottom_layer == MinecraftBlocks.NAME2ID["air"]] = (
+                MinecraftBlocks.NAME2ID["grass"]
+            )
 
         return goal
 
