@@ -192,7 +192,7 @@ class MbagMCTSNode(Node):
             / (1 + self.action_type_number_visits)
         )
 
-    def best_action(self, force_python_impl=True) -> int:
+    def best_action(self, force_python_impl=False) -> int:
         if self.mcts.init_q_with_max:
             init_q_value = self.max_value
         else:
