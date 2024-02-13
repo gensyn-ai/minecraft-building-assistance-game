@@ -20,7 +20,7 @@
 })
 
 
-// mcts_best_action(child_total_values, child_number_visits, priors, number_visits, c_puct, init_q_value, max_value, min_value, valid_action_indices)
+// mcts_best_action(child_total_values, child_number_visits, priors, number_visits, c_puct, init_q_value, max_value, min_value, valid_action_indices, prior_scale)
 PyObject* _mbag_mcts_best_action(PyObject *self, PyObject *args, PyObject *kwargs)
 {
     import_array();
@@ -28,7 +28,7 @@ PyObject* _mbag_mcts_best_action(PyObject *self, PyObject *args, PyObject *kwarg
     // Arguments
     PyArrayObject *child_total_values_array, *child_number_visits_array, *priors_array, *valid_action_indices_array = NULL;
     int number_visits;
-    float c_puct, init_q_value, max_value, min_value;
+    float c_puct, init_q_value, max_value, min_value, prior_scale = 1.0;
 
     // Other variables
     PyObject *ret = NULL;
@@ -43,12 +43,13 @@ PyObject* _mbag_mcts_best_action(PyObject *self, PyObject *args, PyObject *kwarg
         "max_value",
         "min_value",
         "valid_action_indices",
+        "prior_scale",
         NULL
     };
     if (!PyArg_ParseTupleAndKeywords(
         args,
         kwargs,
-        "OOOiffff|O",
+        "OOOiffff|Of",
         kwlist,
         &child_total_values_array,
         &child_number_visits_array,
@@ -58,7 +59,8 @@ PyObject* _mbag_mcts_best_action(PyObject *self, PyObject *args, PyObject *kwarg
         &init_q_value,
         &max_value,
         &min_value,
-        &valid_action_indices_array
+        &valid_action_indices_array,
+        &prior_scale
     ))
         goto mcts_best_action_exit;
 
@@ -138,6 +140,7 @@ PyObject* _mbag_mcts_best_action(PyObject *self, PyObject *args, PyObject *kwarg
         float child_total_value = *(npy_float*)PyArray_GETPTR1(child_total_values_array, action);
         int child_number_visits = *(npy_int64*)PyArray_GETPTR1(child_number_visits_array, action);
         float prior = *(npy_float*)PyArray_GETPTR1(priors_array, action);
+        prior *= prior_scale;
 
         float q;
         if (child_number_visits == 0) {

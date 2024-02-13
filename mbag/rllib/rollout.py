@@ -43,7 +43,7 @@ def sacred_config():
     config_updates = {  # noqa: F841
         "seed": seed,
         "evaluation_num_workers": num_workers,
-        "create_env_on_driver": True,
+        "create_env_on_local_worker": True,
         "evaluation_num_episodes": episodes,
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
@@ -122,6 +122,7 @@ def main(
             }
         )
         config_updates["evaluation_num_workers"] = 1
+        config_updates["num_envs_per_worker"] = 1
         config_updates["create_env_on_local_worker"] = False
 
     trainer = load_trainer(checkpoint, run, config_updates)
