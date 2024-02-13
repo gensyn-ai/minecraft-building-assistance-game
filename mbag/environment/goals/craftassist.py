@@ -118,11 +118,11 @@ class CraftAssistGoalGenerator(GoalGenerator):
                         minecraft_id, minecraft_data = house_data[x, y, z]
                         minecraft_combined_id = f"{minecraft_id}:{minecraft_data}"
                         try:
-                            house_is_air[
-                                x, y, z
-                            ] = self._minecraft_ids_to_block_variant(
-                                minecraft_id,
-                                minecraft_data,
+                            house_is_air[x, y, z] = (
+                                self._minecraft_ids_to_block_variant(
+                                    minecraft_id,
+                                    minecraft_data,
+                                )
                             )
                         except KeyError:
                             house_is_air[x, y, z] = False

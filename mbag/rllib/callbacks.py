@@ -9,7 +9,11 @@ from ray.rllib.evaluation.rollout_worker import RolloutWorker
 from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import AgentID, PolicyID
 
-from mbag.environment.types import MbagAction, MbagInfoDict
+from mbag.environment.types import (
+    MBAG_ACTION_BREAK_PALETTE_NAME,
+    MbagAction,
+    MbagInfoDict,
+)
 from mbag.rllib.rllib_env import unwrap_mbag_env
 
 
@@ -28,6 +32,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         base_env: BaseEnv,
         policies: Dict[PolicyID, Policy],
         episode: Union[Episode, EpisodeV2],
+        env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         super().on_episode_start(
@@ -38,7 +43,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             **kwargs,
         )
 
-        env = base_env.get_sub_environments()[0]
+        env = base_env.get_sub_environments()[env_index or 0]
         state = env.get_state()
         episode.user_data["state"] = state
 
@@ -57,11 +62,12 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         base_env: BaseEnv,
         policies: Optional[Dict[PolicyID, Policy]] = None,
         episode: Union[Episode, EpisodeV2],
+        env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
         assert policies is not None
 
-        env = base_env.get_sub_environments()[0]
+        env = base_env.get_sub_environments()[env_index or 0]
         state = env.get_state()
         episode.user_data["state"] = state
 
@@ -74,16 +80,17 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
 
             # Log what action the agent made
-            action_type_name = MbagAction.ACTION_TYPE_NAMES[
-                info_dict["action"].action_type
-            ]
+            action = info_dict["action"]
+            if action.action_type == MbagAction.BREAK_BLOCK and action.is_palette(
+                env.config["abilities"]["inf_blocks"]
+            ):
+                action_type_name = MBAG_ACTION_BREAK_PALETTE_NAME
+            else:
+                action_type_name = MbagAction.ACTION_TYPE_NAMES[action.action_type]
             action_key = f"{policy_id}/num_{action_type_name.lower()}"
 
             if action_key not in episode.custom_metrics:
-                for action_name_ in MbagAction.ACTION_TYPE_NAMES.values():
-                    episode.custom_metrics[
-                        f"{policy_id}/num_{action_name_.lower()}"
-                    ] = 0
+                episode.custom_metrics[action_key] = 0
             episode.custom_metrics[action_key] += 1
 
             if (
@@ -125,7 +132,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         info_dict = cast(MbagInfoDict, self._get_last_info(episode, "player_0"))
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
-        env = unwrap_mbag_env(base_env.get_sub_environments()[0])
+        env = unwrap_mbag_env(base_env.get_sub_environments()[env_index or 0])
         width, height, depth = env.config["world_size"]
         episode.custom_metrics["goal_distance"] = (
             width * height * depth - info_dict["goal_similarity"]
@@ -138,8 +145,14 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 "own_reward_prop"
             ]
 
-            for action_type in [MbagAction.BREAK_BLOCK, MbagAction.PLACE_BLOCK]:
-                action_type_name = MbagAction.ACTION_TYPE_NAMES[action_type]
+            action_type_names = [MBAG_ACTION_BREAK_PALETTE_NAME] + [
+                MbagAction.ACTION_TYPE_NAMES[action_type]
+                for action_type in [
+                    MbagAction.BREAK_BLOCK,
+                    MbagAction.PLACE_BLOCK,
+                ]
+            ]
+            for action_type_name in action_type_names:
                 num_correct = episode.custom_metrics.get(
                     f"{policy_id}/num_correct_{action_type_name.lower()}", 0
                 )

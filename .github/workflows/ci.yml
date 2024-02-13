@@ -30,17 +30,18 @@ jobs:
           pip install --upgrade 'pip<23.1' 'setuptools<65.5.0' wheel==0.38.4
           pip install -r requirements.txt
           pip install --upgrade -r requirements_dev.txt
+          python setup.py install
 
       - name: Run flake8
-        run: flake8 mbag tests
+        run: flake8 mbag stubs tests
         if: ${{ always() }}
 
       - name: Run black
-        run: black --check mbag tests
+        run: black --check mbag stubs tests
         if: ${{ always() }}
 
       - name: Run isort
-        run: isort --check --diff mbag tests
+        run: isort --check --diff mbag stubs tests
         if: ${{ always() }}
 
       - name: Check types
@@ -53,4 +54,4 @@ jobs:
       - name: Run tests
         if: ${{ always() }}
         run: |
-          pytest -m "not uses_rllib and not uses_malmo"
+          pytest -m "not uses_rllib and not uses_malmo and not uses_cuda"

@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 from random import Random
@@ -18,6 +19,8 @@ from .types import (
     WorldLocation,
     WorldSize,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def cartesian_product(*arrays):
@@ -135,7 +138,7 @@ class MinecraftBlocks(object):
             & (locations[:, 2] < self.size[2]),
         )
 
-    def generate_block_edges(self, player_location: WorldLocation) -> np.ndarray:
+    def _generate_block_edges(self, player_location: WorldLocation) -> np.ndarray:
         player_x, player_y, player_z = [int(i) for i in player_location]
 
         # Make blocks array with two layers of air above to make calculations easier.
@@ -184,6 +187,190 @@ class MinecraftBlocks(object):
             ]
         )
         return player_locations
+
+    def _get_viewpoint_click_candidates(
+        self,
+        action_type: MbagActionType,
+        block_location: BlockLocation,
+        player_location: Optional[WorldLocation],
+        other_player_locations: List[WorldLocation],
+        *,
+        force_python_impl: bool = False,
+    ) -> np.ndarray:
+        if not force_python_impl:
+            try:
+                import _mbag
+
+                return _mbag.get_viewpoint_click_candidates(
+                    self.blocks,
+                    action_type,
+                    block_location,
+                    player_location,
+                    other_player_locations,
+                )
+            except ImportError:
+                logger.warning(
+                    "C implementation of get_viewpoint_click_candidates not found, "
+                    "falling back to Python"
+                )
+
+        # Now, look for a location and viewpoint from which to place/break block.
+        click_locations = np.empty((3 * 2 * 3 * 3, 3))
+        shift = 1e-4 if action_type == MbagAction.BREAK_BLOCK else -1e-4
+        click_location_index = 0
+        for face_dim in range(3):
+            for face in [0 - shift, 1 + shift]:
+                # If we are placing, need to make sure that there is a solid block
+                # surface to place against.
+                if action_type == MbagAction.PLACE_BLOCK:
+                    against_block_location_arr = np.array(block_location)
+                    against_block_location_arr[face_dim] += np.sign(face - 0.5)
+                    against_block_location: BlockLocation = cast(
+                        BlockLocation, tuple(against_block_location_arr.astype(int))
+                    )
+                    if (
+                        not self.is_valid_block_location(against_block_location)
+                        or self.blocks[against_block_location]
+                        not in MinecraftBlocks.SOLID_BLOCK_IDS
+                    ):
+                        continue
+
+                for u in [0.1, 0.5, 0.9]:
+                    for v in [0.1, 0.5, 0.9]:
+                        click_location = click_locations[click_location_index]
+                        click_location[:] = block_location
+                        click_location[face_dim] += face
+                        click_location[face_dim - 1] += v
+                        click_location[face_dim - 2] += u
+                        click_location_index += 1
+        click_locations = click_locations[:click_location_index]
+        click_locations = click_locations[self.valid_block_locations(click_locations)]
+
+        # Make blocks array with two layers of air above to make calculations easier.
+        blocks = np.concatenate(
+            [self.blocks, np.zeros((self.size[0], 2, self.size[2]), np.uint8)], axis=1
+        )
+
+        # Obstructions include any non-air blocks plus any blocks with a player in
+        # them.
+        obstructions = blocks != MinecraftBlocks.AIR
+        for other_player_x, other_player_y, other_player_z in other_player_locations:
+            assert (
+                other_player_x % 1 == 0.5
+                and other_player_y % 1 == 0
+                and other_player_z % 1 == 0.5
+            )
+            obstructions[
+                int(other_player_x),
+                int(other_player_y) : int(other_player_y) + 2,
+                int(other_player_z),
+            ] = True
+
+        player_locations: NDArray[np.float_]
+        if player_location is not None:
+            player_locations = np.array([player_location])
+        else:
+            player_deltas = cartesian_product(
+                np.linspace(-4, 4, 9),
+                np.linspace(-5, 3, 9),
+                np.linspace(-4, 4, 9),
+            )
+            # Remove deltas which would put the player inside the block being placed/
+            # broken.
+            player_deltas = player_deltas[
+                ~(
+                    (player_deltas[:, 0] == 0)
+                    & (player_deltas[:, 1] >= -1)
+                    & (
+                        player_deltas[:, 1]
+                        <= (1 if action_type == MbagAction.PLACE_BLOCK else 0)
+                    )
+                    & (player_deltas[:, 2] == 0)
+                )
+            ]
+
+            block_player_location = np.array(block_location, float)
+            block_player_location[0] += 0.5
+            block_player_location[2] += 0.5
+            player_locations = player_deltas + block_player_location[None, :]
+
+        # Restrict player locations to those inside the world.
+        player_locations = player_locations[
+            self.valid_block_locations(player_locations)
+        ]
+
+        # Restrict player locations to those where they aren't inside a block or
+        # another player.
+        feet_block_locations: NDArray[np.int_] = player_locations.astype(int)
+        head_block_locations: NDArray[np.int_] = feet_block_locations.copy()
+        head_block_locations[:, 1] += 1
+        player_locations = player_locations[
+            ~(
+                obstructions.flat[
+                    np.ravel_multi_index(
+                        cast(Sequence[NDArray[np.int_]], feet_block_locations.T),
+                        blocks.shape,
+                    )
+                ]
+            )
+            & ~(
+                obstructions.flat[
+                    np.ravel_multi_index(
+                        cast(Sequence[NDArray[np.int_]], head_block_locations.T),
+                        blocks.shape,
+                    )
+                ]
+            )
+        ]
+
+        player_viewpoints = player_locations.copy().astype("float64")
+        player_viewpoints[:, 1] += 1.6  # Player viewpoint is 1.6 m above feet.
+
+        viewpoint_click_candidates: np.ndarray = np.empty(
+            (len(player_viewpoints), len(click_locations), 2, 3)
+        )
+        viewpoint_click_candidates[:, :, 0, :] = player_viewpoints[:, None, :]
+        viewpoint_click_candidates[:, :, 1, :] = click_locations[None, :, :]
+        viewpoint_click_candidates = viewpoint_click_candidates.reshape(-1, 2, 3)
+
+        # Calculate deltas and make sure that the click location is within the reachable
+        # distance.
+        deltas = viewpoint_click_candidates[:, 1] - viewpoint_click_candidates[:, 0]
+        reachable = (deltas**2).sum(axis=1) <= MAX_PLAYER_REACH**2
+        viewpoint_click_candidates = viewpoint_click_candidates[reachable]
+        deltas = deltas[reachable]
+        viewpoints = viewpoint_click_candidates[:, 0]
+
+        # Voxel traversal to make sure there are no blocks in between the viewpoint
+        # and the click location.
+        # Based on http://www.cse.yorku.ca/~amana/research/grid.pdf
+        step = np.sign(deltas).astype(int)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t_max = np.abs(
+                ((-step * viewpoints) - np.floor(-step * viewpoints)) / deltas
+            )
+            t_max[np.isnan(t_max)] = 1
+            t_delta = np.abs(1 / deltas)
+            t_delta[deltas == 0] = 1
+
+        intersection = np.zeros(viewpoints.shape[0], bool)
+        current_block_locations = viewpoints.astype(int)
+        while np.any(t_max < 1):
+            min_mask = np.zeros_like(t_max, dtype=int)
+            min_mask[range(min_mask.shape[0]), np.argmin(t_max, axis=1)] = 1
+            min_mask[np.all(t_max >= 1, axis=1)] = 0
+            t_max += t_delta * min_mask
+            current_block_locations += step * min_mask
+
+            intersection |= obstructions.flat[
+                np.ravel_multi_index(
+                    cast(Sequence[NDArray[np.int_]], current_block_locations.T),
+                    blocks.shape,
+                )
+            ]
+
+        viewpoint_click_candidates = viewpoint_click_candidates[~intersection]
+        return viewpoint_click_candidates
 
     def try_break_place(  # noqa: C901
         self,
@@ -235,166 +422,10 @@ class MinecraftBlocks(object):
                 # Can't break these blocks.
                 return None
 
-        # Now, look for a location and viewpoint from which to place/break block.
-        click_locations = np.empty((3 * 2 * 3 * 3, 3))
-        shift = 1e-4 if action_type == MbagAction.BREAK_BLOCK else -1e-4
-        click_location_index = 0
-        for face_dim in range(3):
-            for face in [0 - shift, 1 + shift]:
-                # If we are placing, need to make sure that there is a solid block
-                # surface to place against.
-                if action_type == MbagAction.PLACE_BLOCK:
-                    against_block_location_arr = np.array(block_location)
-                    against_block_location_arr[face_dim] += np.sign(face - 0.5)
-                    against_block_location: BlockLocation = cast(
-                        BlockLocation, tuple(against_block_location_arr.astype(int))
-                    )
-                    if (
-                        not self.is_valid_block_location(against_block_location)
-                        or self.blocks[against_block_location]
-                        not in MinecraftBlocks.SOLID_BLOCK_IDS
-                    ):
-                        continue
-
-                for u in [0.1, 0.5, 0.9]:
-                    for v in [0.1, 0.5, 0.9]:
-                        click_location = click_locations[click_location_index]
-                        click_location[:] = block_location
-                        click_location[face_dim] += face
-                        click_location[face_dim - 1] += v
-                        click_location[face_dim - 2] += u
-                        click_location_index += 1
-        click_locations = click_locations[:click_location_index]
-        click_locations = click_locations[self.valid_block_locations(click_locations)]
-
-        player_locations: NDArray[np.float_]
-        if player_location is not None:
-            player_locations = (
-                self.generate_block_edges(player_location)
-                if is_human
-                else np.array([player_location])
-            )
-        else:
-            player_deltas = cartesian_product(
-                np.linspace(-4, 4, 9),
-                np.linspace(-5, 3, 9),
-                np.linspace(-4, 4, 9),
-            )
-            # Remove deltas which would put the player inside the block being placed/
-            # broken.
-            player_deltas = player_deltas[
-                ~(
-                    (player_deltas[:, 0] == 0)
-                    & (player_deltas[:, 1] >= -1)
-                    & (
-                        player_deltas[:, 1]
-                        <= (1 if action_type == MbagAction.PLACE_BLOCK else 0)
-                    )
-                    & (player_deltas[:, 2] == 0)
-                )
-            ]
-
-            block_player_location = np.array(block_location, float)
-            block_player_location[0] += 0.5
-            block_player_location[2] += 0.5
-            player_locations = player_deltas + block_player_location[None, :]
-
-        # Restrict player locations to those inside the world.
-        player_locations = player_locations[
-            self.valid_block_locations(player_locations)
-        ]
-
-        # Make blocks array with two layers of air above to make calculations easier.
-        blocks = np.concatenate(
-            [self.blocks, np.zeros((self.size[0], 2, self.size[2]), np.uint8)], axis=1
+        viewpoint_click_candidates = self._get_viewpoint_click_candidates(
+            action_type, block_location, player_location, other_player_locations
         )
 
-        # Restrict player locations to those where they aren't inside a block.
-        feet_block_locations: NDArray[np.int_] = player_locations.astype(int)
-        head_block_locations: NDArray[np.int_] = feet_block_locations.copy()
-        head_block_locations[:, 1] += 1
-        player_locations = player_locations[
-            (
-                blocks.flat[
-                    np.ravel_multi_index(
-                        cast(Sequence[NDArray[np.int_]], feet_block_locations.T),
-                        blocks.shape,
-                    )
-                ]
-                == MinecraftBlocks.AIR
-            )
-            & (
-                blocks.flat[
-                    np.ravel_multi_index(
-                        cast(Sequence[NDArray[np.int_]], head_block_locations.T),
-                        blocks.shape,
-                    )
-                ]
-                == MinecraftBlocks.AIR
-            )
-        ]
-
-        player_viewpoints = player_locations.copy().astype("float64")
-        player_viewpoints[:, 1] += 1.6  # Player viewpoint is 1.6 m above feet.
-
-        viewpoint_click_candidates: np.ndarray = np.empty(
-            (len(player_viewpoints), len(click_locations), 2, 3)
-        )
-        viewpoint_click_candidates[:, :, 0, :] = player_viewpoints[:, None, :]
-        viewpoint_click_candidates[:, :, 1, :] = click_locations[None, :, :]
-        viewpoint_click_candidates = viewpoint_click_candidates.reshape(-1, 2, 3)
-
-        # Calculate deltas and make sure that the click location is within the reachable
-        # distance.
-        deltas = viewpoint_click_candidates[:, 1] - viewpoint_click_candidates[:, 0]
-        reachable = (deltas**2).sum(axis=1) ** 0.5 <= MAX_PLAYER_REACH
-        viewpoint_click_candidates = viewpoint_click_candidates[reachable]
-        deltas = deltas[reachable]
-        viewpoints = viewpoint_click_candidates[:, 0]
-
-        # Voxel traversal to make sure there are no blocks in between the viewpoint
-        # and the click location.
-        # Based on http://www.cse.yorku.ca/~amana/research/grid.pdf
-        step = np.sign(deltas).astype(int)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            t_max = np.abs(
-                ((-step * viewpoints) - np.floor(-step * viewpoints)) / deltas
-            )
-            t_max[np.isnan(t_max)] = 1
-            t_delta = np.abs(1 / deltas)
-            t_delta[deltas == 0] = 1
-
-        intersection = np.zeros(viewpoints.shape[0], bool)
-        current_block_locations = viewpoints.astype(int)
-        # Obstructions include any non-air blocks plus any blocks with a player in
-        # them.
-        obstructions = blocks != MinecraftBlocks.AIR
-        for other_player_x, other_player_y, other_player_z in other_player_locations:
-            assert (
-                other_player_x % 1 == 0.5
-                and other_player_y % 1 == 0
-                and other_player_z % 1 == 0.5
-            )
-            obstructions[
-                int(other_player_x),
-                int(other_player_y) : int(other_player_y) + 2,
-                int(other_player_z),
-            ] = True
-        while np.any(t_max < 1):
-            min_mask = np.zeros_like(t_max, dtype=int)
-            min_mask[range(min_mask.shape[0]), np.argmin(t_max, axis=1)] = 1
-            min_mask[np.all(t_max >= 1, axis=1)] = 0
-            t_max += t_delta * min_mask
-            current_block_locations += step * min_mask
-
-            intersection |= obstructions.flat[
-                np.ravel_multi_index(
-                    cast(Sequence[NDArray[np.int_]], current_block_locations.T),
-                    blocks.shape,
-                )
-            ]
-
-        viewpoint_click_candidates = viewpoint_click_candidates[~intersection]
         if len(viewpoint_click_candidates) == 0:
             # No possible location to place/break block from.
             return None

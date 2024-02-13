@@ -3,18 +3,19 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-import gym
+import gymnasium as gym
 import ray
 import torch
-from ray.rllib.algorithms import Algorithm
 from ray.rllib.evaluate import RolloutSaver
 from ray.rllib.evaluation.worker_set import WorkerSet
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.utils import merge_dicts  # type: ignore
 from ray.rllib.utils.typing import PolicyID
 from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import SETTINGS, Experiment
 
+from .os_utils import available_cpu_count
 from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -33,12 +34,16 @@ def sacred_config():
     player_names = policy_ids  # noqa: F841
     seed = 0
 
+    experiment_tag = None
+    if experiment_tag is not None:
+        experiment_name += experiment_tag
+
     num_workers = 4
     output_max_file_size = 64 * 1024 * 1024
     config_updates = {  # noqa: F841
         "seed": seed,
         "evaluation_num_workers": num_workers,
-        "create_env_on_driver": True,
+        "create_env_on_local_worker": True,
         "evaluation_num_episodes": episodes,
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
@@ -52,6 +57,11 @@ def sacred_config():
 
     record_video = False  # noqa: F841
 
+    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out_dir = os.path.join(  # noqa: F841
+        checkpoint, f"rollouts_{experiment_name}{time_str}"
+    )
+
 
 @ex.automain
 def main(
@@ -63,21 +73,22 @@ def main(
     policy_ids: Optional[List[str]],
     player_names: Optional[List[str]],
     record_video: bool,
+    out_dir: str,
     _log,
 ):
     ray.init(
+        num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
     )
 
-    config_updates = Algorithm.merge_trainer_configs(
-        config_updates, extra_config_updates, _allow_unknown_configs=True
+    config_updates = merge_dicts(
+        config_updates,
+        extra_config_updates,
     )
 
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if not experiment_name.endswith("_") and experiment_name != "":
         experiment_name += "_"
-    out_dir = os.path.join(checkpoint, f"rollouts_{experiment_name}{time_str}")
     _log.info(f"writing output to {out_dir}")
     os.makedirs(out_dir, exist_ok=True)
     config_updates["output"] = out_dir
@@ -111,6 +122,7 @@ def main(
             }
         )
         config_updates["evaluation_num_workers"] = 1
+        config_updates["num_envs_per_worker"] = 1
         config_updates["create_env_on_local_worker"] = False
 
     trainer = load_trainer(checkpoint, run, config_updates)

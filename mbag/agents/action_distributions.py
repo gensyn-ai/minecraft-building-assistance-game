@@ -7,8 +7,8 @@ from scipy import ndimage
 if TYPE_CHECKING:
     import torch
 
-from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.mbag_env import CURRENT_PLAYER, MbagConfigDict
+from mbag.environment.blocks import MAX_PLAYER_REACH, MinecraftBlocks
+from mbag.environment.mbag_env import CURRENT_PLAYER, NO_ONE, MbagConfigDict
 from mbag.environment.types import (
     CURRENT_BLOCKS,
     PLAYER_LOCATIONS,
@@ -214,14 +214,22 @@ class MbagActionDistribution(object):
 
         valid_action_types = MbagActionDistribution.get_valid_action_types(config)
         flat_pieces: List[torch.Tensor] = []
+
+        channels_to_reduce = [
+            channel
+            for action_type, channel in MbagActionDistribution.ACTION_TYPE2CHANNEL.items()
+            if action_type not in MbagAction.BLOCK_LOCATION_ACTION_TYPES
+        ]
+        reduced_pieces = reduction(probs[:, channels_to_reduce], dim=(-3, -2, -1))
+
         for action_type, channel in MbagActionDistribution.ACTION_TYPE2CHANNEL.items():
             if action_type in valid_action_types:
                 if action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES:
                     flat_piece = probs[:, channel].flatten(start_dim=1)
                 else:
-                    flat_piece = reduction(probs[:, channel], dim=(-3, -2, -1)).reshape(
-                        (batch_size, -1)
-                    )
+                    flat_piece = reduced_pieces[
+                        :, channels_to_reduce.index(channel)
+                    ].reshape((batch_size, -1))
                 flat_pieces.append(flat_piece)
         return torch.concat(flat_pieces, dim=1)
 
@@ -236,7 +244,9 @@ class MbagActionDistribution(object):
         )
 
     @staticmethod
-    def get_mask(config: MbagConfigDict, obs: MbagObs) -> np.ndarray:
+    def get_mask(
+        config: MbagConfigDict, obs: MbagObs, *, force_python_impl=False
+    ) -> np.ndarray:
         """
         Given an environment configuration and a batch of observations, return a
         boolean NumPy array of shape
@@ -246,6 +256,40 @@ class MbagActionDistribution(object):
 
         world_obs, inventory_obs, timestep = obs
         batch_size, _, width, height, depth = world_obs.shape
+
+        if not force_python_impl and batch_size == 1:
+            try:
+                import _mbag
+
+                try:
+                    return cast(
+                        np.ndarray,
+                        _mbag.get_action_distribution_mask(
+                            world_obs[0].astype(np.uint8),
+                            inventory_obs[0].astype(np.int32),
+                            int(timestep[0]),
+                            teleportation=config["abilities"]["teleportation"],
+                            inf_blocks=config["abilities"]["inf_blocks"],
+                        )[None],
+                    )
+                except RuntimeError as error:
+                    if error.args[0] == "No player location found":
+                        logger.warn("no player locations found in observation")
+                        return np.zeros(
+                            (
+                                1,
+                                MbagActionDistribution.NUM_CHANNELS,
+                                width,
+                                height,
+                                depth,
+                            ),
+                            dtype=np.bool8,
+                        )
+                    raise
+            except ImportError:
+                logger.warn(
+                    "C implementation of get_mask not found, falling back to Python"
+                )
 
         mask = np.ones(
             (batch_size, MbagActionDistribution.NUM_CHANNELS, width, height, depth),
@@ -293,8 +337,10 @@ class MbagActionDistribution(object):
             > 0
         )
         invalid_place = (
-            world_obs[:, CURRENT_BLOCKS] != MinecraftBlocks.AIR
-        ) | ~next_to_solid
+            (world_obs[:, CURRENT_BLOCKS] != MinecraftBlocks.AIR)
+            | ~next_to_solid
+            | (world_obs[:, PLAYER_LOCATIONS] != NO_ONE)
+        )
         mask[:, MbagActionDistribution.PLACE_BLOCK][
             np.repeat(invalid_place[:, None], MinecraftBlocks.NUM_BLOCKS, axis=1)
         ] = False
@@ -317,12 +363,11 @@ class MbagActionDistribution(object):
             # If we can't teleport, then we can only place or break blocks up to 3 blocks away
             player_location = world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER
             batch_indices, player_x, player_y, player_z = np.nonzero(player_location)
-            _, head_filter = np.unique(batch_indices, return_index=True)
-            head_filter[:-1] = head_filter[1:] - 1
-            head_filter[-1] = batch_indices.shape[0] - 1
-            head_x = player_x[head_filter]
-            head_y = player_y[head_filter]
-            head_z = player_z[head_filter]
+            _, feet_filter = np.unique(batch_indices, return_index=True)
+            feet_x = player_x[feet_filter]
+            feet_y = player_y[feet_filter]
+            feet_z = player_z[feet_filter]
+            head_x, head_y, head_z = feet_x, feet_y + 1, feet_z
 
             world_x, world_y, world_z = np.meshgrid(
                 np.arange(width), np.arange(height), np.arange(depth), indexing="ij"
@@ -332,20 +377,53 @@ class MbagActionDistribution(object):
                 + (world_y[None] - head_y[:, None, None, None]) ** 2
                 + (world_z[None] - head_z[:, None, None, None]) ** 2
             )
-            reachable_3 = dist_from_player <= 3
+            reachable = dist_from_player <= MAX_PLAYER_REACH
 
-            mask[:, MbagActionDistribution.BREAK_BLOCK] &= reachable_3
-            mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable_3[:, None]
+            mask[:, MbagActionDistribution.BREAK_BLOCK] &= reachable
+            mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable[:, None]
 
             # If we can't teleport, then we can only give blocks to from one block away from players
             conv_mask = np.ones((1, 3, 4, 3))
             conv_mask[0, 1, 1:2, 1] = 0
             reachable_1 = (
-                (world_x[None] - head_x[:, None, None, None] <= 1)
-                & (world_y[None] - head_y[:, None, None, None] <= 1)
-                & (world_z[None] - head_z[:, None, None, None] <= 1)
+                (np.abs(world_x[None] - head_x[:, None, None, None]) <= 1)
+                & (np.abs(world_y[None] - head_y[:, None, None, None]) <= 1)
+                & (np.abs(world_z[None] - head_z[:, None, None, None]) <= 1)
             )
             mask[:, MbagActionDistribution.GIVE_BLOCK] &= reachable_1[:, None]
+
+            # We can only move in directions that are not blocked by solid blocks
+            # or players.
+            mask[:, MbagActionDistribution.MOVE_POS_X] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x + 1, feet_y, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_NEG_X] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x - 1, feet_y, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_POS_Y] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y + 1, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_NEG_Y] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y - 1, feet_z
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_POS_Z] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y, feet_z + 1
+                )[:, None, None, None]
+            )
+            mask[:, MbagActionDistribution.MOVE_NEG_Z] = (
+                MbagActionDistribution._is_valid_position_to_move_to(
+                    config, world_obs, feet_x, feet_y, feet_z - 1
+                )[:, None, None, None]
+            )
 
         if not config["abilities"]["inf_blocks"]:
             # If we don't have infinite blocks, we can only place or give blocks we
@@ -361,6 +439,93 @@ class MbagActionDistribution(object):
                 mask[:, channels][~have_blocks] = False
 
         return mask
+
+    @staticmethod
+    def _is_valid_position_to_move_to(
+        config: MbagConfigDict,
+        world_obs: np.ndarray,
+        new_feet_x: np.ndarray,
+        new_feet_y: np.ndarray,
+        new_feet_z: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Returns True if the given position is a valid position to move to.
+        """
+
+        width, height, depth = config["world_size"]
+        batch_size = world_obs.shape[0]
+
+        # Specialize for when batch_size is 1.
+        if batch_size == 1:
+            new_feet_x = new_feet_x[0]
+            new_feet_y = new_feet_y[0]
+            new_feet_z = new_feet_z[0]
+            if (
+                new_feet_x < 0
+                or new_feet_x >= width
+                or new_feet_y < 0
+                or new_feet_y >= height
+                or new_feet_z < 0
+                or new_feet_z >= depth
+            ):
+                valid_bool = False
+            else:
+                feet_world_obs = world_obs[0, :, new_feet_x, new_feet_y, new_feet_z]
+                head_world_obs = world_obs[
+                    0, :, new_feet_x, min(new_feet_y + 1, height - 1), new_feet_z
+                ]
+                valid_bool = (
+                    (feet_world_obs[CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+                    and (head_world_obs[CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+                    and (
+                        (feet_world_obs[PLAYER_LOCATIONS] == NO_ONE)
+                        or (feet_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER)
+                    )
+                    and (
+                        (head_world_obs[PLAYER_LOCATIONS] == NO_ONE)
+                        or (head_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER)
+                    )
+                )
+            return np.array([valid_bool])
+
+        valid = (
+            (new_feet_x >= 0)
+            & (new_feet_x < width)
+            & (new_feet_y >= 0)
+            & (new_feet_y < height)
+            & (new_feet_z >= 0)
+            & (new_feet_z < depth)
+        )
+
+        feet_world_obs = world_obs[
+            np.arange(batch_size)[valid],
+            :,
+            new_feet_x[valid],
+            new_feet_y[valid],
+            new_feet_z[valid],
+        ]
+        head_world_obs = world_obs[
+            np.arange(batch_size)[valid],
+            :,
+            new_feet_x[valid],
+            np.minimum(new_feet_y[valid] + 1, height - 1),
+            new_feet_z[valid],
+        ]
+
+        valid[valid] &= (
+            (feet_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+            & (head_world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR)
+            & (
+                (feet_world_obs[:, PLAYER_LOCATIONS] == NO_ONE)
+                | (feet_world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER)
+            )
+            & (
+                (head_world_obs[:, PLAYER_LOCATIONS] == NO_ONE)
+                | (head_world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER)
+            )
+        )
+
+        return valid
 
     @staticmethod
     def get_mask_flat(config: MbagConfigDict, obs: MbagObs) -> np.ndarray:

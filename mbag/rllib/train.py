@@ -1,8 +1,11 @@
 import faulthandler
 import os
 import signal
+import sys
+import tempfile
+from datetime import datetime
 from logging import Logger
-from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type, Union, cast
 
 import ray
 import torch
@@ -19,6 +22,7 @@ from ray.tune.registry import ENV_CREATOR, _global_registry, get_trainable_cls
 from sacred import SETTINGS as SACRED_SETTINGS
 from sacred import Experiment
 from sacred.config.custom_containers import DogmaticDict
+from sacred.observers import FileStorageObserver
 from typing_extensions import Literal
 
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
@@ -29,8 +33,8 @@ from mbag.environment.goals.goal_transform import (
     TransformedGoalGeneratorConfig,
 )
 from mbag.environment.goals.transforms import (
-    AreaSampleTransform,
     AreaSampleTransformConfig,
+    CropLowDensityBottomLayersTransformConfig,
     CropTransformConfig,
 )
 from mbag.environment.mbag_env import MbagConfigDict, MbagPlayerConfigDict
@@ -38,6 +42,7 @@ from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
 
 from .callbacks import MbagCallbacks
+from .os_utils import available_cpu_count
 from .policies import MbagAgentPolicy, MbagPPOConfig, MbagPPOTorchPolicy
 from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
@@ -48,6 +53,16 @@ from .training_utils import (
     load_policies_from_checkpoint,
     load_trainer_config,
 )
+
+if TYPE_CHECKING:
+    from typing import List
+else:
+    # Deal with weird sacred serialization issue.
+    if sys.version_info >= (3, 9):
+        List = list
+    else:
+        from typing import Sequence as List
+
 
 ex = Experiment("train_mbag")
 SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -66,9 +81,10 @@ def sacred_config(_log):  # noqa
 
     # Environment
     environment_name = "MBAGFlatActions-v1"
-    goal_generator = "random"
+    goal_generator = "craftassist"
     goal_subset = "train"
     horizon = 1000
+    randomize_first_episode_length = False
     num_players = 1
     height = 12
     width = 12
@@ -97,6 +113,7 @@ def sacred_config(_log):  # noqa
     force_single_cc = True
     force_single_cc_connectivity = 18
     crop_air = True
+    crop_low_density_bottom_layers = True
     crop = False
     crop_density_threshold = 0.25
     area_sample = True
@@ -114,6 +131,16 @@ def sacred_config(_log):  # noqa
         )
     if crop_air:
         goal_transforms.append({"transform": "crop_air"})
+    if crop_low_density_bottom_layers:
+        crop_low_density_config: CropLowDensityBottomLayersTransformConfig = {
+            "density_threshold": 0.1
+        }
+        goal_transforms.append(
+            {
+                "transform": "crop_low_density_bottom_layers",
+                "config": crop_low_density_config,
+            }
+        )
     min_size_config: MinSizeFilterConfig = {
         "min_size": (min_width, min_height, min_depth)
     }
@@ -127,14 +154,12 @@ def sacred_config(_log):  # noqa
         goal_transforms.append({"transform": "crop", "config": crop_config})
     if area_sample:
         area_sample_config: AreaSampleTransformConfig = {
-            "max_scaling_factor": 2,
             "interpolate": True,
             "interpolation_order": 1,
-            "scale_y_independently": True,
-            "max_scaling_factor_ratio": AreaSampleTransform.default_config[
-                "max_scaling_factor_ratio"
-            ],
+            "max_scaling_factor": 2,
+            "max_scaling_factor_ratio": 1.5,
             "preserve_paths": True,
+            "scale_y_independently": True,
         }
         goal_transforms.append(
             {"transform": "area_sample", "config": area_sample_config}
@@ -174,6 +199,7 @@ def sacred_config(_log):  # noqa
     environment_params: MbagConfigDict = {
         "num_players": num_players,
         "horizon": horizon,
+        "randomize_first_episode_length": randomize_first_episode_length,
         "world_size": (width, height, depth),
         "random_start_locations": random_start_locations,
         "goal_generator": TransformedGoalGenerator,
@@ -203,13 +229,18 @@ def sacred_config(_log):  # noqa
     # Training
     num_workers = 2
     num_cpus_per_worker = 0.5
+    num_envs = max(num_workers, 1)
+    assert num_envs % max(num_workers, 1) == 0
+    num_envs_per_worker = num_envs // max(num_workers, 1)
     input = "sampler"
     seed = 0
     num_gpus = 1 if torch.cuda.is_available() else 0
+    num_gpus_per_worker = 0
     sample_batch_size = 5000
     train_batch_size = 5000
     sgd_minibatch_size = 512
     rollout_fragment_length = horizon
+    batch_mode = "truncate_episodes"
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
     grad_clip = 0.1
@@ -228,6 +259,7 @@ def sacred_config(_log):  # noqa
     use_replay_buffer = True
     replay_buffer_size = 10
     use_critic = True
+    use_goal_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
     pretrain = False
 
@@ -241,12 +273,17 @@ def sacred_config(_log):  # noqa
     dirichlet_epsilon = 0.25
     argmax_tree_policy = False
     add_dirichlet_noise = True
+    dirichlet_noise = 0.25
+    prior_temperature = 1.0
+    init_q_with_max = False
+    use_bilevel_action_selection = True
+    fix_bilevel_action_selection = False
     goal_loss_coeff, place_block_loss_coeff = 0.5, 1
 
     # Model
-    model: Literal[
-        "convolutional", "recurrent_convolutional", "transformer"
-    ] = "convolutional"
+    model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
+        "convolutional"
+    )
     max_seq_len = horizon
     embedding_size = 8
     position_embedding_size = 18
@@ -261,6 +298,7 @@ def sacred_config(_log):  # noqa
     num_value_layers = 2
     use_per_location_lstm = False
     mask_action_distribution = True
+    scale_obs = False
     num_heads = 4
     use_separated_transformer = False
     use_resnet = False
@@ -288,6 +326,7 @@ def sacred_config(_log):  # noqa
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
             "mask_action_distribution": mask_action_distribution,
+            "scale_obs": scale_obs,
             "num_unet_layers": num_unet_layers,
             "unet_grow_factor": unet_grow_factor,
             "unet_use_bn": unet_use_bn,
@@ -309,6 +348,7 @@ def sacred_config(_log):  # noqa
             "use_per_location_lstm": use_per_location_lstm,
             "use_separated_transformer": use_separated_transformer,
             "mask_action_distribution": mask_action_distribution,
+            "scale_obs": scale_obs,
         }
         model_config["custom_model_config"] = transformer_config
 
@@ -318,6 +358,7 @@ def sacred_config(_log):  # noqa
 
     # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
     load_policies_mapping: Dict[str, str] = {}
+    overwrite_loaded_policy_type = False
     if isinstance(load_policies_mapping, DogmaticDict):
         # Weird shim for sacred
         for key in load_policies_mapping.revelation():
@@ -386,6 +427,8 @@ def sacred_config(_log):  # noqa
     for policy_id in policy_ids:
         if policy_id in loaded_policy_dict:
             policies[policy_id] = loaded_policy_dict[policy_id]
+            if overwrite_loaded_policy_type:
+                policies[policy_id].policy_class = policy_class
         elif policy_id in policies_to_train:
             policies[policy_id] = PolicySpec(
                 policy_class,
@@ -424,18 +467,21 @@ def sacred_config(_log):  # noqa
         experiment_name_parts.append(heuristic)
     if experiment_tag is not None:
         experiment_name_parts.append(experiment_tag)
-    experiment_name = os.path.join(*experiment_name_parts)  # noqa: F841
+    experiment_name_parts.append(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    experiment_dir = os.path.join(log_dir, *experiment_name_parts)
 
     config.framework("torch")
     config.rollouts(
         num_rollout_workers=num_workers,
-        num_envs_per_worker=1,
+        num_envs_per_worker=num_envs_per_worker,
         rollout_fragment_length=rollout_fragment_length,
+        batch_mode=batch_mode,
         compress_observations=compress_observations,
     )
     config.resources(
         num_cpus_per_worker=num_cpus_per_worker,
         num_gpus=num_gpus,
+        num_gpus_per_worker=num_gpus_per_worker,
     )
     config.debugging(seed=seed)
     config.environment(environment_name, env_config=dict(environment_params))
@@ -456,6 +502,8 @@ def sacred_config(_log):  # noqa
         evaluation_duration=evaluation_duration,
         evaluation_duration_unit=evaluation_duration_unit,
     )
+    config.rl_module(_enable_rl_module_api=False)
+    config.training(_enable_learner_api=False)
 
     if "PPO" in run:
         assert isinstance(config, PPOConfig)
@@ -492,9 +540,13 @@ def sacred_config(_log):  # noqa
                 (temperature_horizon, temperature_end),
             ],
             "dirichlet_epsilon": dirichlet_epsilon,
-            "dirichlet_noise": 0.03,
+            "dirichlet_noise": dirichlet_noise,
             "argmax_tree_policy": argmax_tree_policy,
             "add_dirichlet_noise": add_dirichlet_noise,
+            "prior_temperature": prior_temperature,
+            "init_q_with_max": init_q_with_max,
+            "use_bilevel_action_selection": use_bilevel_action_selection,
+            "fix_bilevel_action_selection": fix_bilevel_action_selection,
         }
         config.training(
             lr=lr,
@@ -512,6 +564,7 @@ def sacred_config(_log):  # noqa
             num_steps_sampled_before_learning_starts=0,
             mcts_config=mcts_config,
             use_critic=use_critic,
+            use_goal_predictor=use_goal_predictor,
             other_agent_action_predictor_loss_coeff=other_agent_action_predictor_loss_coeff,
             use_replay_buffer=use_replay_buffer,
             replay_buffer_config={
@@ -546,32 +599,35 @@ def sacred_config(_log):  # noqa
     del env
     del loaded_policy_dict
 
+    observer = FileStorageObserver(experiment_dir)
+    ex.observers.append(observer)
+
 
 @ex.automain
 def main(
     config: AlgorithmConfig,
-    log_dir,
-    experiment_name,
     run,
     num_training_iters,
     save_freq,
     checkpoint_path: Optional[str],
     checkpoint_to_load_policies: Optional[str],
     load_policies_mapping: Dict[str, str],
+    observer,
     _log: Logger,
 ):
+    temp_dir = tempfile.mkdtemp()
+    os.environ["RAY_AIR_NEW_PERSISTENCE_MODE"] = "0"
     ray.init(
+        num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
+        _temp_dir=temp_dir,
     )
 
     algorithm_class: Type[Algorithm] = get_trainable_cls(run)
     trainer = algorithm_class(
         config,
-        logger_creator=build_logger_creator(
-            log_dir,
-            experiment_name,
-        ),
+        logger_creator=build_logger_creator(observer.dir),
     )
 
     if checkpoint_to_load_policies is not None:

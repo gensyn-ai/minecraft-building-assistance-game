@@ -4,5 +4,6 @@ from . import bc  # noqa: F401
 from . import planning  # noqa: F401
 from . import policies  # noqa: F401
 from . import rllib_env  # noqa: F401
+from . import sacred_utils  # noqa: F401
 from . import torch_action_distributions  # noqa: F401
 from . import torch_models  # noqa: F401

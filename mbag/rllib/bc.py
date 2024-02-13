@@ -49,7 +49,7 @@ class BCTorchPolicy(TorchPolicy):
         episode_ids: Set[int] = set(train_batch[SampleBatch.EPS_ID].tolist())
         episode_in_validation: Dict[int, bool] = {
             episode_id: random.Random(episode_id).random()
-            < self.config["validation_prop"]
+            < self.config.get("validation_prop", 0)
             for episode_id in episode_ids
         }
         validation_mask = torch.tensor(
@@ -189,6 +189,10 @@ class BC(Algorithm):
         self._counters[NUM_AGENT_STEPS_SAMPLED] += train_batch.agent_steps()
         self._counters[NUM_ENV_STEPS_SAMPLED] += train_batch.env_steps()
 
+        for policy_id, policy_batch in train_batch.policy_batches.items():
+            if "infos" in policy_batch:
+                del policy_batch["infos"]
+
         # Train
         train_results: ResultDict
         if self.config["simple_optimizer"]:
@@ -213,7 +217,7 @@ class BC(Algorithm):
             with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
                 from_worker = None
                 self.workers.sync_weights(
-                    from_worker_or_trainer=from_worker,
+                    from_worker_or_learner_group=from_worker,
                     policies=list(train_results.keys()),
                     global_vars=global_vars,
                 )
