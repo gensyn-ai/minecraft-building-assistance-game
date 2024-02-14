@@ -15,8 +15,9 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType
 from torch import nn
 from torch.distributions import Categorical
 
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import MbagAction, WorldSize
+from mbag.environment.types import WorldSize
 
 from .torch_models import MbagModel
 

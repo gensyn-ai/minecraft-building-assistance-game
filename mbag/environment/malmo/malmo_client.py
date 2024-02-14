@@ -16,17 +16,15 @@ import tempfile
 import time
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
+from typing import List, Optional, Tuple, TypedDict
 
 import MalmoPython
 import numpy as np
 from typing_extensions import Literal
 
-from .blocks import MinecraftBlocks
-from .types import BlockLocation
-
-if TYPE_CHECKING:
-    from .mbag_env import MbagConfigDict
+from ..blocks import MinecraftBlocks
+from ..config import MbagConfigDict
+from ..types import BlockLocation
 
 logger = logging.getLogger(__name__)
 

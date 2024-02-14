@@ -13,7 +13,8 @@ from ray.rllib.utils.typing import AgentID, MultiAgentDict
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.environment.mbag_env import MbagConfigDict, MbagEnv, MbagStateDict
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
+from mbag.environment.state import MbagStateDict
 
 
 class MbagRllibWrapper(MultiAgentEnv):

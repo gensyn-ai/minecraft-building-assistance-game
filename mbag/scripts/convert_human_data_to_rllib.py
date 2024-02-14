@@ -1,6 +1,5 @@
 import logging
 import os
-import pickle
 import random
 import zipfile
 from typing import List, Union
@@ -12,8 +11,9 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from sacred import Experiment
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.compatibility_utils import OldHumanDataUnpickler
+from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.mbag_env import MbagConfigDict
-from mbag.environment.types import MbagAction, MbagActionTuple
 from mbag.evaluation.evaluator import EpisodeInfo
 
 ex = Experiment()
@@ -57,13 +57,13 @@ def main(
         _log.info(f"reading {result_fname}...")
         with zipfile.ZipFile(result_fname, "r") as zip_file:
             with zip_file.open("episode.pkl", "r") as result_file:
-                episode_info = pickle.load(result_file)
+                episode_info = OldHumanDataUnpickler(result_file).load()
     else:
         result_fname = os.path.join(data_dir, "episode.pkl")
 
         _log.info(f"reading {result_fname}...")
         with open(result_fname, "rb") as result_file:
-            episode_info = pickle.load(result_file)
+            episode_info = OldHumanDataUnpickler(result_file).load()
 
     if hasattr(episode_info, "env_config"):
         _log.info("using env config from EpisodeInfo")

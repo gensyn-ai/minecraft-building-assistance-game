@@ -3,9 +3,9 @@ import copy
 import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG
-from mbag.environment.types import MbagAction
 from mbag.rllib.planning import create_mbag_env_model
 
 

@@ -25,7 +25,7 @@ def test_inventory():
             "num_players": 1,
             "horizon": 20,
             "goal_generator": BasicGoalGenerator,
-            "goal_generator_config": {"pallette": True},
+            "goal_generator_config": {},
             "malmo": {
                 "use_malmo": False,
                 "use_spectator": False,
@@ -56,7 +56,7 @@ def test_inventory_in_malmo():
             "num_players": 1,
             "horizon": 20,
             "goal_generator": BasicGoalGenerator,
-            "goal_generator_config": {"pallette": True},
+            "goal_generator_config": {},
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -75,9 +75,9 @@ def test_inventory_in_malmo():
     assert episode_info.cumulative_reward == 3
 
 
-def test_pallette():
+def test_palette():
     """
-    Make sure the block pallette generates
+    Make sure the block palette generates
     """
 
     evaluator = MbagEvaluator(
@@ -104,9 +104,9 @@ def test_pallette():
 
 
 @pytest.mark.uses_malmo
-def test_pallette_in_malmo():
+def test_palette_in_malmo():
     """
-    Make sure the block pallette generates
+    Make sure the block palette generates
     """
 
     evaluator = MbagEvaluator(

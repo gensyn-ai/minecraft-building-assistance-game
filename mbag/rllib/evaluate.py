@@ -1,10 +1,11 @@
+import copy
 import json
 import os
 import pickle
 import random
 from datetime import datetime
 from logging import Logger
-from typing import List, Optional
+from typing import List, Optional, Type
 
 import numpy as np
 import ray
@@ -14,14 +15,16 @@ from ray.rllib.algorithms import Algorithm
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
+from mbag.agents.human_agent import HumanAgent
 from mbag.environment.mbag_env import MbagConfigDict
-from mbag.evaluation.evaluator import EpisodeInfo, MbagEvaluator
+from mbag.evaluation.evaluator import EpisodeInfo, MbagAgentConfig, MbagEvaluator
 
-from .agents import RllibMbagAgent, RllibMbagAgentConfigDict
+from .agents import RllibAlphaZeroAgent, RllibMbagAgent
 from .os_utils import available_cpu_count
 from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+SETTINGS.CONFIG
 
 
 ex = Experiment("evaluate")
@@ -36,6 +39,7 @@ def sacred_config():
     experiment_name = ""  # noqa: F841
     seed = 0  # noqa: F841
     record_video = False  # noqa: F841
+    use_malmo = record_video  # noqa: F841
 
     config_updates = {}  # noqa: F841
 
@@ -50,6 +54,7 @@ def main(
     config_updates: dict,
     seed: int,
     record_video: bool,
+    use_malmo: bool,
     _log: Logger,
 ):
     ray.init(
@@ -63,7 +68,9 @@ def main(
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    config_updates["num_workers"] = 0
+    config_updates.setdefault("num_workers", 0)
+    config_updates.setdefault("num_envs_per_worker", 1)
+    config_updates.setdefault("evaluation_num_workers", 0)
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if not experiment_name.endswith("_") and experiment_name != "":
@@ -73,30 +80,46 @@ def main(
     )
 
     env_config: Optional[MbagConfigDict] = None
-    agent_config_dicts: List[RllibMbagAgentConfigDict] = []
+    agent_configs: List[MbagAgentConfig] = []
     trainers: List[Algorithm] = []
     for run, checkpoint, policy_id in zip(runs, checkpoints, policy_ids):
-        _log.info(f"loading policy {policy_id} from {checkpoint}...")
-        trainer = load_trainer(checkpoint, run, config_updates)
-        agent_config_dicts.append(
-            {
-                "policy": trainer.get_policy(policy_id),
-            }
-        )
-        trainers.append(trainer)
+        if run == "HumanAgent":
+            agent_configs.append((HumanAgent, {}))
+        else:
+            _log.info(f"loading policy {policy_id} from {checkpoint}...")
+            trainer = load_trainer(checkpoint, run, config_updates)
+            policy = trainer.get_policy(policy_id)
+            policy.config["player_index"] = 0  # TODO: remove
 
-        if env_config is None:
-            env_config = trainer.config["env_config"]
+            mbag_agent_class: Type[RllibMbagAgent] = RllibMbagAgent
+            if "AlphaZero" in run:
+                mbag_agent_class = RllibAlphaZeroAgent
+
+            agent_configs.append((mbag_agent_class, {"policy": policy}))
+            trainers.append(trainer)
+
+            if env_config is None:
+                env_config = copy.deepcopy(trainer.config["env_config"])
+
     assert env_config is not None
-    env_config["num_players"] = len(agent_config_dicts)
+    env_config["num_players"] = len(agent_configs)
+    while len(env_config["players"]) < env_config["num_players"]:
+        env_config["players"].append(copy.deepcopy(env_config["players"][0]))
+        player_index = len(env_config["players"]) - 1
+        env_config["players"][-1]["player_name"] = f"player_{player_index}"
+    for player_index, (agent_class, agent_config) in enumerate(agent_configs):
+        if agent_class is HumanAgent:
+            env_config["players"][player_index]["is_human"] = True
+
+    env_config.setdefault("malmo", {})
+    env_config["malmo"]["use_malmo"] = use_malmo
+    if record_video:
+        env_config["malmo"]["video_dir"] = out_path
 
     _log.info(f"evaluating for {episodes} episodes...")
     evaluator = MbagEvaluator(
         env_config,
-        [
-            (RllibMbagAgent, agent_config_dict)
-            for agent_config_dict in agent_config_dicts
-        ],
+        agent_configs,
     )
 
     episode_infos: List[EpisodeInfo] = []

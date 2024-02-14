@@ -14,6 +14,7 @@ from mbag.agents.heuristic_agents import (
     MirrorBuildingAgent,
     PriorityQueueAgent,
 )
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.goals.simple import (
@@ -21,7 +22,7 @@ from mbag.environment.goals.simple import (
     SimpleOverhangGoalGenerator,
 )
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.environment.types import MbagAction, MbagObs
+from mbag.environment.types import MbagObs
 from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)

@@ -35,13 +35,9 @@ from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
 from torch import nn
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import (
-    CURRENT_BLOCKS,
-    GOAL_BLOCKS,
-    MbagAction,
-    MbagActionTuple,
-)
+from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
 
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
 from .rllib_env import unwrap_mbag_env
@@ -694,8 +690,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             for state_out_part in state_out:
                 state_out_part[:] = 0
 
-        for env_index, player_index in enumerate(input_dict[SampleBatch.AGENT_INDEX]):
-            self.envs[env_index].set_player_index(player_index)
+        if self.config["player_index"] is not None:
+            for env in self.envs:
+                env.set_player_index(self.config["player_index"])
+        else:
+            for env_index, player_index in enumerate(
+                input_dict[SampleBatch.AGENT_INDEX]
+            ):
+                self.envs[env_index].set_player_index(player_index)
 
         assert isinstance(self.action_space, spaces.Discrete)
 
@@ -990,6 +992,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.use_replay_buffer = True
         self.num_steps_sampled_before_learning_starts = 0
         self.pretrain = False
+        self.player_index: Optional[int] = None
 
         del self.vf_share_layers
         # self.mcts_config["temperature_schedule"] = None
@@ -1008,6 +1011,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         use_replay_buffer=NotProvided,
         num_steps_sampled_before_learning_starts=NotProvided,
         pretrain=NotProvided,
+        player_index=NotProvided,
         **kwargs,
     ):
         """
@@ -1030,6 +1034,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             pretrain (bool): If True, then this will just pretrain the AlphaZero
                 predictors for goal, other agent action, etc. and take only NOOP
                 actions.
+            player_index (int): Override the AGENT_INDEX field in the sample
+                batch with this value.
         """
 
         super().training(*args, **kwargs)
@@ -1060,6 +1066,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             )
         if pretrain is not NotProvided:
             self.pretrain = pretrain
+        if player_index is not NotProvided:
+            self.player_index = player_index
 
     def update_from_dict(self, config_dict):
         if "mcts_config" in config_dict and isinstance(config_dict, dict):

@@ -43,7 +43,7 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
     PyArrayObject *world_obs_array;
     PyArrayObject *inventory_obs_array;
     int timestep;
-    bool teleportation, inf_blocks;
+    int teleportation, inf_blocks;
 
     // Other variables
     int i, x, y, z, block_id;

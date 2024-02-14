@@ -1,9 +1,8 @@
 import logging
-from typing import List, Optional
+from typing import Optional
 
-import numpy as np
-
-from ..environment.types import MbagAction, MbagActionTuple, MbagInfoDict, MbagObs
+from ..environment.actions import MbagAction, MbagActionTuple
+from ..environment.types import MbagInfoDict, MbagObs
 from .mbag_agent import MbagAgent
 
 logger = logging.getLogger(__name__)
@@ -14,7 +13,6 @@ class HumanAgent(MbagAgent):
     An MBAG agent which chooses actions based on a queue that is fed in.
     """
 
-    actions_queue: List[MbagActionTuple]
     last_action: Optional[MbagAction]
 
     def reset(self) -> None:
@@ -22,7 +20,6 @@ class HumanAgent(MbagAgent):
         This method is called whenever a new episode starts; it can be used to clear
         internal state or otherwise prepare for a new episode.
         """
-        self.actions_queue = []
         self.last_action = None
 
     def get_action_with_info(
@@ -33,10 +30,9 @@ class HumanAgent(MbagAgent):
         get_action_*_distribution methods should be overridden.
         """
 
-        player_locations = obs[0][4]
-
         if info is None:
             assert self.last_action is None
+            action_tuple = (MbagAction.NOOP, 0, 0)
         else:
             if self.last_action is not None:
                 if info["action"].to_tuple() != self.last_action.to_tuple():
@@ -44,63 +40,10 @@ class HumanAgent(MbagAgent):
                         f"human action did not succeed: expected action "
                         f"{self.last_action} but env reported {info['action']}"
                     )
-            else:
-                logger.error(
-                    f"Extraneous environment action: expected action "
-                    f"Noop but env reported {info['action']}"
-                )
-            self.actions_queue.extend(info.get("human_actions", []))
+            action_tuple = info["human_action"]
 
-        action_tuple: MbagActionTuple = MbagAction.NOOP, 0, 0
-        if len(self.actions_queue) > 0:
-            action_tuple = self.actions_queue.pop(0)
-
-            # TODO: Stop hardcoding this after we figure out obs rotation issue..
-            action_type, location_id, block_id = action_tuple
-            if action_type == MbagAction.GIVE_BLOCK:
-                player_tag = location_id
-                given_player_locations = np.transpose(
-                    (player_locations == player_tag).nonzero()
-                )
-                if given_player_locations.shape[0] > 0:
-                    given_player_location = given_player_locations[0]
-                    action_tuple = (
-                        action_tuple[0],
-                        int(
-                            np.ravel_multi_index(
-                                given_player_location,
-                                self.env_config["world_size"],
-                            )
-                        ),
-                        action_tuple[2],
-                    )
-                else:
-                    logger.warning(
-                        f"player with tag {player_tag} not found in player locations"
-                    )
-                    self.actions_queue.insert(0, action_tuple)
-                    action_tuple = MbagAction.NOOP, 0, 0
-
-            action = MbagAction(action_tuple, self.env_config["world_size"])
-
-            logger.info(f"human action being replayed: {action}")
-
-        self.last_action = MbagAction(action_tuple, self.env_config["world_size"])
+        action = MbagAction(action_tuple, self.env_config["world_size"])
+        logger.info(f"human action being replayed: {action}")
+        self.last_action = action
 
         return action_tuple
-
-    def get_state(self) -> List[np.ndarray]:
-        """
-        Get the current state of this agent as a list of zero or more numpy arrays.
-        The agent should be able to be set back to its previous state by calling
-        set_state with the return value of this method.
-        """
-
-        return [np.array(self.actions_queue)]
-
-    def set_state(self, state: List[np.ndarray]) -> None:
-        """
-        Restore the agent's state to what it was when get_state was called.
-        """
-
-        self.actions_queue = [(i, j, k) for i, j, k in state[0]]

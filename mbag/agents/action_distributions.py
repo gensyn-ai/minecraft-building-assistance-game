@@ -7,14 +7,14 @@ from scipy import ndimage
 if TYPE_CHECKING:
     import torch
 
+from mbag.environment.actions import MbagAction, MbagActionTuple, MbagActionType
 from mbag.environment.blocks import MAX_PLAYER_REACH, MinecraftBlocks
-from mbag.environment.mbag_env import CURRENT_PLAYER, NO_ONE, MbagConfigDict
+from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import (
     CURRENT_BLOCKS,
+    CURRENT_PLAYER,
+    NO_ONE,
     PLAYER_LOCATIONS,
-    MbagAction,
-    MbagActionTuple,
-    MbagActionType,
     MbagObs,
 )
 
@@ -231,7 +231,7 @@ class MbagActionDistribution(object):
                         :, channels_to_reduce.index(channel)
                     ].reshape((batch_size, -1))
                 flat_pieces.append(flat_piece)
-        return torch.concat(flat_pieces, dim=1)
+        return torch.cat(flat_pieces, dim=1)
 
     @staticmethod
     def to_flat_torch_logits(

@@ -19,8 +19,9 @@ from torch import nn
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.agents.mbag_agent import MbagAgent
+from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.types import GOAL_BLOCKS, MbagAction, MbagActionTuple, MbagObs
+from mbag.environment.types import GOAL_BLOCKS, MbagObs
 
 from .torch_action_distributions import MbagAutoregressiveActionDistribution
 from .torch_models import MbagTorchModel

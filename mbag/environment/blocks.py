@@ -2,7 +2,7 @@ import logging
 import os
 import shutil
 from random import Random
-from typing import Dict, List, Optional, Sequence, Set, Tuple, TypedDict, TypeVar, cast
+from typing import Dict, List, Optional, Sequence, Set, Tuple, TypeVar, cast
 
 import cc3d
 import numpy as np
@@ -10,15 +10,8 @@ from numpy.typing import NDArray
 from skimage.util import view_as_blocks
 from typing_extensions import Literal
 
-from .types import (
-    BlockLocation,
-    FacingDirection,
-    MbagAction,
-    MbagActionType,
-    MbagInventory,
-    WorldLocation,
-    WorldSize,
-)
+from .actions import MbagAction, MbagActionType
+from .types import BlockLocation, WorldLocation, WorldSize
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +109,10 @@ class MinecraftBlocks(object):
 
     def __getitem__(self, location_slice) -> Tuple[np.ndarray, np.ndarray]:
         return (self.blocks[location_slice], self.block_states[location_slice])
+
+    def make_immutable(self):
+        self.blocks.setflags(write=False)
+        self.block_states.setflags(write=False)
 
     def is_valid_block_location(self, location: BlockLocation) -> bool:
         return (
@@ -729,13 +726,3 @@ vn -1.000000 0.000000 0.000000
 
         with open(obj_fname, "w") as obj_file:
             obj_file.write(self.to_obj())
-
-
-class MalmoState(TypedDict):
-    # TODO: Add docstrings, change the type annotations
-    blocks: MinecraftBlocks
-    player_inventories: List[MbagInventory]
-    player_locations: List[WorldLocation]
-    player_directions: List[FacingDirection]
-    last_interacted: NDArray
-    player_currently_breaking_placing: List[bool]

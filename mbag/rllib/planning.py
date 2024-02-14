@@ -7,14 +7,15 @@ from ray.rllib.utils.typing import AgentID
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
-from mbag.environment.mbag_env import MbagConfigDict, MbagStateDict
+from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.state import MbagStateDict
 from mbag.environment.types import (
     CURRENT_BLOCK_STATES,
     CURRENT_BLOCKS,
     GOAL_BLOCK_STATES,
     GOAL_BLOCKS,
-    MbagAction,
     MbagInfoDict,
     MbagObs,
 )

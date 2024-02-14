@@ -9,11 +9,8 @@ from ray.rllib.evaluation.rollout_worker import RolloutWorker
 from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import AgentID, PolicyID
 
-from mbag.environment.types import (
-    MBAG_ACTION_BREAK_PALETTE_NAME,
-    MbagAction,
-    MbagInfoDict,
-)
+from mbag.environment.actions import MBAG_ACTION_BREAK_PALETTE_NAME, MbagAction
+from mbag.environment.types import MbagInfoDict
 from mbag.rllib.rllib_env import unwrap_mbag_env
 
 
