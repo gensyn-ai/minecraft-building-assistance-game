@@ -9,6 +9,7 @@ from ray.rllib.evaluation.rollout_worker import RolloutWorker
 from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import AgentID, PolicyID
 
+from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MBAG_ACTION_BREAK_PALETTE_NAME, MbagAction
 from mbag.environment.types import MbagInfoDict
 from mbag.rllib.rllib_env import unwrap_mbag_env
@@ -43,6 +44,9 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         env = base_env.get_sub_environments()[env_index or 0]
         state = env.get_state()
         episode.user_data["state"] = state
+        episode.user_data["valid_actions"] = (
+            MbagActionDistribution.get_valid_action_types(unwrap_mbag_env(env).config)
+        )
 
         def update_env_global_timestep(env):
             if worker.global_vars is not None:
@@ -51,6 +55,28 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 )
 
         worker.foreach_env(update_env_global_timestep)
+
+    def _initialize_episode_metrics_if_necessary(
+        self, episode: Union[Episode, EpisodeV2], policy_id: PolicyID
+    ) -> None:
+        for valid_action_type in episode.user_data["valid_actions"]:
+            action_type_name = MbagAction.ACTION_TYPE_NAMES[valid_action_type]
+            action_key = f"{policy_id}/num_{action_type_name.lower()}"
+            episode.custom_metrics.setdefault(action_key, 0)
+
+            if valid_action_type in [
+                MbagAction.BREAK_BLOCK,
+                MbagAction.PLACE_BLOCK,
+            ]:
+                episode.custom_metrics.setdefault(
+                    f"{policy_id}/num_correct_{action_type_name.lower()}", 0
+                )
+
+            episode.custom_metrics.setdefault(f"{policy_id}/num_unintentional_noop", 0)
+            episode.custom_metrics.setdefault(f"{policy_id}/own_reward", 0)
+            episode.custom_metrics.setdefault(
+                f"{policy_id}/num_{MBAG_ACTION_BREAK_PALETTE_NAME}", 0
+            )
 
     def on_episode_step(
         self,
@@ -70,11 +96,10 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
-            own_reward_key = f"{policy_id}/own_reward"
-            if own_reward_key not in episode.custom_metrics:
-                episode.custom_metrics[own_reward_key] = 0
+            self._initialize_episode_metrics_if_necessary(episode, policy_id)
+
             info_dict = self._get_last_info(episode, agent_id)
-            episode.custom_metrics[own_reward_key] += info_dict["own_reward"]
+            episode.custom_metrics[f"{policy_id}/own_reward"] += info_dict["own_reward"]
 
             # Log what action the agent made
             action = info_dict["action"]
@@ -84,29 +109,18 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 action_type_name = MBAG_ACTION_BREAK_PALETTE_NAME
             else:
                 action_type_name = MbagAction.ACTION_TYPE_NAMES[action.action_type]
-            action_key = f"{policy_id}/num_{action_type_name.lower()}"
-
-            if action_key not in episode.custom_metrics:
-                episode.custom_metrics[action_key] = 0
-            episode.custom_metrics[action_key] += 1
+            episode.custom_metrics[f"{policy_id}/num_{action_type_name.lower()}"] += 1
 
             if (
                 info_dict["attempted_action"].action_type != MbagAction.NOOP
                 and info_dict["action"].action_type == MbagAction.NOOP
             ):
-                metric_key = f"{policy_id}/num_unintentional_noop"
-                episode.custom_metrics.setdefault(metric_key, 0)
-                episode.custom_metrics[metric_key] += 1
-
-            if f"{policy_id}/num_correct_place_block" not in episode.custom_metrics:
-                for name in ["place_block", "break_block"]:
-                    episode.custom_metrics[f"{policy_id}/num_correct_{name}"] = 0
+                episode.custom_metrics[f"{policy_id}/num_unintentional_noop"] += 1
 
             if info_dict["action_correct"]:
-                action_correct_key = (
+                episode.custom_metrics[
                     f"{policy_id}/num_correct_{action_type_name.lower()}"
-                )
-                episode.custom_metrics[action_correct_key] += 1
+                ] += 1
 
     def on_episode_end(
         self,
