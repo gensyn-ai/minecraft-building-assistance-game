@@ -16,9 +16,8 @@ import tempfile
 import time
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple, TypedDict
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
-import MalmoPython
 import numpy as np
 from typing_extensions import Literal
 
@@ -27,6 +26,10 @@ from ..config import MbagConfigDict
 from ..types import BlockLocation
 
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+    import MalmoPython
 
 
 class MalmoEvent(TypedDict, total=False):
@@ -53,12 +56,14 @@ class MalmoObservationDict(TypedDict, total=False):
 
 
 class MalmoClient(object):
-    agent_hosts: List[MalmoPython.AgentHost]
+    agent_hosts: List["MalmoPython.AgentHost"]
     experiment_id: str
     record_fname: Optional[str]
     ssh_processes: List[subprocess.Popen]
 
     def __init__(self):
+        import MalmoPython
+
         self.client_pool = MalmoPython.ClientPool()
         self.client_pool_size = 0
         self.record_fname = None
@@ -341,6 +346,8 @@ class MalmoClient(object):
         """
 
     def _expand_client_pool(self, num_clients, start_port=10000):
+        import MalmoPython
+
         while self.client_pool_size < num_clients:
             self.client_pool.add(
                 MalmoPython.ClientInfo("127.0.0.1", self.client_pool_size + start_port)
@@ -350,14 +357,16 @@ class MalmoClient(object):
     # This method based on code from multi_agent_test.py in the Project Malmo examples.
     def _safe_start_mission(
         self,
-        agent_host: MalmoPython.AgentHost,
-        mission: MalmoPython.MissionSpec,
-        mission_record: MalmoPython.MissionRecordSpec,
+        agent_host: "MalmoPython.AgentHost",
+        mission: "MalmoPython.MissionSpec",
+        mission_record: "MalmoPython.MissionRecordSpec",
         player_index: int,
         *,
         max_attempts: int = 1 if "pytest" in sys.modules else 5,
         ssh_args: Optional[List[str]] = None,
     ):
+        import MalmoPython
+
         used_attempts = 0
         logger.info(f"starting Malmo mission for player {player_index}")
         while True:
@@ -474,7 +483,7 @@ class MalmoClient(object):
                 ssh_process.kill()
 
     # This method based on code from multi_agent_test.py in the Project Malmo examples.
-    def _safe_wait_for_start(self, agent_hosts: List[MalmoPython.AgentHost]):
+    def _safe_wait_for_start(self, agent_hosts: List["MalmoPython.AgentHost"]):
         logger.info("waiting for the mission to start")
         agent_hosts_started = [False for _ in agent_hosts]
         start_time = time.time()
@@ -532,6 +541,8 @@ class MalmoClient(object):
         current_blocks: MinecraftBlocks,
         goal_blocks: MinecraftBlocks,
     ):
+        import MalmoPython
+
         # Set up SSH forwarding.
         start_port = env_config["malmo"]["start_port"]
         for player_index in range(env_config["num_players"]):
