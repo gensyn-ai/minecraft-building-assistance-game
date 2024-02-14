@@ -391,6 +391,11 @@ class MbagTorchModel(ActorCriticModel):
             self._timestep,
         )
 
+        state = [
+            state_var.to(self.device) if state_var is not None else None
+            for state_var in state
+        ]
+
         self._amp_or_nothing: ContextManager = contextlib.nullcontext()
         if self.device.type == "cuda" and torch.cuda.is_bf16_supported():
             self._amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)

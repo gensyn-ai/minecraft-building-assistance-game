@@ -544,7 +544,7 @@ class MbagMCTS(MCTS):
             if isinstance(self.model, OtherAgentActionPredictorMixin):
                 other_agent_action_dists = convert_to_numpy(
                     self.model.predict_other_agent_action().softmax(1)
-                )[0]
+                )
 
             for env_index, leaf in enumerate(leaves):
                 if leaf.done:
@@ -748,10 +748,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 )
                 for state_index in range(model_state_len):
                     state_out[state_index] = np.stack(
-                        [
-                            action_node.model_state_out[state_index]
-                            for action_node in action_nodes
-                        ],
+                        [node.model_state_out[state_index] for node in nodes],
                         axis=0,
                     )
 
@@ -915,7 +912,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 other_agent_action_dist_inputs == -np.inf
             ] = -1e4
             actual_other_agent_action_dist = dist_class(
-                [other_agent_action_dist_inputs],
+                other_agent_action_dist_inputs,  # type: ignore
                 model=model,
             )
             other_agent_action_predictor_loss = reduce_mean_valid(
