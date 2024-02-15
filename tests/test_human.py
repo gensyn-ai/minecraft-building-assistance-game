@@ -19,7 +19,7 @@ def test_human_in_malmo():
             "num_players": 1,
             "horizon": 1000,
             "goal_generator": BasicGoalGenerator,
-            "goal_generator_config": {"pallette": True},
+            "goal_generator_config": {},
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,
@@ -46,7 +46,7 @@ def test_two_humans_in_malmo():
             "num_players": 2,
             "horizon": 1000,
             "goal_generator": BasicGoalGenerator,
-            "goal_generator_config": {"pallette": True},
+            "goal_generator_config": {},
             "malmo": {
                 "use_malmo": True,
                 "use_spectator": False,

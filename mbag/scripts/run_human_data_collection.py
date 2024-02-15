@@ -10,6 +10,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver
 
 from mbag.agents.human_agent import HumanAgent
+from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS
 from mbag.environment.goals import TransformedGoalGenerator, TutorialGoalGenerator
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import WorldSize
@@ -92,31 +93,7 @@ def make_human_action_config():
         "players": [
             {
                 "is_human": True,
-                "give_items": [  # type: ignore
-                    {
-                        "id": item_id,
-                        "count": 1,
-                        "enchantments": [
-                            # Gives silk touch enchantment, level defaults to max.
-                            {
-                                "id": 33,
-                                "level": 1,
-                            },
-                            {
-                                "id": 34,  # Gives unbreaking enchantment.
-                                "level": 3,  # Manually set the level.
-                            },
-                        ],
-                    }
-                    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]
-                ]
-                + [
-                    {
-                        "id": "shears",
-                        "count": 1,
-                        "enchantments": [],
-                    }
-                ],
+                "give_items": DEFAULT_HUMAN_GIVE_ITEMS,
             }
             for _ in range(num_players)
         ],

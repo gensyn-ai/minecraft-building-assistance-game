@@ -8,14 +8,10 @@ import pytest
 import torch
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
-from mbag.environment.types import (
-    CURRENT_BLOCKS,
-    PLAYER_LOCATIONS,
-    MbagAction,
-    MbagActionTuple,
-)
+from mbag.environment.types import CURRENT_BLOCKS, PLAYER_LOCATIONS
 
 logger = logging.getLogger(__name__)
 

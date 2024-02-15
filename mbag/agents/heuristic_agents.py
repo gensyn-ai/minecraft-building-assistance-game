@@ -8,16 +8,9 @@ from typing import Dict, List, Tuple, Type
 
 import numpy as np
 
+from ..environment.actions import MbagAction, MbagActionTuple, MbagActionType
 from ..environment.blocks import MinecraftBlocks
-from ..environment.types import (
-    CURRENT_BLOCKS,
-    GOAL_BLOCKS,
-    BlockLocation,
-    MbagAction,
-    MbagActionTuple,
-    MbagActionType,
-    MbagObs,
-)
+from ..environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, BlockLocation, MbagObs
 from .action_distributions import MbagActionDistribution
 from .mbag_agent import MbagAgent
 

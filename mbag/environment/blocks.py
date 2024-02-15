@@ -10,7 +10,8 @@ from numpy.typing import NDArray
 from skimage.util import view_as_blocks
 from typing_extensions import Literal
 
-from .types import BlockLocation, MbagAction, MbagActionType, WorldLocation, WorldSize
+from .actions import MbagAction, MbagActionType
+from .types import BlockLocation, WorldLocation, WorldSize
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,10 @@ class MinecraftBlocks(object):
 
     def __getitem__(self, location_slice) -> Tuple[np.ndarray, np.ndarray]:
         return (self.blocks[location_slice], self.block_states[location_slice])
+
+    def make_immutable(self):
+        self.blocks.setflags(write=False)
+        self.block_states.setflags(write=False)
 
     def is_valid_block_location(self, location: BlockLocation) -> bool:
         return (
