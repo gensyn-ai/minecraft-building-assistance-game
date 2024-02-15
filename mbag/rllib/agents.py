@@ -73,6 +73,10 @@ class RllibMbagAgent(MbagAgent):
         self.state = [state_part for state_part in state]
 
 
+class RllibAlphaZeroAgentConfigDict(RllibMbagAgentConfigDict):
+    player_index: str
+
+
 class FakeEpisode(object):
     def __init__(self, *, user_data):
         self.user_data = user_data
@@ -80,6 +84,13 @@ class FakeEpisode(object):
 
 
 class RllibAlphaZeroAgent(RllibMbagAgent):
+    agent_config: RllibAlphaZeroAgentConfigDict
+
+    def __init__(self, agent_config: MbagConfigDict, env_config: MbagConfigDict):
+        super().__init__(agent_config, env_config)
+
+        self.policy.config["player_index"] = self.agent_config["player_index"]
+
     def get_action_with_info_and_env_state(
         self, obs: MbagObs, info: Optional[MbagInfoDict], env_state: MbagStateDict
     ) -> MbagActionTuple:

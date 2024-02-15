@@ -119,7 +119,9 @@ def main(
 
     agent_configs: List[MbagAgentConfig] = []
     trainers: List[Algorithm] = []
-    for run, checkpoint, policy_id in zip(runs, checkpoints, policy_ids):
+    for player_index, (run, checkpoint, policy_id) in enumerate(
+        zip(runs, checkpoints, policy_ids)
+    ):
         if run == "HumanAgent":
             agent_configs.append((HumanAgent, {}))
         else:
@@ -127,16 +129,20 @@ def main(
             _log.info(f"loading policy {policy_id} from {checkpoint}...")
             trainer = load_trainer(checkpoint, run, algorithm_config_updates)
             policy = trainer.get_policy(policy_id)
-            policy.config["player_index"] = 0  # TODO: remove
 
             mbag_agent_class: Type[RllibMbagAgent] = RllibMbagAgent
+            agent_config = {
+                "policy": policy,
+                "min_action_interval": min_action_interval,
+            }
             if "AlphaZero" in run:
                 mbag_agent_class = RllibAlphaZeroAgent
+                agent_config["player_index"] = player_index
 
             agent_configs.append(
                 (
                     mbag_agent_class,
-                    {"policy": policy, "min_action_interval": min_action_interval},
+                    agent_config,
                 )
             )
             trainers.append(trainer)
