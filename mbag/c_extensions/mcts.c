@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include <math.h>
 
-#include "blocks.h"
 #include "mcts.h"
 
 #define max(a,b)             \

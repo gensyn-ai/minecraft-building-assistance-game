@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Tuple, Type
 
 from mbag.agents.mbag_agent import MbagAgent
+from mbag.environment.actions import MbagActionTuple
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.environment.types import MbagActionTuple, MbagInfoDict, MbagObs
+from mbag.environment.types import MbagInfoDict, MbagObs
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,17 @@ class MbagEvaluator(object):
                         agent.reset()
                         agent.set_state(state)
 
+                env_state = self.env.get_state()
+
                 all_actions: List[MbagActionTuple] = []
                 for agent_index, agent in enumerate(self.agents):
                     previous_info: Optional[MbagInfoDict] = None
                     if previous_infos is not None:
                         previous_info = previous_infos[agent_index]
                     obs = all_obs[agent_index]
-                    action = agent.get_action_with_info(obs, previous_info)
+                    action = agent.get_action_with_info_and_env_state(
+                        obs, previous_info, env_state
+                    )
                     all_actions.append(action)
 
                 all_obs, all_rewards, all_done, all_infos = self.env.step(all_actions)

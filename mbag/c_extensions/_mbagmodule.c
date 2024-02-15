@@ -33,7 +33,7 @@ PyInit__mbag(void)
 
     PyObject *blocks_module = PyImport_ImportModule("mbag.environment.blocks");
     double max_player_reach = PyFloat_AsDouble(PyObject_GetAttrString(blocks_module, "MAX_PLAYER_REACH"));
-    if (abs(max_player_reach - MAX_PLAYER_REACH) > 1e-6) {
+    if (fabs(max_player_reach - MAX_PLAYER_REACH) > 1e-6) {
         PyErr_SetString(PyExc_RuntimeError, "MAX_PLAYER_REACH does not match the expected value");
         return NULL;
     }
@@ -54,13 +54,15 @@ PyInit__mbag(void)
         return NULL;
     }
 
-    PyObject *types_module = PyImport_ImportModule("mbag.environment.types");
-    PyObject *MbagAction = PyObject_GetAttrString(types_module, "MbagAction");
+    PyObject *actions_module = PyImport_ImportModule("mbag.environment.actions");
+    PyObject *MbagAction = PyObject_GetAttrString(actions_module, "MbagAction");
     int num_action_types = PyLong_AsLong(PyObject_GetAttrString(MbagAction, "NUM_ACTION_TYPES"));
     if (num_action_types != NUM_ACTION_TYPES) {
         PyErr_SetString(PyExc_RuntimeError, "NUM_ACTION_TYPES does not match the expected value");
         return NULL;
     }
+
+    PyObject *types_module = PyImport_ImportModule("mbag.environment.types");
     int current_blocks = PyLong_AsLong(PyObject_GetAttrString(types_module, "CURRENT_BLOCKS"));
     if (current_blocks != CURRENT_BLOCKS) {
         PyErr_SetString(PyExc_RuntimeError, "CURRENT_BLOCKS does not match the expected value");
@@ -71,14 +73,12 @@ PyInit__mbag(void)
         PyErr_SetString(PyExc_RuntimeError, "PLAYER_LOCATIONS does not match the expected value");
         return NULL;
     }
-
-    PyObject *mbag_env_module = PyImport_ImportModule("mbag.environment.mbag_env");
-    int no_one = PyLong_AsLong(PyObject_GetAttrString(mbag_env_module, "NO_ONE"));
+    int no_one = PyLong_AsLong(PyObject_GetAttrString(types_module, "NO_ONE"));
     if (no_one != NO_ONE) {
         PyErr_SetString(PyExc_RuntimeError, "NO_ONE does not match the expected value");
         return NULL;
     }
-    int current_player = PyLong_AsLong(PyObject_GetAttrString(mbag_env_module, "CURRENT_PLAYER"));
+    int current_player = PyLong_AsLong(PyObject_GetAttrString(types_module, "CURRENT_PLAYER"));
     if (current_player != CURRENT_PLAYER) {
         PyErr_SetString(PyExc_RuntimeError, "CURRENT_PLAYER does not match the expected value");
         return NULL;

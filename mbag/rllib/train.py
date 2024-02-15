@@ -28,6 +28,11 @@ from sacred.observers import FileStorageObserver
 from typing_extensions import Literal
 
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
+from mbag.environment.config import (
+    MbagConfigDict,
+    MbagPlayerConfigDict,
+    RewardsConfigDict,
+)
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
@@ -38,11 +43,6 @@ from mbag.environment.goals.transforms import (
     AreaSampleTransformConfig,
     CropLowDensityBottomLayersTransformConfig,
     CropTransformConfig,
-)
-from mbag.environment.mbag_env import (
-    MbagConfigDict,
-    MbagPlayerConfigDict,
-    RewardsConfigDict,
 )
 from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy

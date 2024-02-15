@@ -26,25 +26,10 @@ def build_logger_creator(experiment_dir: str):
     return custom_logger_creator
 
 
-def load_trainer_config(checkpoint_path: str) -> dict:
-    # Load configuration from checkpoint file.
-    config_dir = os.path.dirname(checkpoint_path)
-    config_path = os.path.join(config_dir, "params.pkl")
-    # Try parent directory.
-    if not os.path.exists(config_path):
-        config_path = os.path.join(config_dir, "../params.pkl")
-
-    # If no pkl file found, require command line `--config`.
-    if not os.path.exists(config_path):
-        raise ValueError(
-            "Could not find params.pkl in either the checkpoint dir or "
-            "its parent directory!"
-        )
-    # Load the config from pickled.
-    else:
-        with open(config_path, "rb") as f:
-            config: dict = cloudpickle.load(f)
-
+def load_trainer_config(checkpoint_path: str) -> AlgorithmConfig:
+    checkpoint_info = get_checkpoint_info(checkpoint_path)
+    state = Algorithm._checkpoint_info_to_algorithm_state(checkpoint_info)
+    config: AlgorithmConfig = state["config"]
     return config
 
 

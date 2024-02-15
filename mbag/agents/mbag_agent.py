@@ -3,8 +3,10 @@ from typing import Any, List, Optional, Tuple, cast
 
 import numpy as np
 
+from ..environment.actions import MbagActionTuple
 from ..environment.mbag_env import MbagConfigDict, MbagEnv
-from ..environment.types import MbagActionTuple, MbagInfoDict, MbagObs
+from ..environment.state import MbagStateDict
+from ..environment.types import MbagInfoDict, MbagObs
 from .action_distributions import MbagActionDistribution
 
 
@@ -63,6 +65,18 @@ class MbagAgent(ABC):
         If not overridden, ignores the info dict and calls get_action.
         """
         return self.get_action(obs)
+
+    def get_action_with_info_and_env_state(
+        self,
+        obs: MbagObs,
+        info: Optional[MbagInfoDict],
+        env_state: MbagStateDict,
+    ) -> MbagActionTuple:
+        """
+        Allows for the info dict and env state to be passed in getting an action.
+        If not overridden, ignores the info dict and state and calls get_action.
+        """
+        return self.get_action_with_info(obs, info)
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
         """

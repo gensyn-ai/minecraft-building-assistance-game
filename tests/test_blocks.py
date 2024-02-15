@@ -4,9 +4,10 @@ from typing import List
 
 import numpy as np
 
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import MbagEnv
-from mbag.environment.types import MbagAction, WorldLocation
+from mbag.environment.types import WorldLocation
 
 logger = logging.getLogger(__name__)
 

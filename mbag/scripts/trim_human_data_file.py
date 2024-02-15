@@ -37,9 +37,6 @@ def filter(
         if info_dict["attempted_action"].action_type != MbagAction.NOOP:
             return True
 
-        if len(info_dict["human_actions"]) > 0:
-            return True
-
     for i in range(len(obs)):
         current_player_obs = obs[i]
         next_player_obs = next_obs[i]

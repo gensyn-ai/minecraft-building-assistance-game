@@ -5,8 +5,8 @@ from typing import cast
 import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.actions import MbagActionTuple
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
-from mbag.environment.types import MbagActionTuple
 
 
 def _convert_state(data):
@@ -33,7 +33,7 @@ def test_config_not_changed():
 
 
 def test_deterministic():
-    for teleporation in [False, True]:
+    for teleportation in [False, True]:
         for inf_blocks in [False, True]:
             horizon = 100
             env_a = MbagEnv(
@@ -41,7 +41,7 @@ def test_deterministic():
                     "goal_generator": "random",
                     "horizon": horizon,
                     "abilities": {
-                        "teleportation": teleporation,
+                        "teleportation": teleportation,
                         "flying": True,
                         "inf_blocks": inf_blocks,
                     },

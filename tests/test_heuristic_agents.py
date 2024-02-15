@@ -14,6 +14,7 @@ from mbag.agents.heuristic_agents import (
     MirrorBuildingAgent,
     PriorityQueueAgent,
 )
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals.goal_transform import TransformedGoalGenerator
 from mbag.environment.goals.simple import (
@@ -21,7 +22,7 @@ from mbag.environment.goals.simple import (
     SimpleOverhangGoalGenerator,
 )
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.environment.types import MbagAction, MbagObs
+from mbag.environment.types import MbagObs
 from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,33 @@ def test_layer_builder_agent():
             "goal_generator_config": {},
             "malmo": {
                 "use_malmo": False,
+                "use_spectator": False,
+                "video_dir": None,
+            },
+        },
+        [
+            (
+                LayerBuilderAgent,
+                {},
+            )
+        ],
+        force_get_set_state=True,
+    )
+    episode_info = evaluator.rollout()
+    assert episode_info.cumulative_reward == 18
+
+
+@pytest.mark.uses_malmo
+def test_layer_builder_agent_in_malmo():
+    evaluator = MbagEvaluator(
+        {
+            "world_size": (5, 5, 5),
+            "num_players": 1,
+            "horizon": 50,
+            "goal_generator": BasicGoalGenerator,
+            "goal_generator_config": {},
+            "malmo": {
+                "use_malmo": True,
                 "use_spectator": False,
                 "video_dir": None,
             },

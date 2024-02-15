@@ -5,12 +5,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 
+from .actions import MbagAction, MbagActionTuple, MbagActionType
 from .blocks import MinecraftBlocks
 from .types import (
+    INVENTORY_NUM_SLOTS,
     BlockLocation,
-    MbagAction,
-    MbagActionTuple,
-    MbagActionType,
     MbagInfoDict,
     MbagInventory,
     MbagInventoryObs,
@@ -18,7 +17,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from .malmo import MalmoObservationDict
+    from .malmo.malmo_client import MalmoObservationDict
     from .mbag_env import MbagConfigDict
 
 
@@ -74,8 +73,6 @@ class HumanActionDetector(object):
         This should be called at the beginning of a new episode.
         """
 
-        from .mbag_env import MbagEnv
-
         self.human_block_looking_at = [
             None for _ in range(self.env_config["num_players"])
         ]
@@ -100,7 +97,7 @@ class HumanActionDetector(object):
             initial_blocks.copy() for _ in range(self.env_config["num_players"])
         ]
         self.malmo_inventories = [
-            np.zeros((MbagEnv.INVENTORY_NUM_SLOTS, 2), dtype=int)
+            np.zeros((INVENTORY_NUM_SLOTS, 2), dtype=int)
             for _ in range(self.env_config["num_players"])
         ]
 
@@ -112,10 +109,14 @@ class HumanActionDetector(object):
                     self.malmo_inventories[i][j][1] = 1
 
         self.num_pending_human_interactions = np.zeros(
-            self.env_config["world_size"], dtype=np.int8
+            self.env_config["world_size"], dtype=np.int32
         )
-        self.num_pending_human_movements = np.zeros(self.env_config["num_players"])
-        self.num_pending_give_actions = np.zeros(self.env_config["num_players"])
+        self.num_pending_human_movements = np.zeros(
+            self.env_config["num_players"], dtype=np.int32
+        )
+        self.num_pending_give_actions = np.zeros(
+            self.env_config["num_players"], dtype=np.int32
+        )
 
         self.palette_x = palette_x
 
@@ -496,13 +497,9 @@ class HumanActionDetector(object):
         if "InventorySlot_0_item" not in malmo_observation:
             return {}, {}
 
-        from .mbag_env import MbagEnv
-
         past_malmo_inventory = self.malmo_inventories[player_index]
-        malmo_inventory: MbagInventory = np.zeros(
-            (MbagEnv.INVENTORY_NUM_SLOTS, 2), dtype=int
-        )
-        for slot in range(MbagEnv.INVENTORY_NUM_SLOTS):
+        malmo_inventory: MbagInventory = np.zeros((INVENTORY_NUM_SLOTS, 2), dtype=int)
+        for slot in range(INVENTORY_NUM_SLOTS):
             item_name = malmo_observation[f"InventorySlot_{slot}_item"]  # type: ignore
             malmo_inventory[slot, 0] = MinecraftBlocks.NAME2ID.get(item_name, 0)
             malmo_inventory[slot, 1] = malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore

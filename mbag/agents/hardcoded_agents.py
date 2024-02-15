@@ -2,8 +2,9 @@ from typing import List
 
 import numpy as np
 
+from ..environment.actions import MbagAction, MbagActionTuple
 from ..environment.blocks import MinecraftBlocks
-from ..environment.types import MbagAction, MbagActionTuple, MbagObs
+from ..environment.types import MbagObs
 from .mbag_agent import MbagAgent
 
 
