@@ -35,11 +35,185 @@ from .malmo_state import (
 logger = logging.getLogger(__name__)
 
 
+def _get_human_actions_from_block_diff(
+    new_state: MalmoState,
+    state_diff: BlockDiff,
+    prev_blocks_on_ground: Sequence[Mapping[int, int]],
+    palette_x: Optional[int],
+    env_config: MbagConfigDict,
+) -> Tuple[List[Tuple[int, MbagActionTuple]], Sequence[Mapping[int, int]]]:
+    num_players = env_config["num_players"]
+
+    new_blocks_on_ground = [
+        defaultdict(int, blocks_on_ground) for blocks_on_ground in prev_blocks_on_ground
+    ]
+
+    action_type: Optional[MbagActionType] = None
+    if (
+        new_state.player_last_breaking[state_diff.location] != -1
+        and state_diff.new_block == MinecraftBlocks.AIR
+    ):
+        player_index = new_state.player_last_breaking[state_diff.location]
+        action_type = MbagAction.BREAK_BLOCK
+        assert state_diff.prev_block != MinecraftBlocks.AIR
+        new_blocks_on_ground[player_index][state_diff.prev_block] += 1
+    if (
+        state_diff.new_block != MinecraftBlocks.AIR
+        and state_diff.location[0] != palette_x
+    ):
+        player_index = new_state.player_last_placing[state_diff.location]
+        if player_index == -1:
+            # If there is no player recorded as last placing a block here, then
+            # use heuristic to figure out who placed it. Heuristic is:
+            #  - remove non-human players from consideration
+            #  - pick the nearest human player
+
+            closest_squared_distance = float("inf")
+            for possible_player_index in range(num_players):
+                if not env_config["players"][possible_player_index]["is_human"]:
+                    continue
+
+                player_x, player_y, player_z = new_state.player_locations[
+                    possible_player_index
+                ]
+                block_x, block_y, block_z = state_diff.location
+                squared_distance = (
+                    (player_x - block_x) ** 2
+                    + (player_y - block_y) ** 2
+                    + (player_z - block_z) ** 2
+                )
+                if squared_distance < closest_squared_distance:
+                    closest_squared_distance = squared_distance
+                    player_index = possible_player_index
+
+        if player_index != -1:
+            action_type = MbagAction.PLACE_BLOCK
+            new_blocks_on_ground[player_index][state_diff.new_block] -= 1
+
+    if action_type is not None:
+        world_size = new_state.blocks.size
+        block_location_index = int(
+            np.ravel_multi_index(state_diff.location, world_size)
+        )
+        human_actions: List[Tuple[int, MbagActionTuple]] = [
+            (
+                player_index,
+                (action_type, block_location_index, state_diff.new_block),
+            )
+        ]
+        return human_actions, new_blocks_on_ground
+    else:
+        return [], new_blocks_on_ground
+
+
+def _get_human_actions_from_location_diff(
+    state_diff: LocationDiff,
+) -> List[Tuple[int, MbagActionTuple]]:
+    human_actions: List[Tuple[int, MbagActionTuple]] = []
+
+    current_x, current_y, current_z = state_diff.prev_location
+    current_x, current_y, current_z = int(current_x), int(current_y), int(current_z)
+    new_x, new_y, new_z = state_diff.new_location
+    new_x, new_y, new_z = int(new_x), int(new_y), int(new_z)
+
+    while current_x < new_x:
+        human_actions.append((state_diff.player_index, (MbagAction.MOVE_POS_X, 0, 0)))
+        current_x += 1
+    while current_x > new_x:
+        human_actions.append((state_diff.player_index, (MbagAction.MOVE_NEG_X, 0, 0)))
+        current_x -= 1
+    while current_y < new_y:
+        human_actions.append((state_diff.player_index, (MbagAction.MOVE_POS_Y, 0, 0)))
+        current_y += 1
+    while current_y > new_y:
+        human_actions.append((state_diff.player_index, (MbagAction.MOVE_NEG_Y, 0, 0)))
+        current_y -= 1
+    while current_z < new_z:
+        human_actions.append((state_diff.player_index, (MbagAction.MOVE_POS_Z, 0, 0)))
+        current_z += 1
+    while current_z > new_z:
+        human_actions.append((state_diff.player_index, (MbagAction.MOVE_NEG_Z, 0, 0)))
+        current_z -= 1
+
+    return human_actions
+
+
+def _get_human_actions_from_inventory_diff(
+    new_state: MalmoState,
+    state_diff: InventoryDiff,
+    prev_blocks_on_ground: Sequence[Mapping[int, int]],
+    env_config: MbagConfigDict,
+) -> Tuple[List[Tuple[int, MbagActionTuple]], Sequence[Mapping[int, int]]]:
+    num_players = env_config["num_players"]
+
+    human_actions: List[Tuple[int, MbagActionTuple]] = []
+    new_blocks_on_ground = [
+        defaultdict(int, blocks_on_ground) for blocks_on_ground in prev_blocks_on_ground
+    ]
+
+    # Update the number of blocks this player has on the ground based on the
+    # change in their inventory.
+    new_blocks_on_ground[state_diff.player_index][state_diff.block_id] += (
+        state_diff.prev_count - state_diff.new_count
+    )
+
+    # If they have negative blocks on the ground, this means they picked up more
+    # than they "own". This leads to GIVE_BLOCK actions from other players.
+    if (
+        not env_config["abilities"]["inf_blocks"]
+        and new_blocks_on_ground[state_diff.player_index][state_diff.block_id] < 0
+    ):
+        player_x, player_y, player_z = new_state.player_locations[
+            state_diff.player_index
+        ]
+        player_x, player_y, player_z = int(player_x), int(player_y), int(player_z)
+        player_location_index = int(
+            np.ravel_multi_index((player_x, player_y, player_z), new_state.blocks.size)
+        )
+        other_player_indices = [
+            other_player_index
+            for other_player_index in range(num_players)
+            if other_player_index != state_diff.player_index
+        ]
+        for other_player_index in other_player_indices:
+            while (
+                new_blocks_on_ground[other_player_index][state_diff.block_id] > 0
+                and new_blocks_on_ground[state_diff.player_index][state_diff.block_id]
+                < 0
+            ):
+                human_actions.append(
+                    (
+                        other_player_index,
+                        (
+                            MbagAction.GIVE_BLOCK,
+                            player_location_index,
+                            state_diff.block_id,
+                        ),
+                    )
+                )
+                new_blocks_on_ground[other_player_index][state_diff.block_id] -= 1
+                new_blocks_on_ground[state_diff.player_index][state_diff.block_id] += 1
+
+    if (
+        not env_config["abilities"]["inf_blocks"]
+        and new_blocks_on_ground[state_diff.player_index][state_diff.block_id] < 0
+    ):
+        block_str = MinecraftBlocks.ID2NAME[state_diff.block_id]
+        logger.warning(
+            f"player {state_diff.player_index} unexpectedly has "
+            f"{new_blocks_on_ground[state_diff.player_index][state_diff.block_id]} "
+            f"{block_str} blocks on the ground"
+        )
+
+    return human_actions, new_blocks_on_ground
+
+
 def get_human_actions(
     new_state: MalmoState,
     state_diff: MalmoStateDiff,
     prev_blocks_on_ground: Sequence[Mapping[int, int]],
-    palette_x: int,
+    env_config: MbagConfigDict,
+    palette_x: Optional[int],
 ) -> Tuple[List[Tuple[int, MbagActionTuple]], Sequence[Mapping[int, int]]]:
     """
     Given the updated Malmo state and one state diff that led to that update, returns:
@@ -48,135 +222,21 @@ def get_human_actions(
         - the updated blocks_on_ground list
     """
 
-    num_players = len(prev_blocks_on_ground)
-
-    human_actions: List[Tuple[int, MbagActionTuple]] = []
-    new_blocks_on_ground = [
-        defaultdict(int, blocks_on_ground) for blocks_on_ground in prev_blocks_on_ground
-    ]
     if isinstance(state_diff, BlockDiff):
-        action_type: Optional[MbagActionType] = None
-        if (
-            new_state.player_last_breaking[state_diff.location] != -1
-            and state_diff.new_block == MinecraftBlocks.AIR
-        ):
-            player_index = new_state.player_last_breaking[state_diff.location]
-            action_type = MbagAction.BREAK_BLOCK
-            assert state_diff.prev_block != MinecraftBlocks.AIR
-            new_blocks_on_ground[player_index][state_diff.prev_block] += 1
-        if (
-            new_state.player_last_placing[state_diff.location] != -1
-            and state_diff.new_block != MinecraftBlocks.AIR
-            and state_diff.location[0] != palette_x
-        ):
-            player_index = new_state.player_last_placing[state_diff.location]
-            action_type = MbagAction.PLACE_BLOCK
-            new_blocks_on_ground[player_index][state_diff.new_block] -= 1
-
-        if action_type is not None:
-            world_size = new_state.blocks.size
-            block_location_index = int(
-                np.ravel_multi_index(state_diff.location, world_size)
-            )
-            human_actions.append(
-                (
-                    player_index,
-                    (action_type, block_location_index, state_diff.new_block),
-                )
-            )
-    elif isinstance(state_diff, LocationDiff):
-        print(state_diff)
-
-        current_x, current_y, current_z = state_diff.prev_location
-        current_x, current_y, current_z = int(current_x), int(current_y), int(current_z)
-        new_x, new_y, new_z = state_diff.new_location
-        new_x, new_y, new_z = int(new_x), int(new_y), int(new_z)
-
-        while current_x < new_x:
-            human_actions.append(
-                (state_diff.player_index, (MbagAction.MOVE_POS_X, 0, 0))
-            )
-            current_x += 1
-        while current_x > new_x:
-            human_actions.append(
-                (state_diff.player_index, (MbagAction.MOVE_NEG_X, 0, 0))
-            )
-            current_x -= 1
-        while current_y < new_y:
-            human_actions.append(
-                (state_diff.player_index, (MbagAction.MOVE_POS_Y, 0, 0))
-            )
-            current_y += 1
-        while current_y > new_y:
-            human_actions.append(
-                (state_diff.player_index, (MbagAction.MOVE_NEG_Y, 0, 0))
-            )
-            current_y -= 1
-        while current_z < new_z:
-            human_actions.append(
-                (state_diff.player_index, (MbagAction.MOVE_POS_Z, 0, 0))
-            )
-            current_z += 1
-        while current_z > new_z:
-            human_actions.append(
-                (state_diff.player_index, (MbagAction.MOVE_NEG_Z, 0, 0))
-            )
-            current_z -= 1
-    elif isinstance(state_diff, InventoryDiff):
-        # Update the number of blocks this player has on the ground based on the
-        # change in their inventory.
-        new_blocks_on_ground[state_diff.player_index][state_diff.block_id] += (
-            state_diff.prev_count - state_diff.new_count
+        return _get_human_actions_from_block_diff(
+            new_state,
+            state_diff,
+            prev_blocks_on_ground,
+            palette_x,
+            env_config,
         )
-        # If they have negative blocks on the ground, this means they picked up more
-        # than they "own". This leads to GIVE_BLOCK actions from other players.
-        if new_blocks_on_ground[state_diff.player_index][state_diff.block_id] < 0:
-            player_x, player_y, player_z = new_state.player_locations[
-                state_diff.player_index
-            ]
-            player_x, player_y, player_z = int(player_x), int(player_y), int(player_z)
-            player_location_index = int(
-                np.ravel_multi_index(
-                    (player_x, player_y, player_z), new_state.blocks.size
-                )
-            )
-            other_player_indices = [
-                other_player_index
-                for other_player_index in range(num_players)
-                if other_player_index != state_diff.player_index
-            ]
-            for other_player_index in other_player_indices:
-                while (
-                    new_blocks_on_ground[other_player_index][state_diff.block_id] > 0
-                    and new_blocks_on_ground[state_diff.player_index][
-                        state_diff.block_id
-                    ]
-                    < 0
-                ):
-                    human_actions.append(
-                        (
-                            other_player_index,
-                            (
-                                MbagAction.GIVE_BLOCK,
-                                player_location_index,
-                                state_diff.block_id,
-                            ),
-                        )
-                    )
-                    new_blocks_on_ground[other_player_index][state_diff.block_id] -= 1
-                    new_blocks_on_ground[state_diff.player_index][
-                        state_diff.block_id
-                    ] += 1
-
-        if new_blocks_on_ground[state_diff.player_index][state_diff.block_id] < 0:
-            block_str = MinecraftBlocks.ID2NAME[state_diff.block_id]
-            logger.warning(
-                f"player {state_diff.player_index} unexpectedly has "
-                f"{new_blocks_on_ground[state_diff.player_index][state_diff.block_id]} "
-                f"{block_str} blocks on the ground"
-            )
-
-    return human_actions, new_blocks_on_ground
+    elif isinstance(state_diff, LocationDiff):
+        human_actions = _get_human_actions_from_location_diff(state_diff)
+        return (human_actions, prev_blocks_on_ground)
+    elif isinstance(state_diff, InventoryDiff):
+        return _get_human_actions_from_inventory_diff(
+            new_state, state_diff, prev_blocks_on_ground, env_config
+        )
 
 
 class MalmoInterface:
@@ -199,6 +259,8 @@ class MalmoInterface:
     _ai_action_queue: List[Tuple[int, MalmoAIAction]]
     """Queue of AI actions that need to be executed in Malmo."""
 
+    _palette_x: Optional[int]
+
     def __init__(self, env_config: MbagConfigDict):
         self._env_config = env_config
 
@@ -215,7 +277,10 @@ class MalmoInterface:
         self._malmo_state_lock = threading.Lock()
         self._expected_state_diffs_lock = threading.Lock()
 
-        self._palette_x = self._env_config["world_size"][0] - 1
+        if self._env_config["abilities"]["inf_blocks"]:
+            self._palette_x = None
+        else:
+            self._palette_x = self._env_config["world_size"][0] - 1
 
     def get_malmo_client(self):
         """
@@ -317,8 +382,8 @@ class MalmoInterface:
             player_locations,
         )
 
-        # Copy goal blocks over
-        self.copy_palette_from_goal()
+        if self._palette_x is not None:
+            self.copy_palette_from_goal()
 
         # Start both AI action and human action thread
         self._episode_done = threading.Event()
@@ -428,6 +493,7 @@ class MalmoInterface:
                         new_state,
                         state_diff,
                         player_blocks_on_ground,
+                        self._env_config,
                         self._palette_x,
                     )
                     player_blocks_on_ground = ReadOnlyList(
@@ -440,10 +506,25 @@ class MalmoInterface:
                     with self._human_action_lock:
                         self._human_action_queue.extend(human_actions)
 
+                    if self._env_config["abilities"]["inf_blocks"]:
+                        # If inf_blocks is True and the player has just placed a block,
+                        # give the block back to them.
+                        for player_index, (
+                            human_action_type,
+                            _,
+                            human_action_block_id,
+                        ) in human_actions:
+                            if human_action_type == MbagAction.PLACE_BLOCK:
+                                with self._malmo_lock:
+                                    self._malmo_client.send_command(
+                                        player_index,
+                                        f"chat /give @p {MinecraftBlocks.ID2NAME[human_action_block_id]} 1",
+                                    )
+
                 with self._malmo_state_lock:
                     self._malmo_state = new_state
 
-            time.sleep(0)
+            time.sleep(0.03)
 
     def get_human_actions(self) -> List[Tuple[int, MbagActionTuple]]:
         """
@@ -511,8 +592,6 @@ class MalmoInterface:
     def _handle_ai_place_break_action(
         self, player_index: int, ai_action: MalmoPlaceBreakAIAction
     ):
-        print("handling break place")
-
         # Ensure the player's inventory is correctly organized when inf_blocks=True.
         self._ensure_inventory_is_correctly_organized(player_index)
 
@@ -592,6 +671,10 @@ class MalmoInterface:
                         f"chat /give @p {MinecraftBlocks.ID2NAME[block_id]} 1",
                     )
 
+                # In case we accidentally broke a bedrock or barrier block, make sure
+                # it gets regenerated.
+                self._ensure_env_boundaries(player_index)
+
     def running_ai_actions(self) -> bool:
         with self._running_ai_actions_lock:
             return self._running_ai_actions
@@ -607,6 +690,8 @@ class MalmoInterface:
                     lambda: len(self._ai_action_queue) > 0
                     or self._episode_done.is_set()
                 )
+                if self._episode_done.is_set():
+                    break
                 player_index, ai_action = self._ai_action_queue.pop(0)
 
             assert not self._env_config["players"][player_index]["is_human"]
@@ -615,7 +700,7 @@ class MalmoInterface:
             with self._malmo_state_lock:
                 malmo_state = self._malmo_state
             expected_state_diffs = get_state_diffs_for_ai_action(
-                malmo_state, player_index, ai_action
+                malmo_state, player_index, ai_action, self._env_config
             )
             with self._expected_state_diffs_lock:
                 self._expected_state_diffs.extend(expected_state_diffs)
@@ -646,28 +731,87 @@ class MalmoInterface:
     def _ensure_inventory_is_correctly_organized(self, player_index: int):
         with self._malmo_state_lock:
             malmo_inventory = self._malmo_state.player_inventories[player_index]
-        with self._malmo_lock:
-            if self._env_config["abilities"]["inf_blocks"]:
-                for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
-                    if malmo_inventory[block_id, 0] != block_id:
-                        logger.warning(
-                            f"inventory discrepancy at slot {block_id}: "
-                            f"expected {MinecraftBlocks.ID2NAME[block_id]} "
-                            "but received "
-                            f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
-                            "from Malmo"
-                        )
-                        swap_slot = malmo_inventory[:, 0].tolist().index(block_id)
+        if self._env_config["abilities"]["inf_blocks"]:
+            for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                if malmo_inventory[block_id, 0] != block_id:
+                    logger.warning(
+                        f"inventory discrepancy at slot {block_id}: "
+                        f"expected {MinecraftBlocks.ID2NAME[block_id]} "
+                        "but received "
+                        f"{MinecraftBlocks.ID2NAME[malmo_inventory[block_id, 0]]} "
+                        "from Malmo"
+                    )
+                    malmo_inventory_block_types: List[int] = malmo_inventory[
+                        :, 0
+                    ].tolist()
+                    while block_id not in malmo_inventory_block_types:
+                        # Somehow the AI player lost this block type, so give
+                        # it a new one.
+                        with self._malmo_lock:
+                            self._malmo_client.send_command(
+                                player_index,
+                                f"chat /give @p {MinecraftBlocks.ID2NAME[block_id]} 1",
+                            )
+                        time.sleep(0.1)
+                        with self._malmo_state_lock:
+                            malmo_inventory = self._malmo_state.player_inventories[
+                                player_index
+                            ]
+                        malmo_inventory_block_types = malmo_inventory[:, 0].tolist()
+
+                    swap_slot = malmo_inventory_block_types.index(block_id)
+                    with self._malmo_lock:
                         self._malmo_client.send_command(
                             player_index,
                             f"swapInventoryItems {block_id} {swap_slot}",
                         )
-                        time.sleep(0.1)
+                    time.sleep(0.1)
+
+    def _ensure_env_boundaries(self, player_index: int):
+        """
+        Sometimes, errant AI actions can accidentally break the bedrock floor
+        or the barrier walls. This method ensures that these boundaries are
+        regenerated if this happens.
+
+        IMPORTANT: this method should be called with self._malmo_lock already held.
+        """
+
+        assert self._malmo_lock.locked()
+
+        width, height, depth = self._env_config["world_size"]
+
+        self._malmo_client.send_command(
+            player_index,
+            f"chat /fill 0 0 0 {width - 1} 0 {depth - 1} bedrock",
+        )
+
+        if self._env_config["malmo"]["restrict_players"]:
+            self._malmo_client.send_command(
+                player_index,
+                f"chat /fill {width} 2 -1 {width} {height} {depth} bedrock",
+            )
+            self._malmo_client.send_command(
+                player_index,
+                f"chat /fill -1 2 -1 -1 {height} {depth} barrier",
+            )
+            self._malmo_client.send_command(
+                player_index,
+                f"chat /fill -1 2 -1 {width} {height} -1 barrier",
+            )
+            self._malmo_client.send_command(
+                player_index,
+                f"chat /fill -1 2 {depth} {width} {height} {depth} barrier",
+            )
+            self._malmo_client.send_command(
+                player_index,
+                f"chat /fill -1 {height} -1 {width} {height} {depth} barrier",
+            )
 
     def copy_palette_from_goal(self):
         # Sync with Malmo.
         with self._malmo_lock:
             width, height, depth = self._env_config["world_size"]
+            assert self._palette_x is not None
             goal_palette_x = self._palette_x + width + 1
 
             self._malmo_client.send_command(

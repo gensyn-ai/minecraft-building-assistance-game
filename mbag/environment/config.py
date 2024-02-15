@@ -1,4 +1,4 @@
-from typing import List, Optional, Type, TypedDict, Union
+from typing import List, Optional, Type, TypedDict, Union, cast
 
 from .goals import GoalGenerator, GoalGeneratorConfig, TransformedGoalGenerator
 from .types import WorldSize
@@ -244,3 +244,63 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "inf_blocks": True,
     },
 }
+
+
+DEFAULT_HUMAN_GIVE_ITEMS: List[ItemDict] = [  # type: ignore
+    {
+        "id": item_id,
+        "count": 1,
+        "enchantments": [
+            # Gives silk touch enchantment, level defaults to max.
+            {
+                "id": 33,
+                "level": 1,
+            },
+            {
+                "id": 34,  # Gives unbreaking enchantment.
+                "level": 3,  # Manually set the level.
+            },
+        ],
+    }
+    for item_id in ["diamond_pickaxe", "diamond_axe", "diamond_shovel"]
+] + [
+    {
+        "id": "shears",
+        "count": 1,
+        "enchantments": [],
+    }
+]
+
+
+def _merge_configs(config_a, config_b):
+    if isinstance(config_a, dict):
+        if not isinstance(config_b, dict):
+            raise ValueError(f"Cannot merge {config_a} with {config_b}")
+        merged_config_dict = {}
+        for key in config_a.keys() | config_b.keys():
+            if key in config_b:
+                if key in config_a:
+                    merged_config_dict[key] = _merge_configs(
+                        config_a[key], config_b[key]
+                    )
+                else:
+                    merged_config_dict[key] = config_b[key]
+            else:
+                merged_config_dict[key] = config_a[key]
+        return merged_config_dict
+    elif isinstance(config_a, list):
+        if not isinstance(config_b, list) or len(config_a) != len(config_b):
+            raise ValueError(f"Cannot merge {config_a} with {config_b}")
+        merged_config_list = [_merge_configs(a, b) for a, b in zip(config_a, config_b)]
+        return merged_config_list
+    else:
+        return config_b
+
+
+def merge_configs(config_a: MbagConfigDict, config_b: MbagConfigDict) -> MbagConfigDict:
+    """
+    Merge the two configuration dictionaries, with the values in config_b taking
+    precedence over those in config_a.
+    """
+
+    return cast(MbagConfigDict, _merge_configs(config_a, config_b))

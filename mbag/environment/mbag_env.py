@@ -318,7 +318,8 @@ class MbagEnv(object):
                 for player_index, action_queue in enumerate(self.human_action_queues):
                     if len(action_queue) > 0:
                         any_human_actions = True
-                        break
+                if any_human_actions:
+                    break
                 time.sleep(0.01)
 
             for player_index, info in enumerate(infos):
@@ -866,18 +867,31 @@ class MbagEnv(object):
         # Add locations to the observation if the locations are actually meaningful
         # (i.e., if players do not have teleportation abilities).
         if not self.config["abilities"]["teleportation"]:
+            check_for_overlap = not any(
+                self.config["players"][other_player_index]["is_human"]
+                for other_player_index in range(self.config["num_players"])
+            )
+
             for other_player_index, other_player_location in enumerate(
                 self.player_locations
             ):
+                if other_player_index == player_index:
+                    continue
                 self._add_player_location_to_world_obs(
                     world_obs,
                     other_player_location,
                     player_marker_map[other_player_index],
-                    check_for_overlap=not (
-                        self.config["players"][player_index]["is_human"]
-                        or self.config["players"][other_player_index]["is_human"]
-                    ),
+                    check_for_overlap=check_for_overlap,
                 )
+
+            # Always add the current player's location to the observation last
+            # to ensure that will overwrite any other player's location.
+            self._add_player_location_to_world_obs(
+                world_obs,
+                self.player_locations[player_index],
+                CURRENT_PLAYER,
+                check_for_overlap=check_for_overlap,
+            )
 
         for other_player_index in range(self.config["num_players"]):
             world_obs[LAST_INTERACTED][self.last_interacted == other_player_index] = (

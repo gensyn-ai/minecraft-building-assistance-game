@@ -2,6 +2,7 @@ from typing import List, NamedTuple, Optional, Union
 
 from ..actions import MbagAction
 from ..blocks import MinecraftBlocks
+from ..config import MbagConfigDict
 from ..types import WorldLocation, get_block_counts_in_inventory
 from .malmo_state import (
     BlockDiff,
@@ -39,7 +40,10 @@ MalmoAIAction = Union[MalmoPlaceBreakAIAction, MalmoMoveAIAction, MalmoGiveAIAct
 
 
 def get_state_diffs_for_ai_action(
-    malmo_state: MalmoState, player_index: int, ai_action: MalmoAIAction
+    malmo_state: MalmoState,
+    player_index: int,
+    ai_action: MalmoAIAction,
+    env_config: MbagConfigDict,
 ) -> List[MalmoStateDiff]:
     """
     Gets the state diffs that are expected by running this AI action. This allows
@@ -54,35 +58,43 @@ def get_state_diffs_for_ai_action(
         if ai_action.action.action_type == MbagAction.PLACE_BLOCK:
             block_id = ai_action.action.block_id
             prev_count = block_counts[block_id]
-            return [
+            state_diffs: List[MalmoStateDiff] = [
                 BlockDiff(
                     ai_action.action.block_location,
                     MinecraftBlocks.AIR,
                     block_id,
                 ),
-                InventoryDiff(
-                    player_index,
-                    block_id,
-                    prev_count,
-                    prev_count - 1,
-                ),
             ]
+            if not env_config["abilities"]["inf_blocks"]:
+                state_diffs.append(
+                    InventoryDiff(
+                        player_index,
+                        block_id,
+                        prev_count,
+                        prev_count - 1,
+                    )
+                )
+            return state_diffs
         elif ai_action.action.action_type == MbagAction.BREAK_BLOCK:
             block_id = malmo_state.blocks.blocks[ai_action.action.block_location]
             prev_count = block_counts[block_id]
-            return [
+            state_diffs = [
                 BlockDiff(
                     ai_action.action.block_location,
                     block_id,
                     MinecraftBlocks.AIR,
                 ),
-                InventoryDiff(
-                    player_index,
-                    block_id,
-                    prev_count,
-                    prev_count + 1,
-                ),
             ]
+            if not env_config["abilities"]["inf_blocks"]:
+                state_diffs.append(
+                    InventoryDiff(
+                        player_index,
+                        block_id,
+                        prev_count,
+                        prev_count + 1,
+                    )
+                )
+            return state_diffs
         else:
             raise ValueError(
                 f"unknown place/break action type {ai_action.action.action_type}"

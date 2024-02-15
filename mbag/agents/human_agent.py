@@ -43,7 +43,8 @@ class HumanAgent(MbagAgent):
             action_tuple = info["human_action"]
 
         action = MbagAction(action_tuple, self.env_config["world_size"])
-        logger.info(f"human action being replayed: {action}")
+        if action.action_type != MbagAction.NOOP:
+            logger.info(f"human action being replayed: {action}")
         self.last_action = action
 
         return action_tuple

@@ -276,9 +276,6 @@ def _update_malmo_player_locations(
     new_player_locations = list(prev_player_locations)
     new_player_locations[player_index] = new_player_location
 
-    if state_diffs:
-        print(state_diffs)
-
     return new_player_locations, state_diffs
 
 
