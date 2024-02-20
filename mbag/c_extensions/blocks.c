@@ -246,13 +246,13 @@ double* get_viewpoint_click_candidates(
 typedef struct {
     double *other_player_locations;
     int num_other_players;
-} other_player_locations_arr_t;
+} other_player_locations_vector_t;
 
-bool is_player_in_other_player_locations_arr(void *other_players_locations_ptr, int x, int y, int z) {
+bool is_player_in_other_player_locations_vector(void *other_players_locations_ptr, int x, int y, int z) {
     int i;
-    other_player_locations_arr_t *other_player_locations_arr = (other_player_locations_arr_t*) other_players_locations_ptr;
-    double *other_player_locations = other_player_locations_arr->other_player_locations;
-    int num_other_players = other_player_locations_arr->num_other_players;
+    other_player_locations_vector_t *other_player_locations_vector = (other_player_locations_vector_t*) other_players_locations_ptr;
+    double *other_player_locations = other_player_locations_vector->other_player_locations;
+    int num_other_players = other_player_locations_vector->num_other_players;
     for (i = 0; i < num_other_players; i++) {
         int other_x = (int) other_player_locations[i * 3];
         int other_y = (int) other_player_locations[i * 3 + 1];
@@ -362,7 +362,7 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
     }
 
     int num_viewpoint_click_candidates;
-    other_player_locations_arr_t other_player_locations_arr = {other_player_locations, num_other_players};
+    other_player_locations_vector_t other_player_locations_vector = {other_player_locations, num_other_players};
 
     viewpoint_click_candidates = get_viewpoint_click_candidates(
         action_type,
@@ -377,8 +377,8 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
         player_z,
         blocks_array,
         get_block_from_blocks_array,
-        &other_player_locations_arr,
-        is_player_in_other_player_locations_arr,
+        &other_player_locations_vector,
+        is_player_in_other_player_locations_vector,
         &num_viewpoint_click_candidates
     );
     if (viewpoint_click_candidates == NULL) {
