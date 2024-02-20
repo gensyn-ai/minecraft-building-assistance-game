@@ -37,12 +37,13 @@ def sacred_config():
     checkpoints = [""]  # noqa: F841
     policy_ids = [""]  # noqa: F841
     min_action_interval = 0  # noqa: F841
+    explore = False  # noqa: F841
     episodes = 100  # noqa: F841
     experiment_name = ""  # noqa: F841
     seed = 0  # noqa: F841
     record_video = False  # noqa: F841
     use_malmo = record_video  # noqa: F841
-    out_path = None  # noqa: F841
+    out_dir = None  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
     algorithm_config_updates = {}  # noqa: F841
@@ -54,6 +55,7 @@ def main(
     checkpoints: List[Optional[str]],
     policy_ids: List[Optional[PolicyID]],
     min_action_interval: float,
+    explore: bool,
     episodes: int,
     experiment_name: str,
     env_config_updates: MbagConfigDict,
@@ -61,7 +63,7 @@ def main(
     seed: int,
     record_video: bool,
     use_malmo: bool,
-    out_path: Optional[str],
+    out_dir: Optional[str],
     _log: Logger,
 ):
     ray.init(
@@ -82,16 +84,17 @@ def main(
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if not experiment_name.endswith("_") and experiment_name != "":
         experiment_name += "_"
-    if out_path is None:
+    if out_dir is None:
         for checkpoint in checkpoints:
             if checkpoint is not None:
-                out_path = os.path.join(
+                out_dir = os.path.join(
                     os.path.dirname(checkpoint),
                     f"evaluate_{experiment_name}{time_str}",
                 )
                 break
-    if out_path is None:
-        raise ValueError("out_path must be set if no checkpoints are provided")
+    if out_dir is None:
+        raise ValueError("out_dir must be set if no checkpoints are provided")
+    os.makedirs(out_dir, exist_ok=True)
 
     # Try to load env config from the first checkpoint.
     env_config: Optional[MbagConfigDict] = None
@@ -134,6 +137,7 @@ def main(
             agent_config = {
                 "policy": policy,
                 "min_action_interval": min_action_interval,
+                "explore": explore,
             }
             if "AlphaZero" in run:
                 mbag_agent_class = RllibAlphaZeroAgent
@@ -150,7 +154,8 @@ def main(
     env_config.setdefault("malmo", {})
     env_config["malmo"]["use_malmo"] = use_malmo
     if record_video:
-        env_config["malmo"]["video_dir"] = out_path
+        env_config["malmo"]["use_spectator"] = True
+        env_config["malmo"]["video_dir"] = out_dir
 
     _log.info(f"evaluating for {episodes} episodes...")
     evaluator = MbagEvaluator(
@@ -162,12 +167,12 @@ def main(
     for _ in tqdm.trange(episodes):
         episode_infos.append(evaluator.rollout())
 
-    out_pickle_fname = out_path + ".pickle"
+    out_pickle_fname = os.path.join(out_dir, "episode_info.pickle")
     _log.info(f"saving full results to {out_pickle_fname}")
     with open(out_pickle_fname, "wb") as out_pickle:
         pickle.dump(episode_infos, out_pickle)
 
-    out_json_fname = out_path + ".json"
+    out_json_fname = os.path.join(out_dir, "episode_info.json")
     _log.info(f"saving JSON results to {out_json_fname}")
     with open(out_json_fname, "w") as out_json:
         json.dump([episode_info.to_json() for episode_info in episode_infos], out_json)
