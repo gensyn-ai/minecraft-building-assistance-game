@@ -13,96 +13,26 @@
 #include "constants.h"
 
 
-// get_viewpoint_click_candidates(blocks, action_type, block_location, player_location, other_player_locations)
-PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, PyObject *kwargs)
-{
-    import_array();
-
-    // Arguments
-    PyArrayObject *blocks_array;
-    int action_type;
-    PyObject *block_location_tuple, *player_location_optional_tuple, *other_player_locations_list;
-
-    // Other variables
-    int i, j, k, l, x, y, z;
-    int collision, other_x, other_y, other_z;
-    double *other_player_locations = NULL, *viewpoint_click_candidates = NULL;
-    PyObject *ret = NULL;
-
-    static char *kwlist[] = {
-        "blocks",
-        "action_type",
-        "block_location",
-        "player_location",
-        "other_player_locations",
-        NULL
-    };
-    if (!PyArg_ParseTupleAndKeywords(
-        args,
-        kwargs,
-        "OiOOO",
-        kwlist,
-        &blocks_array,
-        &action_type,
-        &block_location_tuple,
-        &player_location_optional_tuple,
-        &other_player_locations_list
-    ))
-        goto get_viewpoint_click_candidates_exit;
-
-    if (!PyArray_Check(blocks_array)) {
-        PyErr_SetString(PyExc_TypeError, "blocks must be an array");
-        goto get_viewpoint_click_candidates_exit;
-    } else if (PyArray_NDIM(blocks_array) != 3) {
-        PyErr_SetString(PyExc_TypeError, "blocks must be a 3d array");
-        goto get_viewpoint_click_candidates_exit;
-    } else if (PyArray_TYPE(blocks_array) != NPY_UINT8) {
-        PyErr_SetString(PyExc_TypeError, "blocks must be an array of dtype uint8");
-        goto get_viewpoint_click_candidates_exit;
-    }
-    const int width = PyArray_DIMS(blocks_array)[0];
-    const int height = PyArray_DIMS(blocks_array)[1];
-    const int depth = PyArray_DIMS(blocks_array)[2];
-
-    int block_x, block_y, block_z;
-    if (!PyTuple_Check(block_location_tuple) || PyTuple_Size(block_location_tuple) != 3) {
-        PyErr_SetString(PyExc_TypeError, "block_location must be a tuple of length 3");
-        goto get_viewpoint_click_candidates_exit;
-    }
-    block_x = PyLong_AsLong(PyTuple_GetItem(block_location_tuple, 0));
-    block_y = PyLong_AsLong(PyTuple_GetItem(block_location_tuple, 1));
-    block_z = PyLong_AsLong(PyTuple_GetItem(block_location_tuple, 2));
-
-    double player_x, player_y, player_z;
-    if (player_location_optional_tuple == Py_None) {
-        player_x = NAN;
-        player_y = NAN;
-        player_z = NAN;
-    } else if (!PyTuple_Check(player_location_optional_tuple) || PyTuple_Size(player_location_optional_tuple) != 3) {
-        PyErr_SetString(PyExc_TypeError, "player_location must be a tuple of length 3");
-        goto get_viewpoint_click_candidates_exit;
-    } else {
-        player_x = PyFloat_AsDouble(PyTuple_GetItem(player_location_optional_tuple, 0));
-        player_y = PyFloat_AsDouble(PyTuple_GetItem(player_location_optional_tuple, 1));
-        player_z = PyFloat_AsDouble(PyTuple_GetItem(player_location_optional_tuple, 2));
-    }
-
-    if (!PyList_Check(other_player_locations_list)) {
-        PyErr_SetString(PyExc_TypeError, "other_player_locations must be a list");
-        goto get_viewpoint_click_candidates_exit;
-    }
-    int num_other_players = PyList_Size(other_player_locations_list);
-    other_player_locations = (double*) malloc(num_other_players * 3 * sizeof(double));
-    for (i = 0; i < num_other_players; i++) {
-        PyObject *player_location_tuple = PyList_GetItem(other_player_locations_list, i);
-        if (!PyTuple_Check(player_location_tuple) || PyTuple_Size(player_location_tuple) != 3) {
-            PyErr_SetString(PyExc_TypeError, "other_player_locations must be a list of tuples of length 3");
-            goto get_viewpoint_click_candidates_exit;
-        }
-        other_player_locations[i * 3] = PyFloat_AsDouble(PyTuple_GetItem(player_location_tuple, 0));
-        other_player_locations[i * 3 + 1] = PyFloat_AsDouble(PyTuple_GetItem(player_location_tuple, 1));
-        other_player_locations[i * 3 + 2] = PyFloat_AsDouble(PyTuple_GetItem(player_location_tuple, 2));
-    }
+double* get_viewpoint_click_candidates(
+    int action_type,
+    int width,
+    int height,
+    int depth,
+    int block_x,
+    int block_y,
+    int block_z,
+    double player_x,
+    double player_y,
+    double player_z,
+    void* blocks_data,
+    npy_uint8 (*get_block)(void*, int, int, int),
+    void* other_player_data,
+    bool (*is_player)(void*, int, int, int),
+    int *num_viewpoint_click_candidates
+) {
+    int i, j, k, x, y, z;
+    int collision;
+    double *viewpoint_click_candidates = NULL;
 
     // Find possible locations to click on.
     double click_locations[3 * 2 * 3 * 3][3];
@@ -119,7 +49,7 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
                     against_block_location[0] < 0 || against_block_location[0] >= width
                     || against_block_location[1] < 0 || against_block_location[1] >= height
                     || against_block_location[2] < 0 || against_block_location[2] >= depth
-                    || *(npy_uint8*)PyArray_GETPTR3(blocks_array, against_block_location[0], against_block_location[1], against_block_location[2]) == AIR
+                    || get_block(blocks_data, against_block_location[0], against_block_location[1], against_block_location[2]) == AIR
                 ) {
                     continue;
                 }
@@ -184,40 +114,21 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
 
                     // Make sure the player would not be inside a block.
                     if (
-                        *(npy_uint8*)PyArray_GETPTR3(
-                            blocks_array,
-                            block_x + dx,
-                            block_y + dy,
-                            block_z + dz
-                        ) != AIR
+                        get_block(blocks_data, block_x + dx, block_y + dy, block_z + dz) != AIR
                         || (
                             block_y + dy + 1 < height
-                            && *(npy_uint8*)PyArray_GETPTR3(
-                                blocks_array,
-                                block_x + dx,
-                                block_y + dy + 1,
-                                block_z + dz
-                            ) != AIR
+                            && get_block(blocks_data, block_x + dx, block_y + dy + 1, block_z + dz) != AIR
                         )
                     ) continue;
 
                     // Make sure the player would not be overlapping with another
                     // player.
-                    collision = false;
-                    for (l = 0; l < num_other_players; l++) {
-                        other_x = (int) other_player_locations[l * 3];
-                        other_y = (int) other_player_locations[l * 3 + 1];
-                        other_z = (int) other_player_locations[l * 3 + 2];
-                        if (
-                            block_x + dx == other_x
-                            && abs(block_y + dy - other_y) <= 1
-                            && block_z + dz == other_z
-                        ) {
-                            collision = true;
-                            break;
-                        }
+                    if (
+                        is_player(other_player_data, block_x + dx, block_y + dy, block_z + dz)
+                        || is_player(other_player_data, block_x + dx, block_y + dy + 1, block_z + dz)
+                    ) {
+                        continue;
                     }
-                    if (collision) continue;
 
                     player_locations[i][0] = block_x + 0.5 + dx;
                     player_locations[i][1] = block_y + dy;
@@ -291,31 +202,21 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
                     // Don't test for an upper bound on y because the player's
                     // head can be above the world.
                     PyErr_SetString(PyExc_RuntimeError, "voxel traversal went out of bounds");
-                    goto get_viewpoint_click_candidates_exit;
+                    goto get_viewpoint_click_candidates_error;
                 } else {
                     // Make sure the block is empty. This means it must be air and
                     // not contain a player.
                     if (
                         y < height
-                        && *(npy_uint8*)PyArray_GETPTR3(blocks_array, x, y, z) != AIR
+                        && get_block(blocks_data, x, y, z) != AIR
                     ) {
                         collision = true;
                         break;
                     }
-                    for (l = 0; l < num_other_players; l++) {
-                        other_x = (int) other_player_locations[l * 3];
-                        other_y = (int) other_player_locations[l * 3 + 1];
-                        other_z = (int) other_player_locations[l * 3 + 2];
-                        if (
-                            x == other_x
-                            && (y == other_y || y == other_y + 1)
-                            && z == other_z
-                        ) {
-                            collision = true;
-                            break;
-                        }
+                    if (is_player(other_player_data, x, y, z)) {
+                        collision = true;
+                        break;
                     }
-                    if (collision) break;
                 }
             }
             if(!collision) {
@@ -329,9 +230,162 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
             }
         }
     }
+    *num_viewpoint_click_candidates = i;
+
+    return viewpoint_click_candidates;
+
+    get_viewpoint_click_candidates_error:
+    if (viewpoint_click_candidates != NULL) {
+        free(viewpoint_click_candidates);
+        viewpoint_click_candidates = NULL;
+    }
+    return viewpoint_click_candidates;
+}
+
+
+typedef struct {
+    double *other_player_locations;
+    int num_other_players;
+} other_player_locations_arr_t;
+
+bool is_player_in_other_player_locations_arr(void *other_players_locations_ptr, int x, int y, int z) {
+    int i;
+    other_player_locations_arr_t *other_player_locations_arr = (other_player_locations_arr_t*) other_players_locations_ptr;
+    double *other_player_locations = other_player_locations_arr->other_player_locations;
+    int num_other_players = other_player_locations_arr->num_other_players;
+    for (i = 0; i < num_other_players; i++) {
+        int other_x = (int) other_player_locations[i * 3];
+        int other_y = (int) other_player_locations[i * 3 + 1];
+        int other_z = (int) other_player_locations[i * 3 + 2];
+        if (
+            x == other_x
+            && (y == other_y || y == other_y + 1)
+            && z == other_z
+        ) return true;
+    }
+    return false;
+}
+
+npy_uint8 get_block_from_blocks_array(void *blocks_array, int x, int y, int z) {
+    return *(npy_uint8*)PyArray_GETPTR3((PyArrayObject*) blocks_array, x, y, z);
+}
+
+
+// get_viewpoint_click_candidates(blocks, action_type, block_location, player_location, other_player_locations)
+PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    import_array();
+
+    // Arguments
+    PyArrayObject *blocks_array;
+    int action_type;
+    PyObject *block_location_tuple, *player_location_optional_tuple, *other_player_locations_list;
+
+    // Other variables
+    int i;
+    double *other_player_locations = NULL, *viewpoint_click_candidates = NULL;
+    PyObject *ret = NULL;
+
+    static char *kwlist[] = {
+        "blocks",
+        "action_type",
+        "block_location",
+        "player_location",
+        "other_player_locations",
+        NULL
+    };
+    if (!PyArg_ParseTupleAndKeywords(
+        args,
+        kwargs,
+        "OiOOO",
+        kwlist,
+        &blocks_array,
+        &action_type,
+        &block_location_tuple,
+        &player_location_optional_tuple,
+        &other_player_locations_list
+    ))
+        goto _mbag_get_viewpoint_click_candidates_exit;
+
+    if (!PyArray_Check(blocks_array)) {
+        PyErr_SetString(PyExc_TypeError, "blocks must be an array");
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    } else if (PyArray_NDIM(blocks_array) != 3) {
+        PyErr_SetString(PyExc_TypeError, "blocks must be a 3d array");
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    } else if (PyArray_TYPE(blocks_array) != NPY_UINT8) {
+        PyErr_SetString(PyExc_TypeError, "blocks must be an array of dtype uint8");
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    }
+    const int width = PyArray_DIMS(blocks_array)[0];
+    const int height = PyArray_DIMS(blocks_array)[1];
+    const int depth = PyArray_DIMS(blocks_array)[2];
+
+    int block_x, block_y, block_z;
+    if (!PyTuple_Check(block_location_tuple) || PyTuple_Size(block_location_tuple) != 3) {
+        PyErr_SetString(PyExc_TypeError, "block_location must be a tuple of length 3");
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    }
+    block_x = PyLong_AsLong(PyTuple_GetItem(block_location_tuple, 0));
+    block_y = PyLong_AsLong(PyTuple_GetItem(block_location_tuple, 1));
+    block_z = PyLong_AsLong(PyTuple_GetItem(block_location_tuple, 2));
+
+    double player_x, player_y, player_z;
+    if (player_location_optional_tuple == Py_None) {
+        player_x = NAN;
+        player_y = NAN;
+        player_z = NAN;
+    } else if (!PyTuple_Check(player_location_optional_tuple) || PyTuple_Size(player_location_optional_tuple) != 3) {
+        PyErr_SetString(PyExc_TypeError, "player_location must be a tuple of length 3");
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    } else {
+        player_x = PyFloat_AsDouble(PyTuple_GetItem(player_location_optional_tuple, 0));
+        player_y = PyFloat_AsDouble(PyTuple_GetItem(player_location_optional_tuple, 1));
+        player_z = PyFloat_AsDouble(PyTuple_GetItem(player_location_optional_tuple, 2));
+    }
+
+    if (!PyList_Check(other_player_locations_list)) {
+        PyErr_SetString(PyExc_TypeError, "other_player_locations must be a list");
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    }
+    int num_other_players = PyList_Size(other_player_locations_list);
+    other_player_locations = (double*) malloc(num_other_players * 3 * sizeof(double));
+    for (i = 0; i < num_other_players; i++) {
+        PyObject *player_location_tuple = PyList_GetItem(other_player_locations_list, i);
+        if (!PyTuple_Check(player_location_tuple) || PyTuple_Size(player_location_tuple) != 3) {
+            PyErr_SetString(PyExc_TypeError, "other_player_locations must be a list of tuples of length 3");
+            goto _mbag_get_viewpoint_click_candidates_exit;
+        }
+        other_player_locations[i * 3] = PyFloat_AsDouble(PyTuple_GetItem(player_location_tuple, 0));
+        other_player_locations[i * 3 + 1] = PyFloat_AsDouble(PyTuple_GetItem(player_location_tuple, 1));
+        other_player_locations[i * 3 + 2] = PyFloat_AsDouble(PyTuple_GetItem(player_location_tuple, 2));
+    }
+
+    int num_viewpoint_click_candidates;
+    other_player_locations_arr_t other_player_locations_arr = {other_player_locations, num_other_players};
+
+    viewpoint_click_candidates = get_viewpoint_click_candidates(
+        action_type,
+        width,
+        height,
+        depth,
+        block_x,
+        block_y,
+        block_z,
+        player_x,
+        player_y,
+        player_z,
+        blocks_array,
+        get_block_from_blocks_array,
+        &other_player_locations_arr,
+        is_player_in_other_player_locations_arr,
+        &num_viewpoint_click_candidates
+    );
+    if (viewpoint_click_candidates == NULL) {
+        goto _mbag_get_viewpoint_click_candidates_exit;
+    }
 
     // Return the viewpoint click candidates.
-    int num_viewpoint_click_candidates = i;
     npy_intp dims[] = {num_viewpoint_click_candidates, 2, 3};
     PyArrayObject *viewpoint_click_candidates_array = (PyArrayObject*) PyArray_SimpleNew(3, dims, NPY_DOUBLE);
     for (i = 0; i < num_viewpoint_click_candidates; i++) {
@@ -344,7 +398,7 @@ PyObject* _mbag_get_viewpoint_click_candidates(PyObject *self, PyObject *args, P
     }
     ret = PyArray_Return(viewpoint_click_candidates_array);
 
-    get_viewpoint_click_candidates_exit:
+    _mbag_get_viewpoint_click_candidates_exit:
     if (other_player_locations != NULL) free(other_player_locations);
     if (viewpoint_click_candidates != NULL) free(viewpoint_click_candidates);
     return ret;
