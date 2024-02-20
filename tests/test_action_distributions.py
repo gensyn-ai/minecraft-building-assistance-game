@@ -99,7 +99,8 @@ def test_mask():
     env = MbagEnv(
         {"abilities": {"teleportation": True, "inf_blocks": True, "flying": True}}
     )
-    world_obs, inventory_obs, timestep = env.reset()[0]
+    obs_list, _ = env.reset()
+    world_obs, inventory_obs, timestep = obs_list[0]
     planks = MinecraftBlocks.NAME2ID["planks"]
     world_obs[CURRENT_BLOCKS, 1, 2, 1] = planks
     obs_batch = world_obs[None], inventory_obs[None], timestep[None]
@@ -157,11 +158,11 @@ def test_mask_c_extension():
                     }
                 )
                 action_mapping = MbagActionDistribution.get_action_mapping(env.config)
-                player_obs = env.reset()
+                obs_list, _ = env.reset()
                 for t in range(10):
                     actions = []
                     for player_index in range(num_players):
-                        world_obs, inventory_obs, timestep = player_obs[player_index]
+                        world_obs, inventory_obs, timestep = obs_list[player_index]
                         obs_batch = world_obs[None], inventory_obs[None], timestep[None]
                         mask_python = MbagActionDistribution.get_mask(
                             env.config, obs_batch, force_python_impl=True
@@ -181,7 +182,7 @@ def test_mask_c_extension():
                             possible_actions[possible_actions[:, 0] == action_type]
                         )
                         actions.append(tuple(action))
-                    player_obs, _, _, _ = env.step(actions)
+                    obs_list, _, _, _ = env.step(actions)
 
 
 def test_mask_no_teleportation_no_inf_blocks():
@@ -197,7 +198,8 @@ def test_mask_no_teleportation_no_inf_blocks():
             },
         }
     )
-    world_obs, inventory_obs, timestep = env.reset()[0]
+    obs_list, _ = env.reset()
+    world_obs, inventory_obs, timestep = obs_list[0]
 
     # Suppose the player has dirt in their inventory.
     dirt = MinecraftBlocks.NAME2ID["dirt"]

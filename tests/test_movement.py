@@ -56,12 +56,12 @@ def test_random_start_locations():
 
         all_location_obs = set()
         for episode_index in range(5):
-            obs = env.reset(force_regenerate_goal=True)
+            obs_list, _ = env.reset(force_regenerate_goal=True)
             (
                 world_obs,
                 _,
                 _,
-            ) = obs[0]
+            ) = obs_list[0]
             location_obs = world_obs[PLAYER_LOCATIONS]
             all_location_obs.add(location_obs.tobytes())
         assert len(all_location_obs) > 1

@@ -2,7 +2,7 @@ import copy
 import logging
 import traceback
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple, Type
+from typing import Any, List, Tuple, Type
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.actions import MbagActionTuple
@@ -69,8 +69,8 @@ class MbagEvaluator(object):
         """
         for agent in self.agents:
             agent.reset()
-        all_obs = self.env.reset()
-        previous_infos: Optional[List[MbagInfoDict]] = None
+        all_obs, all_infos = self.env.reset()
+        previous_infos = all_infos
         done = False
         timestep = 0
         if self.force_get_set_state:
@@ -91,9 +91,7 @@ class MbagEvaluator(object):
 
                 all_actions: List[MbagActionTuple] = []
                 for agent_index, agent in enumerate(self.agents):
-                    previous_info: Optional[MbagInfoDict] = None
-                    if previous_infos is not None:
-                        previous_info = previous_infos[agent_index]
+                    previous_info = previous_infos[agent_index]
                     obs = all_obs[agent_index]
                     action = agent.get_action_with_info_and_env_state(
                         obs, previous_info, env_state

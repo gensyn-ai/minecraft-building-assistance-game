@@ -241,6 +241,7 @@ def sacred_config(_log):  # noqa
     sgd_minibatch_size = 512
     rollout_fragment_length = horizon
     batch_mode = "truncate_episodes"
+    simple_optimizer = True
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
     grad_clip = 0.1
@@ -503,7 +504,10 @@ def sacred_config(_log):  # noqa
         evaluation_duration_unit=evaluation_duration_unit,
     )
     config.rl_module(_enable_rl_module_api=False)
-    config.training(_enable_learner_api=False)
+    config.training(
+        _enable_learner_api=False,
+    )
+    config.simple_optimizer = simple_optimizer
 
     if "PPO" in run:
         assert isinstance(config, PPOConfig)

@@ -364,9 +364,13 @@ class MbagActionDistribution(object):
             player_location = world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER
             batch_indices, player_x, player_y, player_z = np.nonzero(player_location)
             _, feet_filter = np.unique(batch_indices, return_index=True)
-            feet_x = player_x[feet_filter]
-            feet_y = player_y[feet_filter]
-            feet_z = player_z[feet_filter]
+            feet_x = np.full(batch_size, np.iinfo(np.int32).min, dtype=np.int32)
+            feet_y = np.full(batch_size, np.iinfo(np.int32).min, dtype=np.int32)
+            feet_z = np.full(batch_size, np.iinfo(np.int32).min, dtype=np.int32)
+            batch_indices = batch_indices[feet_filter]
+            feet_x[batch_indices] = player_x[feet_filter]
+            feet_y[batch_indices] = player_y[feet_filter]
+            feet_z[batch_indices] = player_z[feet_filter]
             head_x, head_y, head_z = feet_x, feet_y + 1, feet_z
 
             world_x, world_y, world_z = np.meshgrid(
@@ -378,6 +382,9 @@ class MbagActionDistribution(object):
                 + (world_z[None] - head_z[:, None, None, None]) ** 2
             )
             reachable = dist_from_player <= MAX_PLAYER_REACH
+
+            if mask.shape[0] != reachable.shape[0]:
+                breakpoint()
 
             mask[:, MbagActionDistribution.BREAK_BLOCK] &= reachable
             mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable[:, None]
