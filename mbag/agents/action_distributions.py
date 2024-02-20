@@ -383,9 +383,6 @@ class MbagActionDistribution(object):
             )
             reachable = dist_from_player <= MAX_PLAYER_REACH
 
-            if mask.shape[0] != reachable.shape[0]:
-                breakpoint()
-
             mask[:, MbagActionDistribution.BREAK_BLOCK] &= reachable
             mask[:, MbagActionDistribution.PLACE_BLOCK] &= reachable[:, None]
 
