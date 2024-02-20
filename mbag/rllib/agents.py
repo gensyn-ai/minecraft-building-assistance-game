@@ -16,6 +16,9 @@ from mbag.environment.types import MbagInfoDict, MbagObs
 
 class RllibMbagAgentConfigDict(TypedDict):
     policy: Policy
+
+    explore: bool
+
     min_action_interval: float
     """
     The minimum amount of time between actions, in seconds. If the agent is asked to
@@ -33,6 +36,7 @@ class RllibMbagAgent(MbagAgent):
         super().__init__(agent_config, env_config)
 
         self.policy = self.agent_config["policy"]
+        self.explore = self.agent_config.get("explore", False)
         self.min_action_interval = self.agent_config["min_action_interval"]
         self.action_mapping = MbagActionDistribution.get_action_mapping(self.env_config)
 
@@ -51,7 +55,7 @@ class RllibMbagAgent(MbagAgent):
         state_out_batch: List[TensorType]
         action_batch: Iterable[np.ndarray]
         action_batch, state_out_batch, info = self.policy.compute_actions(
-            obs_batch, state_batch, explore=False, **compute_actions_kwargs
+            obs_batch, state_batch, explore=self.explore, **compute_actions_kwargs
         )
         self.state = [state_piece[0] for state_piece in state_out_batch]
 
