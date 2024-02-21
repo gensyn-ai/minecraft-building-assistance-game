@@ -252,6 +252,12 @@ class MbagEnvModel(gym.Env):
         reward = 0.0
 
         if (
+            action.action_type == MbagAction.BREAK_BLOCK
+            and action.block_location[0] == unwrap_mbag_env(self).palette_x
+        ):
+            # Breaking a palette block gives no reward.
+            pass
+        elif (
             action.action_type == MbagAction.PLACE_BLOCK
             or action.action_type == MbagAction.BREAK_BLOCK
         ):
@@ -282,8 +288,6 @@ class MbagEnvModel(gym.Env):
             reward = float(
                 np.sum((new_similarity - prev_similarity) * goal_block_id_dist)
             )
-
-        # TODO: implement lack of reward for breaking palette blocks
 
         return reward
 
