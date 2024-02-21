@@ -307,15 +307,6 @@ class MbagEnv(object):
 
         self.timestep += 1
 
-        if (
-            self.current_blocks.blocks[self.palette_x]
-            != self.goal_blocks.blocks[self.palette_x]
-        ).any() and not self.config["abilities"]["inf_blocks"]:
-            logger.info("Copying palette from goal ")
-            self._copy_palette_from_goal()
-            if self.config["malmo"]["use_malmo"]:
-                self.malmo_interface.copy_palette_from_goal()
-
         if self.config["malmo"]["use_malmo"]:
             begin = time.time()
             any_human_actions = False
@@ -351,6 +342,15 @@ class MbagEnv(object):
                 self._update_state_from_malmo(
                     self.malmo_interface.get_current_malmo_state()
                 )
+
+        if (
+            self.current_blocks.blocks[self.palette_x]
+            != self.goal_blocks.blocks[self.palette_x]
+        ).any() and not self.config["abilities"]["inf_blocks"]:
+            self._copy_palette_from_goal()
+            if self.config["malmo"]["use_malmo"]:
+                logger.info("copying palette from goal")
+                self.malmo_interface.copy_palette_from_goal()
 
         obs = [
             self._get_player_obs(player_index)
@@ -426,7 +426,9 @@ class MbagEnv(object):
             pass
         elif action.action_type in [MbagAction.PLACE_BLOCK, MbagAction.BREAK_BLOCK]:
             prev_block = self.current_blocks[action.block_location]
-            prev_inventory_obs = self._get_inventory_obs(player_index)
+            prev_inventory_block_counts = get_block_counts_in_inventory(
+                self.player_inventories[player_index]
+            )
             noop = not self._handle_place_break(player_index, action)
 
             # Calculate reward based on progress towards goal.
@@ -438,10 +440,12 @@ class MbagEnv(object):
                 # TODO: shouldn't we check if the user actually broke the block?
                 # might be worth adding a test to make sure the reward only comes
                 # through if they did
-                new_inventory_obs = self._get_inventory_obs(player_index)
+                new_inventory_block_counts = get_block_counts_in_inventory(
+                    self.player_inventories[player_index]
+                )
                 goal_independent_reward += (
-                    np.count_nonzero(new_inventory_obs)
-                    - np.count_nonzero(prev_inventory_obs)
+                    np.count_nonzero(new_inventory_block_counts)
+                    - np.count_nonzero(prev_inventory_block_counts)
                 ) * self._get_reward_config_for_player(player_index)["get_resources"]
             else:
                 new_block = self.current_blocks[action.block_location]

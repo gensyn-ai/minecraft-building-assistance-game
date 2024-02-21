@@ -551,7 +551,6 @@ class MalmoInterface:
             self._malmo_client.send_command(
                 player_index, "tp " + " ".join(map(str, ai_action.new_location))
             )
-            time.sleep(0.1)
 
     def _handle_ai_give_action(self, player_index: int, ai_action: MalmoGiveAIAction):
         block_name = MinecraftBlocks.ID2NAME[ai_action.action.block_id]
@@ -647,6 +646,14 @@ class MalmoInterface:
                         player_index,
                         f"swapInventoryItems 0 {ai_action.action.block_id}",
                     )
+                else:
+                    # Since the player is in creative mode, the block will not be
+                    # consumed, so we need to remove it back in the inventory
+                    # manually.
+                    self._malmo_client.send_command(
+                        player_index,
+                        f"chat /clear @p {MinecraftBlocks.ID2NAME[ai_action.action.block_id]} 0 1",
+                    )
             else:
                 with self._malmo_state_lock:
                     block_id = self._malmo_state.blocks.blocks[
@@ -656,7 +663,6 @@ class MalmoInterface:
 
                 time.sleep(0.1)  # Give time to teleport.
                 self._malmo_client.send_command(player_index, "attack 1")
-                time.sleep(0.1)  # Give time to break block.
 
                 # Some blocks don't drop themselves when broken (e.g., stone drops
                 # cobblestone). We need to check if the block dropped is the same as
@@ -715,7 +721,7 @@ class MalmoInterface:
                 self._handle_ai_give_action(player_index, ai_action)
 
             # Wait for actions to complete.
-            time.sleep(0.1)
+            time.sleep(0.2)
             with self._running_ai_actions_lock:
                 self._running_ai_actions = False
 
