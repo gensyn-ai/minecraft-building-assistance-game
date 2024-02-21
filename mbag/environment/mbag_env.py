@@ -648,12 +648,19 @@ class MbagEnv(object):
             ):
                 recipient_player_index = player_index
                 break
-        if recipient_player_index is None:
+        if (
+            recipient_player_index is None
+            or recipient_player_index == giver_player_index
+        ):
             return 0
 
-        blocks_to_give = self.BLOCKS_TO_GIVE
         if self.config["players"][giver_player_index]["is_human"]:
             blocks_to_give = 1
+        else:
+            block_counts = get_block_counts_in_inventory(
+                self.player_inventories[giver_player_index]
+            )
+            blocks_to_give = min(self.BLOCKS_TO_GIVE, block_counts[block_id])
 
         if not self.config["abilities"]["inf_blocks"]:
             if not (

@@ -9,6 +9,7 @@
 #include <stdbool.h>
 
 #include "action_distributions.h"
+#include "blocks.h"
 #include "constants.h"
 
 
@@ -34,6 +35,16 @@ static bool _is_valid_position_to_move_to(int x, int y_feet, int z, int width, i
 }
 
 
+npy_uint8 get_block_from_world_obs(void* world_obs_array, int x, int y, int z) {
+    return *(npy_uint8*)PyArray_GETPTR4((PyArrayObject*)world_obs_array, CURRENT_BLOCKS, x, y, z);
+}
+
+bool is_player_from_world_obs(void* world_obs_array, int x, int y, int z) {
+    npy_uint8 player_marker = *(npy_uint8*)PyArray_GETPTR4((PyArrayObject*)world_obs_array, PLAYER_LOCATIONS, x, y, z);
+    return !(player_marker == NO_ONE || player_marker == CURRENT_PLAYER);
+}
+
+
 // get_action_distribution_mask(world_obs, inventory_obs, timestep, teleportation, inf_blocks)
 PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyObject *kwargs)
 {
@@ -43,25 +54,34 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
     PyArrayObject *world_obs_array;
     PyArrayObject *inventory_obs_array;
     int timestep;
-    int teleportation, inf_blocks;
+    int teleportation, inf_blocks, line_of_sight_masking = false;
 
     // Other variables
     int i, x, y, z, block_id;
     bool have_block, in_reach;
+    int num_viewpoint_click_candidates;
+    double *viewpoint_click_candidates;
 
     static char *kwlist[] = {
-        "world_obs", "inventory_obs", "timestep", "teleportation", "inf_blocks", NULL
+        "world_obs",
+        "inventory_obs",
+        "timestep",
+        "teleportation",
+        "inf_blocks",
+        "line_of_sight_masking",
+        NULL
     };
     if (!PyArg_ParseTupleAndKeywords(
         args,
         kwargs,
-        "OOipp",
+        "OOipp|p",
         kwlist,
         &world_obs_array,
         &inventory_obs_array,
         &timestep,
         &teleportation,
-        &inf_blocks
+        &inf_blocks,
+        &line_of_sight_masking
     ))
         return NULL;
 
@@ -197,6 +217,34 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
                         || (z > 0 && *(npy_uint8*)PyArray_GETPTR4(world_obs_array, CURRENT_BLOCKS, x, y, z - 1) != AIR)
                         || (z < depth - 1 && *(npy_uint8*)PyArray_GETPTR4(world_obs_array, CURRENT_BLOCKS, x, y, z + 1) != AIR)
                     );
+
+                    if (line_of_sight_masking && in_reach && empty_space && adjacent_solid) {
+                        viewpoint_click_candidates = get_viewpoint_click_candidates(
+                            PLACE_BLOCK,
+                            width,
+                            height,
+                            depth,
+                            x,
+                            y,
+                            z,
+                            teleportation ? NAN : player_x + 0.5,
+                            teleportation ? NAN : feet_y,
+                            teleportation ? NAN : player_z + 0.5,
+                            world_obs_array,
+                            get_block_from_world_obs,
+                            world_obs_array,
+                            is_player_from_world_obs,
+                            &num_viewpoint_click_candidates
+                        );
+                        if (viewpoint_click_candidates == NULL) {
+                            PyErr_SetString(PyExc_RuntimeError, "Error getting viewpoint click candidates");
+                            return NULL;
+                        } else {
+                            free(viewpoint_click_candidates);
+                        }
+                        in_reach = in_reach && (num_viewpoint_click_candidates > 0);
+                    }
+
                     *(npy_bool*)PyArray_GETPTR4(valid_array, PLACE_BLOCK_CHANNEL + block_id, x, y, z) = in_reach && empty_space && adjacent_solid;
                 }
             }
@@ -217,6 +265,34 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
                         + (z - player_z) * (z - player_z)
                         <= MAX_PLAYER_REACH * MAX_PLAYER_REACH
                     );
+
+                    if (line_of_sight_masking && in_reach) {
+                        viewpoint_click_candidates = get_viewpoint_click_candidates(
+                            BREAK_BLOCK,
+                            width,
+                            height,
+                            depth,
+                            x,
+                            y,
+                            z,
+                            teleportation ? NAN : player_x + 0.5,
+                            teleportation ? NAN : feet_y,
+                            teleportation ? NAN : player_z + 0.5,
+                            world_obs_array,
+                            get_block_from_world_obs,
+                            world_obs_array,
+                            is_player_from_world_obs,
+                            &num_viewpoint_click_candidates
+                        );
+                        if (viewpoint_click_candidates == NULL) {
+                            PyErr_SetString(PyExc_RuntimeError, "Error getting viewpoint click candidates");
+                            return NULL;
+                        } else {
+                            free(viewpoint_click_candidates);
+                        }
+                        in_reach = in_reach && (num_viewpoint_click_candidates > 0);
+                    }
+
                     *(npy_bool*)PyArray_GETPTR4(valid_array, BREAK_BLOCK_CHANNEL, x, y, z) = in_reach;
                 }
             }
@@ -224,38 +300,45 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
     }
 
     /* GIVE_BLOCK actions */
-    int min_give_x, max_give_x, min_give_y, max_give_y, min_give_z, max_give_z;
-    if (teleportation) {
-        min_give_x = 0;
-        max_give_x = width - 1;
-        min_give_y = 0;
-        max_give_y = height - 1;
-        min_give_z = 0;
-        max_give_z = depth - 1;
-    } else {
-        min_give_x = fmax(0, floor(player_x - 1));
-        max_give_x = fmin(width - 1, ceil(player_x + 1));
-        min_give_y = fmax(0, floor(head_y - 1));
-        max_give_y = fmin(height - 1, ceil(head_y + 1));
-        min_give_z = fmax(0, floor(player_z - 1));
-        max_give_z = fmin(depth - 1, ceil(player_z + 1));
-    }
-    for (block_id = 0; block_id < NUM_BLOCKS; block_id++) {
-        if (inf_blocks) {
-            // Can't give blocks when there are infinite blocks.
-            have_block = false;
+    if (!inf_blocks) {
+        int min_give_x, max_give_x, min_give_y, max_give_y, min_give_z, max_give_z;
+        if (teleportation) {
+            min_give_x = 0;
+            max_give_x = width - 1;
+            min_give_y = 0;
+            max_give_y = height - 1;
+            min_give_z = 0;
+            max_give_z = depth - 1;
         } else {
-            have_block = *(npy_int32*)PyArray_GETPTR1(inventory_obs_array, block_id) > 0;
+            min_give_x = fmax(0, floor(player_x - 1));
+            max_give_x = fmin(width - 1, ceil(player_x + 1));
+            min_give_y = fmax(0, floor(head_y - 1));
+            max_give_y = fmin(height - 1, ceil(head_y + 1));
+            min_give_z = fmax(0, floor(player_z - 1));
+            max_give_z = fmin(depth - 1, ceil(player_z + 1));
         }
-        if (!have_block) continue;
-        for (x = min_give_x; x <= max_give_x; x++) {
-            for (y = min_give_y; y <= max_give_y; y++) {
-                for (z = min_give_z; z <= max_give_z; z++) {
-                    // Check if there is a player there.
-                    bool is_player = (
-                        *(npy_uint8*)PyArray_GETPTR4(world_obs_array, PLAYER_LOCATIONS, x, y, z) != NO_ONE
-                    );
-                    *(npy_bool*)PyArray_GETPTR4(valid_array, GIVE_BLOCK_CHANNEL + block_id, x, y, z) = is_player;
+        for (block_id = 0; block_id < NUM_BLOCKS; block_id++) {
+            have_block = *(npy_int32*)PyArray_GETPTR1(inventory_obs_array, block_id) > 0;
+            if (!have_block) continue;
+            for (x = min_give_x; x <= max_give_x; x++) {
+                for (y = min_give_y; y <= max_give_y; y++) {
+                    for (z = min_give_z; z <= max_give_z; z++) {
+                        // Check if there is a player there.
+                        npy_uint8 player_marker = *(npy_uint8*)PyArray_GETPTR4(world_obs_array, PLAYER_LOCATIONS, x, y, z);
+                        bool is_player;
+                        if (player_marker == NO_ONE || player_marker == CURRENT_PLAYER) {
+                            is_player = false;
+                        } else {
+                            // The give location should be the feet of the other player,
+                            // which means that the block below should not have the
+                            // same player marker (otherwise we've found the head).
+                            is_player = (
+                                y - 1 < 0
+                                || *(npy_uint8*)PyArray_GETPTR4(world_obs_array, PLAYER_LOCATIONS, x, y - 1, z) != player_marker
+                            );
+                        }
+                        *(npy_bool*)PyArray_GETPTR4(valid_array, GIVE_BLOCK_CHANNEL + block_id, x, y, z) = is_player;
+                    }
                 }
             }
         }

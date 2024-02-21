@@ -185,6 +185,53 @@ def test_mask_c_extension():
                     obs_list, _, _, _ = env.step(actions)
 
 
+def test_line_of_sight_masking():
+    for inf_blocks in [True, False]:
+        for teleportation in [True, False]:
+            for num_players in [1, 2]:
+                logger.info(
+                    f"testing inf_blocks={inf_blocks}, teleportation={teleportation}, "
+                    f"num_players={num_players}"
+                )
+                env = MbagEnv(
+                    {
+                        "abilities": {
+                            "teleportation": teleportation,
+                            "inf_blocks": inf_blocks,
+                            "flying": True,
+                        },
+                        "num_players": num_players,
+                        "players": [{} for _ in range(num_players)],
+                    }
+                )
+                action_mapping = MbagActionDistribution.get_action_mapping(env.config)
+                obs_list, _ = env.reset()
+                for t in range(10):
+                    actions = []
+                    for player_index in range(num_players):
+                        world_obs, inventory_obs, timestep = obs_list[player_index]
+                        obs_batch = world_obs[None], inventory_obs[None], timestep[None]
+                        mask = MbagActionDistribution.get_mask(
+                            env.config, obs_batch, line_of_sight_masking=True
+                        )
+                        flat_mask = MbagActionDistribution.to_flat(
+                            env.config, mask, np.any
+                        )[0]
+
+                        possible_actions = action_mapping[flat_mask]
+                        action_type = random.choice(np.unique(possible_actions[:, 0]))
+                        action = random.choice(
+                            possible_actions[possible_actions[:, 0] == action_type]
+                        )
+                        actions.append(tuple(action))
+                    obs_list, _, _, info_list = env.step(actions)
+
+                    info = info_list[0]
+                    # Unintential NOOPs should be impossible with line-of-sight
+                    # masking (although only for the first player).
+                    assert info["action"] == info["attempted_action"]
+
+
 def test_mask_no_teleportation_no_inf_blocks():
     env = MbagEnv(
         {
