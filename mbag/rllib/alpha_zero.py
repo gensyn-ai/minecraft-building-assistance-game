@@ -21,6 +21,7 @@ from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.policy.sample_batch import concat_samples
 from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
 from ray.rllib.policy.torch_policy import TorchPolicy
+from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.metrics import (
     NUM_AGENT_STEPS_SAMPLED,
     NUM_ENV_STEPS_SAMPLED,
@@ -41,7 +42,7 @@ from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
 
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
 from .rllib_env import unwrap_mbag_env
-from .torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
+from .torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictorMixin
 
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
@@ -521,12 +522,13 @@ class MbagMCTS(MCTS):
                 np.stack([leaf.model_state_in[state_index] for leaf in leaves], axis=0)
                 for state_index in range(model_state_len)
             ]
+            action_mask = np.stack([leaf.valid_actions for leaf in leaves])
             child_priors: np.ndarray
             values: np.ndarray
             model_state_out: List[np.ndarray]
 
             child_priors, values, model_state_out = self.model.compute_priors_and_value(
-                obs, model_state_in
+                obs, model_state_in, action_mask=action_mask
             )
             child_priors = child_priors**self.prior_temperature
             child_priors /= child_priors.sum(axis=1, keepdims=True)
@@ -651,13 +653,18 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             **kwargs,
         )
 
+        model = self.model
+        assert isinstance(model, MbagTorchModel)
+
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
             # We should never use Malmo in the env model.
             env_config = copy.deepcopy(config["env_config"])
             env_config["malmo"]["use_malmo"] = False
             env = env_creator(env_config)
-            return MbagEnvModel(env, env_config)
+            return MbagEnvModel(
+                env, env_config, line_of_sight_masking=model.line_of_sight_masking
+            )
 
         def mcts_creator():
             return MbagMCTS(
@@ -674,6 +681,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         for env in self.envs:
             env.reset()
         self.obs_space = observation_space
+
+        self.view_requirements[ACTION_MASK] = ViewRequirement()
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -713,6 +722,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 expected_own_rewards = np.zeros(len(episodes))
                 mcts_policies = np.zeros((len(episodes), self.action_space.n))
                 mcts_policies[:, 0] = 1
+                action_mask = np.zeros((len(episodes), self.action_space.n), dtype=bool)
             else:
                 nodes: List[MbagMCTSNode] = []
                 for env_index, episode in enumerate(episodes):
@@ -757,6 +767,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                         axis=0,
                     )
 
+                action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
+
             for env_index, episode in enumerate(episodes):
                 if episode.length == 0:
                     episode.user_data[MCTS_POLICIES] = []
@@ -774,6 +786,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 ),
                 "expected_reward": expected_rewards,
                 "expected_own_reward": expected_own_rewards,
+                ACTION_MASK: action_mask,
             },
         )
 

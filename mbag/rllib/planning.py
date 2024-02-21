@@ -57,6 +57,7 @@ class MbagEnvModel(gym.Env):
         config: MbagConfigDict,
         player_index: int = 0,
         include_action_mask_in_obs=True,
+        line_of_sight_masking=False,
     ):
         super().__init__()
 
@@ -64,6 +65,7 @@ class MbagEnvModel(gym.Env):
         self.config = config
         self.set_player_index(player_index)
         self.include_action_mask_in_obs = include_action_mask_in_obs
+        self.line_of_sight_masking = line_of_sight_masking
 
         assert isinstance(self.env.action_space, spaces.Discrete)
         self.action_space = self.env.action_space
@@ -95,6 +97,7 @@ class MbagEnvModel(gym.Env):
                 "action_mask": MbagActionDistribution.get_mask_flat(
                     self.config,
                     (world_obs[None], inventory_obs[None], timestep[None]),
+                    line_of_sight_masking=self.line_of_sight_masking,
                 )[0],
             }
         else:

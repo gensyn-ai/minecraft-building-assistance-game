@@ -245,51 +245,69 @@ class MbagActionDistribution(object):
 
     @staticmethod
     def get_mask(
-        config: MbagConfigDict, obs: MbagObs, *, force_python_impl=False
+        config: MbagConfigDict,
+        obs: MbagObs,
+        *,
+        line_of_sight_masking=False,
+        force_python_impl=False,
     ) -> np.ndarray:
         """
         Given an environment configuration and a batch of observations, return a
         boolean NumPy array of shape
             (batch_size, NUM_CHANNELS, width, height, depth)
         where valid actions are True and invalid actions are False.
+
+        If line_of_sight_masking is False, then whether the player has line of sight
+        to place/break blocks is not considered. If line_of_sight_masking is True, then
+        it is considered, but this requires the C implementation to be installed and
+        may be slower.
         """
 
         world_obs, inventory_obs, timestep = obs
         batch_size, _, width, height, depth = world_obs.shape
 
-        if not force_python_impl and batch_size == 1:
+        if not force_python_impl:
             try:
                 import _mbag
 
+                mask = np.zeros(
+                    (
+                        batch_size,
+                        MbagActionDistribution.NUM_CHANNELS,
+                        width,
+                        height,
+                        depth,
+                    ),
+                    dtype=np.bool8,
+                )
+                world_obs = world_obs.astype(np.uint8)
+                inventory_obs = inventory_obs.astype(np.int32)
+
                 try:
-                    return cast(
-                        np.ndarray,
-                        _mbag.get_action_distribution_mask(
-                            world_obs[0].astype(np.uint8),
-                            inventory_obs[0].astype(np.int32),
-                            int(timestep[0]),
+                    for batch_index in range(batch_size):
+                        mask[batch_index] = _mbag.get_action_distribution_mask(
+                            world_obs[batch_index],
+                            inventory_obs[batch_index],
+                            int(timestep[batch_index]),
                             teleportation=config["abilities"]["teleportation"],
                             inf_blocks=config["abilities"]["inf_blocks"],
-                        )[None],
-                    )
+                            line_of_sight_masking=line_of_sight_masking,
+                        )
+                    return mask
                 except RuntimeError as error:
                     if error.args[0] == "No player location found":
                         logger.warn("no player locations found in observation")
-                        return np.zeros(
-                            (
-                                1,
-                                MbagActionDistribution.NUM_CHANNELS,
-                                width,
-                                height,
-                                depth,
-                            ),
-                            dtype=np.bool8,
-                        )
+                        return mask
                     raise
             except ImportError:
                 logger.warn(
                     "C implementation of get_mask not found, falling back to Python"
                 )
+
+        if line_of_sight_masking:
+            raise ValueError(
+                "line of sight masking is not supported in the Python implementation"
+            )
 
         mask = np.ones(
             (batch_size, MbagActionDistribution.NUM_CHANNELS, width, height, depth),
@@ -345,12 +363,13 @@ class MbagActionDistribution(object):
             np.repeat(invalid_place[:, None], MinecraftBlocks.NUM_BLOCKS, axis=1)
         ] = False
 
-        # TODO: add check for breaking blocks that are totally surrounded by other
-        # blocks?
-
         # Next, we can only give blocks to locations with players in them
         mask[:, MbagActionDistribution.GIVE_BLOCK] &= (
-            world_obs[:, None, PLAYER_LOCATIONS] > 0
+            world_obs[:, None, PLAYER_LOCATIONS] != NO_ONE
+        ) & (world_obs[:, None, PLAYER_LOCATIONS] != CURRENT_PLAYER)
+        mask[:, MbagActionDistribution.GIVE_BLOCK, :, 1:, :] &= (
+            world_obs[:, None, PLAYER_LOCATIONS, :, :-1, :]
+            != world_obs[:, None, PLAYER_LOCATIONS, :, 1:, :]
         )
 
         if (
@@ -364,9 +383,13 @@ class MbagActionDistribution(object):
             player_location = world_obs[:, PLAYER_LOCATIONS] == CURRENT_PLAYER
             batch_indices, player_x, player_y, player_z = np.nonzero(player_location)
             _, feet_filter = np.unique(batch_indices, return_index=True)
-            feet_x = player_x[feet_filter]
-            feet_y = player_y[feet_filter]
-            feet_z = player_z[feet_filter]
+            feet_x = np.full(batch_size, np.iinfo(np.int32).min, dtype=np.int32)
+            feet_y = np.full(batch_size, np.iinfo(np.int32).min, dtype=np.int32)
+            feet_z = np.full(batch_size, np.iinfo(np.int32).min, dtype=np.int32)
+            batch_indices = batch_indices[feet_filter]
+            feet_x[batch_indices] = player_x[feet_filter]
+            feet_y[batch_indices] = player_y[feet_filter]
+            feet_z[batch_indices] = player_z[feet_filter]
             head_x, head_y, head_z = feet_x, feet_y + 1, feet_z
 
             world_x, world_y, world_z = np.meshgrid(
@@ -528,8 +551,15 @@ class MbagActionDistribution(object):
         return valid
 
     @staticmethod
-    def get_mask_flat(config: MbagConfigDict, obs: MbagObs) -> np.ndarray:
-        mask = MbagActionDistribution.get_mask(config, obs)
+    def get_mask_flat(
+        config: MbagConfigDict,
+        obs: MbagObs,
+        *,
+        line_of_sight_masking=False,
+    ) -> np.ndarray:
+        mask = MbagActionDistribution.get_mask(
+            config, obs, line_of_sight_masking=line_of_sight_masking
+        )
         return MbagActionDistribution.to_flat(config, mask, reduction=np.all)
 
 

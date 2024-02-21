@@ -10,6 +10,7 @@ def get_action_distribution_mask(
     timestep: int,
     teleportation: bool,
     inf_blocks: bool,
+    line_of_sight_masking: bool = False,
 ) -> np.ndarray:
     pass
 

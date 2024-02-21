@@ -24,7 +24,7 @@ from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS, MbagObs
 
 from .torch_action_distributions import MbagAutoregressiveActionDistribution
-from .torch_models import MbagTorchModel
+from .torch_models import ACTION_MASK, MbagTorchModel
 
 
 class MbagAgentPolicy(Policy):
@@ -156,6 +156,20 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         )
         super().__init__(observation_space, action_space, config, **kwargs)
         self.action_mapping = self.action_mapping.to(self.device)
+        self.view_requirements[ACTION_MASK] = ViewRequirement(
+            space=spaces.Box(0, 1, (len(self.action_mapping),), dtype=np.bool8)  # type: ignore
+        )
+
+    def _compute_action_helper(
+        self, input_dict, state_batches, seq_lens, explore, timestep
+    ):
+        actions, state_out, extra_fetches = super()._compute_action_helper(
+            input_dict, state_batches, seq_lens, explore, timestep
+        )
+        model = self.model
+        assert isinstance(model, MbagTorchModel)
+        extra_fetches[ACTION_MASK] = convert_to_numpy(model.action_mask())
+        return actions, state_out, extra_fetches
 
     def loss(
         self,

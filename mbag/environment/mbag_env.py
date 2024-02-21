@@ -218,7 +218,9 @@ class MbagEnv(object):
                 )
             self.player_locations.append(player_location)
 
-    def reset(self, *, force_regenerate_goal=False) -> List[MbagObs]:
+    def reset(
+        self, *, force_regenerate_goal=False
+    ) -> Tuple[List[MbagObs], List[MbagInfoDict]]:
         """Reset Minecraft environment and return player observations for each player."""
 
         if self.is_first_episode and self.config.get(
@@ -281,10 +283,16 @@ class MbagEnv(object):
             )
             self.human_action_queues = [[] for _ in range(self.config["num_players"])]
 
-        return [
+        obs_list = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
         ]
+        info_list = [
+            self._get_player_info(player_index)
+            for player_index in range(self.config["num_players"])
+        ]
+
+        return obs_list, info_list
 
     def step(
         self, action_tuples: List[MbagActionTuple]
@@ -516,21 +524,15 @@ class MbagEnv(object):
 
         reward = goal_dependent_reward + goal_independent_reward
 
-        info: MbagInfoDict = {
-            "goal_similarity": self._get_goal_similarity(
-                self.current_blocks[:],
-                self.goal_blocks[:],
-            ).sum(),
-            "goal_dependent_reward": goal_dependent_reward,
-            "goal_independent_reward": goal_independent_reward,
-            "own_reward": reward,
-            "own_reward_prop": self._get_own_reward_prop(player_index),
-            "attempted_action": action,
-            "action": action if not noop else MbagAction.noop_action(),
-            "action_correct": action_correct and not noop,
-            "malmo_observations": [],
-            "human_action": (MbagAction.NOOP, 0, 0),
-        }
+        info = self._get_player_info(
+            player_index,
+            goal_dependent_reward=goal_dependent_reward,
+            goal_independent_reward=goal_independent_reward,
+            own_reward=reward,
+            attempted_action=action,
+            action=action if not noop else MbagAction.noop_action(),
+            action_correct=action_correct and not noop,
+        )
 
         return reward, info
 
@@ -682,12 +684,19 @@ class MbagEnv(object):
             ):
                 recipient_player_index = player_index
                 break
-        if recipient_player_index is None:
+        if (
+            recipient_player_index is None
+            or recipient_player_index == giver_player_index
+        ):
             return 0
 
-        blocks_to_give = self.BLOCKS_TO_GIVE
         if self.config["players"][giver_player_index]["is_human"]:
             blocks_to_give = 1
+        else:
+            block_counts = get_block_counts_in_inventory(
+                self.player_inventories[giver_player_index]
+            )
+            blocks_to_give = min(self.BLOCKS_TO_GIVE, block_counts[block_id])
 
         if not self.config["abilities"]["inf_blocks"]:
             if not (
@@ -939,6 +948,33 @@ class MbagEnv(object):
             self._get_inventory_obs(player_index),
             np.array(self.timestep, dtype=np.int32),
         )
+
+    def _get_player_info(
+        self,
+        player_index: int,
+        goal_dependent_reward: float = 0,
+        goal_independent_reward: float = 0,
+        own_reward: float = 0,
+        attempted_action: MbagAction = MbagAction.noop_action(),
+        action: MbagAction = MbagAction.noop_action(),
+        action_correct: bool = False,
+    ) -> MbagInfoDict:
+        info: MbagInfoDict = {
+            "goal_similarity": self._get_goal_similarity(
+                self.current_blocks[:],
+                self.goal_blocks[:],
+            ).sum(),
+            "goal_dependent_reward": goal_dependent_reward,
+            "goal_independent_reward": goal_independent_reward,
+            "own_reward": own_reward,
+            "own_reward_prop": self._get_own_reward_prop(player_index),
+            "attempted_action": attempted_action,
+            "action": action,
+            "action_correct": action_correct,
+            "malmo_observations": [],
+            "human_action": (MbagAction.NOOP, 0, 0),
+        }
+        return info
 
     def _add_player_location_to_world_obs(
         self,

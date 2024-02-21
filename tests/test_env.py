@@ -48,7 +48,7 @@ def test_deterministic():
                     "world_size": (5, 5, 5),
                 }
             )
-            (obs,) = env_a.reset()
+            (obs,), _ = env_a.reset()
             env_b = MbagEnv(env_a.config)
             env_b.reset()
             action_map = MbagActionDistribution.get_action_mapping(env_a.config)

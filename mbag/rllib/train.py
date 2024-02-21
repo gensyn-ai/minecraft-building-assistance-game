@@ -249,6 +249,7 @@ def sacred_config(_log):  # noqa
     sgd_minibatch_size = 512
     rollout_fragment_length = horizon
     batch_mode = "truncate_episodes"
+    simple_optimizer = True
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
     grad_clip = 0.1
@@ -311,6 +312,7 @@ def sacred_config(_log):  # noqa
     num_value_layers = 2
     use_per_location_lstm = False
     mask_action_distribution = True
+    line_of_sight_masking = False
     scale_obs = False
     num_heads = 4
     use_separated_transformer = False
@@ -339,6 +341,7 @@ def sacred_config(_log):  # noqa
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
             "mask_action_distribution": mask_action_distribution,
+            "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
             "num_unet_layers": num_unet_layers,
             "unet_grow_factor": unet_grow_factor,
@@ -361,6 +364,7 @@ def sacred_config(_log):  # noqa
             "use_per_location_lstm": use_per_location_lstm,
             "use_separated_transformer": use_separated_transformer,
             "mask_action_distribution": mask_action_distribution,
+            "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
         }
         model_config["custom_model_config"] = transformer_config
@@ -516,7 +520,10 @@ def sacred_config(_log):  # noqa
         evaluation_duration_unit=evaluation_duration_unit,
     )
     config.rl_module(_enable_rl_module_api=False)
-    config.training(_enable_learner_api=False)
+    config.training(
+        _enable_learner_api=False,
+    )
+    config.simple_optimizer = simple_optimizer
 
     if "PPO" in run:
         assert isinstance(config, PPOConfig)

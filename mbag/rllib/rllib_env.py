@@ -69,9 +69,9 @@ class MbagMultiAgentEnv(MbagRllibWrapper):
         }
 
     def reset(self, **kwargs):
-        obs_list = self.env.reset()
+        obs_list, info_list = self.env.reset()
         obs_dict = self._list_to_dict(obs_list)
-        info_dict: MultiAgentDict = {agent_id: {} for agent_id in obs_dict}
+        info_dict = self._list_to_dict(info_list)
         return obs_dict, info_dict
 
     def step(  # type: ignore

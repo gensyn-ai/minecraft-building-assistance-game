@@ -99,7 +99,8 @@ def test_mask():
     env = MbagEnv(
         {"abilities": {"teleportation": True, "inf_blocks": True, "flying": True}}
     )
-    world_obs, inventory_obs, timestep = env.reset()[0]
+    obs_list, _ = env.reset()
+    world_obs, inventory_obs, timestep = obs_list[0]
     planks = MinecraftBlocks.NAME2ID["planks"]
     world_obs[CURRENT_BLOCKS, 1, 2, 1] = planks
     obs_batch = world_obs[None], inventory_obs[None], timestep[None]
@@ -157,11 +158,11 @@ def test_mask_c_extension():
                     }
                 )
                 action_mapping = MbagActionDistribution.get_action_mapping(env.config)
-                player_obs = env.reset()
+                obs_list, _ = env.reset()
                 for t in range(10):
                     actions = []
                     for player_index in range(num_players):
-                        world_obs, inventory_obs, timestep = player_obs[player_index]
+                        world_obs, inventory_obs, timestep = obs_list[player_index]
                         obs_batch = world_obs[None], inventory_obs[None], timestep[None]
                         mask_python = MbagActionDistribution.get_mask(
                             env.config, obs_batch, force_python_impl=True
@@ -181,7 +182,54 @@ def test_mask_c_extension():
                             possible_actions[possible_actions[:, 0] == action_type]
                         )
                         actions.append(tuple(action))
-                    player_obs, _, _, _ = env.step(actions)
+                    obs_list, _, _, _ = env.step(actions)
+
+
+def test_line_of_sight_masking():
+    for inf_blocks in [True, False]:
+        for teleportation in [True, False]:
+            for num_players in [1, 2]:
+                logger.info(
+                    f"testing inf_blocks={inf_blocks}, teleportation={teleportation}, "
+                    f"num_players={num_players}"
+                )
+                env = MbagEnv(
+                    {
+                        "abilities": {
+                            "teleportation": teleportation,
+                            "inf_blocks": inf_blocks,
+                            "flying": True,
+                        },
+                        "num_players": num_players,
+                        "players": [{} for _ in range(num_players)],
+                    }
+                )
+                action_mapping = MbagActionDistribution.get_action_mapping(env.config)
+                obs_list, _ = env.reset()
+                for t in range(10):
+                    actions = []
+                    for player_index in range(num_players):
+                        world_obs, inventory_obs, timestep = obs_list[player_index]
+                        obs_batch = world_obs[None], inventory_obs[None], timestep[None]
+                        mask = MbagActionDistribution.get_mask(
+                            env.config, obs_batch, line_of_sight_masking=True
+                        )
+                        flat_mask = MbagActionDistribution.to_flat(
+                            env.config, mask, np.any
+                        )[0]
+
+                        possible_actions = action_mapping[flat_mask]
+                        action_type = random.choice(np.unique(possible_actions[:, 0]))
+                        action = random.choice(
+                            possible_actions[possible_actions[:, 0] == action_type]
+                        )
+                        actions.append(tuple(action))
+                    obs_list, _, _, info_list = env.step(actions)
+
+                    info = info_list[0]
+                    # Unintential NOOPs should be impossible with line-of-sight
+                    # masking (although only for the first player).
+                    assert info["action"] == info["attempted_action"]
 
 
 def test_mask_no_teleportation_no_inf_blocks():
@@ -197,7 +245,8 @@ def test_mask_no_teleportation_no_inf_blocks():
             },
         }
     )
-    world_obs, inventory_obs, timestep = env.reset()[0]
+    obs_list, _ = env.reset()
+    world_obs, inventory_obs, timestep = obs_list[0]
 
     # Suppose the player has dirt in their inventory.
     dirt = MinecraftBlocks.NAME2ID["dirt"]

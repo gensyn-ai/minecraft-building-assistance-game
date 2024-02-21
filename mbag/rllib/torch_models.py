@@ -31,6 +31,8 @@ from mbag.environment.types import (
     PLAYER_LOCATIONS,
 )
 
+ACTION_MASK = "action_mask"
+
 
 class MbagModel(ABC, TorchModelV2):
     """
@@ -65,6 +67,11 @@ class MbagModelConfig(TypedDict, total=False):
     """Include a LSTM operating per-location."""
     mask_action_distribution: bool
     """Mask invalid actions in the output action distribution."""
+    line_of_sight_masking: bool
+    """
+    Mask place/break actions which are not in the line of sight of the player.
+    See MbagActionDistribution.get_mask for more details.
+    """
     scale_obs: bool
     """Scale inventory and timestep observations."""
 
@@ -80,6 +87,7 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "num_value_layers": 1,
     "use_per_location_lstm": False,
     "mask_action_distribution": True,
+    "line_of_sight_masking": False,
     "scale_obs": False,
 }
 
@@ -93,6 +101,7 @@ class MbagTorchModel(ActorCriticModel):
     MASK_LOGIT = -1e8
 
     _logits: torch.Tensor
+    _mask: torch.Tensor
 
     def __init__(
         self,
@@ -128,6 +137,7 @@ class MbagTorchModel(ActorCriticModel):
         self.num_value_layers = extra_config["num_value_layers"]
         self.use_per_location_lstm = extra_config.get("use_per_location_lstm", False)
         self.mask_action_distribution = extra_config["mask_action_distribution"]
+        self.line_of_sight_masking = extra_config["line_of_sight_masking"]
         self.scale_obs = extra_config["scale_obs"]
 
         self.block_id_embedding = nn.Embedding(
@@ -374,13 +384,7 @@ class MbagTorchModel(ActorCriticModel):
         return lstm_out, state_out
 
     def forward(self, input_dict, state, seq_lens, mask_logits=True):
-        # Seems like AlphaZero trainer likes to give just observations instead of
-        # an input dict.
-        try:
-            obs = input_dict["obs"]
-        except TypeError:
-            obs = input_dict
-
+        obs = input_dict[SampleBatch.OBS]
         self._world_obs, self._inventory_obs, self._timestep = obs
         self._world_obs = self._world_obs.to(self.device).long()
         self._inventory_obs = self._inventory_obs.to(self.device).long()
@@ -423,26 +427,27 @@ class MbagTorchModel(ActorCriticModel):
         state = [state_var.float() for state_var in state]
 
         if mask_logits and self.mask_action_distribution:
-            if SampleBatch.ACTION_DIST_INPUTS in input_dict:
-                # We can assume that any action distribution inputs that exactly match
-                # MASK_LOGIT should be masked, saving the expensive re-computation of
-                # the mask.
-                mask = (
-                    input_dict[SampleBatch.ACTION_DIST_INPUTS]
-                    != MbagTorchModel.MASK_LOGIT
-                )
+            if ACTION_MASK in input_dict and torch.any(input_dict[ACTION_MASK]):
+                self._mask = input_dict[ACTION_MASK]
             else:
                 numpy_mask = MbagActionDistribution.get_mask_flat(
-                    self.env_config, convert_to_numpy(obs)
+                    self.env_config,
+                    convert_to_numpy(obs),
+                    line_of_sight_masking=self.line_of_sight_masking,
                 )
-                mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
-            self._flat_logits[~mask] = MbagTorchModel.MASK_LOGIT
+                self._mask = torch.from_numpy(numpy_mask).to(self._flat_logits.device)
+            self._flat_logits[~self._mask] = MbagTorchModel.MASK_LOGIT
+        else:
+            self._mask = torch.ones_like(self._flat_logits, dtype=torch.bool)
 
         return self._flat_logits, state
 
     @property
     def logits(self) -> torch.Tensor:
         return self._flat_logits
+
+    def action_mask(self):
+        return self._mask
 
     def block_id_model(self, head_input: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
@@ -469,13 +474,19 @@ class MbagTorchModel(ActorCriticModel):
             else:
                 return super().get_initial_state()
 
-    def compute_priors_and_value(self, obs, state_in=[]):
+    def compute_priors_and_value(self, obs, state_in=[], action_mask=None):
         batch_size = len(obs)
         obs = convert_to_torch_tensor(
             np.stack([self.preprocessor.transform(o) for o in obs], axis=0)
         )
-        input_dict = restore_original_dimensions(obs, self.obs_space, "torch")
+        input_dict = {
+            SampleBatch.OBS: restore_original_dimensions(obs, self.obs_space, "torch"),
+        }
         tensor_state_in = [convert_to_torch_tensor(state) for state in state_in]
+
+        if action_mask is not None:
+            action_mask = convert_to_torch_tensor(action_mask)
+            input_dict[ACTION_MASK] = action_mask
 
         with torch.no_grad():
             logits, state_out = self.forward(
