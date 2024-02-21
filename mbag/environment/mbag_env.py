@@ -788,8 +788,8 @@ class MbagEnv(object):
                         left_to_take = 0
                         break
                     else:
-                        player_inventory[slot, 1] = 0
                         left_to_take -= player_inventory[slot, 1]
+                        player_inventory[slot, 1] = 0
                 assert left_to_take == 0
             return True
 
