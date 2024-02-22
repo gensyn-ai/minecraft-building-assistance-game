@@ -369,7 +369,7 @@ def sacred_config(_log):  # noqa
             load_policies_mapping[key] = load_policies_mapping[key]
 
     if checkpoint_to_load_policies is not None:
-        checkpoint_to_load_policies_config = load_trainer_config(
+        checkpoint_to_load_policies_config: AlgorithmConfig = load_trainer_config(
             checkpoint_to_load_policies
         )
 
@@ -430,7 +430,16 @@ def sacred_config(_log):  # noqa
     }
     for policy_id in policy_ids:
         if policy_id in loaded_policy_dict:
-            policies[policy_id] = loaded_policy_dict[policy_id]
+            policy_spec = loaded_policy_dict[policy_id]
+            if not isinstance(loaded_policy_dict, PolicySpec):
+                policy_spec = PolicySpec(*cast(tuple, policy_spec))
+            policy_spec.config = (
+                checkpoint_to_load_policies_config.copy().update_from_dict(
+                    policy_spec.config
+                )
+            )
+            policy_spec.config.environment(env_config=dict(environment_params))
+            policies[policy_id] = policy_spec
             if overwrite_loaded_policy_type:
                 policies[policy_id].policy_class = policy_class
         elif policy_id in policies_to_train:

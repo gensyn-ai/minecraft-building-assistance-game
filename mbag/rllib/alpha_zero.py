@@ -680,6 +680,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         self.obs_space = observation_space
 
         self.view_requirements[ACTION_MASK] = ViewRequirement()
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -784,6 +785,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 "expected_reward": expected_rewards,
                 "expected_own_reward": expected_own_rewards,
                 ACTION_MASK: action_mask,
+                SampleBatch.ACTION_DIST_INPUTS: mcts_policies,
             },
         )
 

@@ -294,6 +294,48 @@ def test_alpha_zero_assistant_pretraining(
 
 
 @pytest.mark.uses_rllib
+def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
+    default_config, default_alpha_zero_config
+):
+    # Execute short dummy run and return the file where the checkpoint is stored.
+    checkpoint_dir = tempfile.mkdtemp()
+    ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
+            "num_training_iters": 0,
+            "log_dir": checkpoint_dir,
+        }
+    )
+    human_checkpoint_fname = glob.glob(
+        checkpoint_dir + "/MbagAlphaZero/self_play/6x6x6/random/*/*/checkpoint_000000"
+    )[0]
+    assert os.path.exists(human_checkpoint_fname)
+
+    config_updates = {
+        **default_config,
+        **default_alpha_zero_config,
+        "multiagent_mode": "cross_play",
+        "num_players": 2,
+        "mask_goal": True,
+        "use_extra_features": False,
+        "checkpoint_to_load_policies": human_checkpoint_fname,
+        "load_policies_mapping": {"human": "human"},
+        "policies_to_train": ["assistant"],
+        "model": "transformer_alpha_zero",
+        "num_training_iters": 1,
+        "pretrain": True,
+    }
+
+    result = ex.run(config_updates=config_updates).result
+    assert result is not None
+    # Make sure the assistant is doing nothing but that the human isn't!
+    horizon = config_updates["horizon"]
+    assert result["custom_metrics"]["human/num_noop_mean"] < horizon
+    assert result["custom_metrics"]["assistant/num_noop_mean"] == horizon
+
+
+@pytest.mark.uses_rllib
 def test_bc(default_config):
     result = ex.run(
         config_updates={
