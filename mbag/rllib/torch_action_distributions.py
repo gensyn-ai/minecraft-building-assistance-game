@@ -15,11 +15,12 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType
 from torch import nn
 from torch.distributions import Categorical
 
+from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import WorldSize
 
-from .torch_models import MbagModel
+from .torch_models import MbagModel, MbagTorchModel
 
 
 def kl_categorical_categorical_no_inf(p: Categorical, q: Categorical) -> torch.Tensor:
@@ -41,6 +42,62 @@ class TorchCategoricalNoInf(TorchCategorical):
 
 
 ModelCatalog.register_custom_action_dist("categorical_no_inf", TorchCategoricalNoInf)
+
+
+class MbagBilevelCategorical(TorchCategoricalNoInf):
+    def __init__(self, inputs, model: TorchModelV2):
+        super().__init__(inputs, model=model)
+        self._action_mapping: Optional[torch.Tensor] = None
+
+        assert isinstance(self.model, MbagTorchModel)
+        if inputs is self.model.logits:
+            self.model.action_dist = self
+
+    def _action_type_probs(self) -> torch.Tensor:
+        assert self._action_mapping is not None
+        batch_size = self.dist.probs.size()[0]
+        action_type_probs = torch.zeros(
+            (batch_size, MbagAction.NUM_ACTION_TYPES),
+            device=self.dist.probs.device,
+            dtype=self.dist.probs.dtype,
+        )
+        action_type_probs.index_add_(1, self._action_mapping[:, 0], self.dist.probs)
+        return action_type_probs
+
+    def entropy(self):
+        assert isinstance(self.model, MbagTorchModel)
+        if self._action_mapping is None:
+            self._action_mapping = torch.from_numpy(
+                MbagActionDistribution.get_action_mapping(self.model.env_config)
+            ).to(self.dist.probs.device)
+            self._action_types = MbagActionDistribution.get_valid_action_types(
+                self.model.env_config
+            )
+
+        action_type_probs = self._action_type_probs()
+        self._action_type_entropy = Categorical(probs=action_type_probs).entropy()
+
+        entropy = self._action_type_entropy
+
+        for action_type in self._action_types:
+            action_type_prob = action_type_probs[:, action_type]
+            sub_distribution_logits = self.dist.logits[
+                :, self._action_mapping[:, 0] == action_type
+            ]
+            sub_distribution_entropy = Categorical(
+                logits=sub_distribution_logits
+            ).entropy()
+            entropy = entropy + action_type_prob.detach() * sub_distribution_entropy
+
+        return entropy
+
+    def action_type_entropy(self):
+        return self._action_type_entropy
+
+
+ModelCatalog.register_custom_action_dist(
+    "mbag_bilevel_categorical", MbagBilevelCategorical
+)
 
 
 class MbagAutoregressiveActionDistribution(TorchDistributionWrapper):

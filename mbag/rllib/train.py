@@ -307,9 +307,10 @@ def sacred_config(_log):  # noqa
     num_unet_layers = 0
     unet_grow_factor = 2
     unet_use_bn = False
+    custom_action_dist = "categorical_no_inf"
     model_config = {
         "custom_model": f"mbag_{model}_model",
-        "custom_action_dist": "categorical_no_inf",
+        "custom_action_dist": custom_action_dist,
         "max_seq_len": max_seq_len,
         "vf_share_layers": vf_share_layers,
     }
