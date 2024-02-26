@@ -674,9 +674,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         self.env_creator = env_creator
         self.mcts = mcts_creator()
-        self.envs = [env_creator() for _ in range(config["num_envs_per_worker"])]
-        for env in self.envs:
-            env.reset()
+        self.envs = []
         self.obs_space = observation_space
 
         self.view_requirements[ACTION_MASK] = ViewRequirement()
@@ -700,7 +698,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             for state_out_part in state_out:
                 state_out_part[:] = 0
 
-        if self.config["player_index"] is not None:
+        while len(self.envs) < len(episodes):
+            env = self.env_creator()
+            env.reset()
+            self.envs.append(env)
+
+        if self.config.get("player_index") is not None:
             for env in self.envs:
                 env.set_player_index(self.config["player_index"])
         else:
