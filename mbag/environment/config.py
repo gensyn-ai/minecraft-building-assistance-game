@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Mapping
-from typing import Any, List, Literal, Optional, Tuple, Type, TypedDict, Union, cast
+from typing import Any, List, Optional, Tuple, Type, TypedDict, Union, cast
 
 from sacred.config.custom_containers import DogmaticDict, DogmaticList
 
