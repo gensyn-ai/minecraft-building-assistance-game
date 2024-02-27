@@ -30,7 +30,6 @@ from mbag.environment.config import (
     MbagConfigDict,
     MbagPlayerConfigDict,
     RewardsConfigDict,
-    RewardsConfigDictKey,
     convert_dogmatics_to_standard,
 )
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
