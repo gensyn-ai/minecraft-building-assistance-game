@@ -1,4 +1,5 @@
 import pickle
+from typing import Union
 
 from mbag.environment.config import RewardsConfigDict
 
@@ -14,13 +15,18 @@ class OldHumanDataUnpickler(pickle.Unpickler):
         return super().find_class(module, name)
 
 
-def convert_old_rewards_config_to_new(rewards_config: dict) -> RewardsConfigDict:
+def convert_old_rewards_config_to_new(
+    rewards_config: Union[RewardsConfigDict, dict]
+) -> RewardsConfigDict:
     own_reward_prop_start = rewards_config.get("own_reward_prop", 0.0)
     own_reward_prop_horizon = rewards_config.get("own_reward_prop_horizon", None)
     if own_reward_prop_horizon is None:
         own_reward_prop = own_reward_prop_start
     else:
-        if int(own_reward_prop_horizon) != own_reward_prop_horizon:
+        if (
+            not isinstance(own_reward_prop_horizon, (int, float))
+            or int(own_reward_prop_horizon) != own_reward_prop_horizon
+        ):
             raise ValueError(
                 f"own_reward_prop_horizon must be an integer, got {own_reward_prop_horizon}"
             )
