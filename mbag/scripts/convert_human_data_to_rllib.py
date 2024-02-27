@@ -11,7 +11,10 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from sacred import Experiment
 
 from mbag.agents.action_distributions import MbagActionDistribution
-from mbag.compatibility_utils import OldHumanDataUnpickler
+from mbag.compatibility_utils import (
+    OldHumanDataUnpickler,
+    convert_old_rewards_config_to_new,
+)
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
@@ -68,6 +71,12 @@ def main(
     if hasattr(episode_info, "env_config"):
         _log.info("using env config from EpisodeInfo")
         mbag_config = episode_info.env_config
+
+    mbag_config["rewards"] = convert_old_rewards_config_to_new(mbag_config["rewards"])
+    for player_config in mbag_config["players"]:
+        player_config["rewards"] = convert_old_rewards_config_to_new(
+            player_config["rewards"]
+        )
 
     sample_batch_builder = SampleBatchBuilder()
     json_writer = JsonWriter(out_dir)
