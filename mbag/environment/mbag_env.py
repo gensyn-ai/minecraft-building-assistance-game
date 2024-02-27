@@ -74,12 +74,7 @@ class MbagEnv(object):
     """The number of blocks given in a GIVE_BLOCK action."""
 
     def __init__(self, config: MbagConfigDict):
-        # TODO: remove print statements from this file.
-        print("[before get_config] config:", config)
-        print("[before get_config] config['rewards']:", config["rewards"])
         self.config = self.get_config(config)
-        print("[after get_config] config:", config)
-        print("[after get_config] config['rewards']:", config["rewards"])
 
         self.world_obs_shape = (num_world_obs_channels,) + self.config["world_size"]
         self.observation_space = spaces.Tuple(
@@ -131,10 +126,8 @@ class MbagEnv(object):
         for player_index in range(self.config["num_players"]):
             player_reward_schedule: Dict[str, Schedule] = {}
             reward_config = self._get_reward_config_for_player(player_index)
-            print("reward_config", reward_config)
             for key, value in reward_config.items():
                 if isinstance(value, list):
-                    print(f"{key}:", value)
                     player_reward_schedule[key] = PiecewiseSchedule(
                         endpoints=value, outside_value=value[-1][-1]
                     )
