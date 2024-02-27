@@ -1,19 +1,19 @@
 from sacred.config.custom_containers import DogmaticDict, DogmaticList
 
-from mbag.environment.mbag_env import _convert_dogmatics_to_standard
+from mbag.environment.config import convert_dogmatics_to_standard
 
 
 def test_dogmatic_dict_conversion():
     dogmatic_dict = DogmaticDict()
     dogmatic_dict["key"] = "value"
-    converted = _convert_dogmatics_to_standard(dogmatic_dict)
+    converted = convert_dogmatics_to_standard(dogmatic_dict)
     assert isinstance(converted, dict)
     assert converted == {"key": "value"}
 
 
 def test_dogmatic_list_conversion():
     dogmatic_list = DogmaticList(["item1", "item2"])
-    converted = _convert_dogmatics_to_standard(dogmatic_list)
+    converted = convert_dogmatics_to_standard(dogmatic_list)
     assert isinstance(converted, list)
     assert converted == ["item1", "item2"]
 
@@ -25,7 +25,7 @@ def test_standard_objects():
         "string": "hello",
         "int": 10,
     }
-    converted = _convert_dogmatics_to_standard(data)
+    converted = convert_dogmatics_to_standard(data)
     assert converted == data
 
 
@@ -37,7 +37,7 @@ def test_nested_combinations():
         "standard_list": [1, 2, 3],
         "string": "hello",
     }
-    converted = _convert_dogmatics_to_standard(nested_structure)
+    converted = convert_dogmatics_to_standard(nested_structure)
     expected_structure = {
         "dogmatic_list": [{"inner_key": "value"}],
         "standard_list": [1, 2, 3],

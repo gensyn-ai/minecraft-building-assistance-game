@@ -137,16 +137,6 @@ class MbagEnv(object):
                     raise ValueError(f"Invalid reward config for {key}: {value}")
             self._reward_schedules.append(player_reward_schedule)
 
-        # Commented out because now the environment DOES support mixed humans and non-humans working together
-        # if any(
-        #     player_config["is_human"] for player_config in self.config["players"]
-        # ) and any(
-        #     not player_config["is_human"] for player_config in self.config["players"]
-        # ):
-        #     raise ValueError(
-        #         "environment does not yet support human and non-human players at the same time"
-        #     )
-
     @staticmethod
     def get_config(partial_config: MbagConfigDict) -> MbagConfigDict:
         """Get a fully populated config dict by adding defaults where necessary."""
@@ -414,12 +404,12 @@ class MbagEnv(object):
 
         shape = small_goal.size
 
-        goal.blocks[1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1] = (
-            small_goal.blocks
-        )
-        goal.block_states[1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1] = (
-            small_goal.block_states
-        )
+        goal.blocks[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.blocks
+        goal.block_states[
+            1 : shape[0] + 1, 1 : shape[1] + 1, 1 : shape[2] + 1
+        ] = small_goal.block_states
 
         if not self.config["abilities"]["inf_blocks"]:
             for index, block in enumerate(MinecraftBlocks.PLACEABLE_BLOCK_IDS):
@@ -936,9 +926,9 @@ class MbagEnv(object):
             )
 
         for other_player_index in range(self.config["num_players"]):
-            world_obs[LAST_INTERACTED][self.last_interacted == other_player_index] = (
-                player_marker_map[other_player_index]
-            )
+            world_obs[LAST_INTERACTED][
+                self.last_interacted == other_player_index
+            ] = player_marker_map[other_player_index]
 
         return (
             world_obs,

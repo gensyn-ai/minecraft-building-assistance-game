@@ -1,4 +1,7 @@
-from typing import List, Optional, Tuple, Type, TypedDict, Union, cast
+from collections.abc import Iterable, Mapping
+from typing import Any, List, Literal, Optional, Tuple, Type, TypedDict, Union, cast
+
+from sacred.config.custom_containers import DogmaticDict, DogmaticList
 
 from .goals import GoalGenerator, GoalGeneratorConfig, TransformedGoalGenerator
 from .types import WorldSize
@@ -300,3 +303,18 @@ def merge_configs(config_a: MbagConfigDict, config_b: MbagConfigDict) -> MbagCon
     """
 
     return cast(MbagConfigDict, _merge_configs(config_a, config_b))
+
+
+def convert_dogmatics_to_standard(obj: Any) -> Any:
+    """Recursively converts an object with Sacred Dogmatics to a standard Python object."""
+    if isinstance(obj, DogmaticDict):
+        return {k: convert_dogmatics_to_standard(v) for k, v in obj.items()}
+    elif isinstance(obj, DogmaticList):
+        return [convert_dogmatics_to_standard(elem) for elem in obj]
+    elif isinstance(obj, Mapping):
+        return {k: convert_dogmatics_to_standard(v) for k, v in obj.items()}
+    elif isinstance(obj, Iterable) and not isinstance(obj, str):
+        # Exclude strings as they are also iterable but should not be treated as a list of characters here.
+        return [convert_dogmatics_to_standard(elem) for elem in obj]
+    else:
+        return obj

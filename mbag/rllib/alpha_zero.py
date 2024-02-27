@@ -369,7 +369,10 @@ class MbagMCTSNode(Node):
                 ) / self.child_priors[type_mask].sum()
 
                 num_valid_actions = type_mask.astype(int).sum()
-                alpha = self.mcts.dirichlet_action_subtype_noise_multiplier / num_valid_actions
+                alpha = (
+                    self.mcts.dirichlet_action_subtype_noise_multiplier
+                    / num_valid_actions
+                )
                 dirichlet_noise = np.random.dirichlet(np.full(num_valid_actions, alpha))
                 self.child_priors[type_mask] = (
                     1 - self.mcts.dir_epsilon
