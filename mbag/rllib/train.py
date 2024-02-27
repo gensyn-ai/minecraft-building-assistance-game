@@ -244,7 +244,7 @@ def sacred_config(_log):  # noqa
     simple_optimizer = True
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
-    grad_clip = 0.1
+    grad_clip = 10
     gamma = 0.95
     gae_lambda = 0.98
     vf_share_layers = False
