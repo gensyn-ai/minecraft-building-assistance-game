@@ -46,6 +46,7 @@ from .torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictor
 
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
+EXPECTED_REWARDS = "expected_rewardS"
 
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,9 @@ class MbagMCTSNode(Node):
         )
 
     def best_action(self, force_python_impl=False) -> int:
+        if self.mcts._strict_mode:
+            force_python_impl = True
+
         if self.mcts.init_q_with_max:
             init_q_value = self.max_value
         else:
@@ -198,93 +202,12 @@ class MbagMCTSNode(Node):
             )
 
         if self.mcts.use_bilevel_action_selection:
-            action_type_c = None
-            try:
-                import _mbag
-
-                action_type_c = _mbag.mcts_best_action(
-                    self.action_type_total_value,
-                    self.action_type_number_visits,
-                    self.action_type_priors,
-                    self.number_visits,
-                    self.mcts.c_puct,
-                    init_q_value,
-                    self.max_value,
-                    self.min_value,
-                    np.nonzero(self.valid_action_types)[0],
-                )
-            except ImportError:
-                if not force_python_impl:
-                    logger.warning("C implementation of best_action not found")
-
-            if force_python_impl or action_type_c is None:
-                action_type_score = (
-                    self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
-                )
-                action_type_score[~self.valid_action_types] = -np.inf
-                action_type = int(np.argmax(action_type_score))
-                assert action_type == action_type_c
-            else:
-                action_type = action_type_c
-
-            action_type_slice = self.action_type_slices[action_type]
-            valid_action_indices = (
-                np.nonzero(self.valid_actions[action_type_slice])[0]
-                + action_type_slice.start
+            return self._best_action_bilevel(
+                init_q_value=init_q_value,
+                force_python_impl=force_python_impl,
             )
-
-            action_c = None
-            try:
-                import _mbag
-
-                if self.mcts.fix_bilevel_action_selection:
-                    number_visits = max(self.action_type_number_visits[action_type], 1)
-                    if not self.mcts.init_q_with_max:
-                        init_q_value = (
-                            self.action_type_total_value[action_type] / number_visits
-                            if number_visits > 0
-                            else self.min_value
-                        )
-                    prior_scale = 1.0 / self.action_type_priors[action_type]
-                else:
-                    number_visits = self.number_visits
-                    prior_scale = 1.0
-
-                action_c = _mbag.mcts_best_action(
-                    self.child_total_value,
-                    self.child_number_visits,
-                    self.child_priors,
-                    number_visits,
-                    self.mcts.c_puct,
-                    init_q_value,
-                    self.max_value,
-                    self.min_value,
-                    valid_action_indices,
-                    prior_scale=prior_scale,
-                )
-            except ImportError:
-                if not force_python_impl:
-                    logger.warning("C implementation of best_action not found")
-
-            if force_python_impl or action_c is None:
-                if len(valid_action_indices) == 1:
-                    action = int(valid_action_indices[0])
-                    assert action == action_c
-                else:
-                    child_score = self.child_Q(
-                        valid_action_indices
-                    ) + self.mcts.c_puct * self.child_U(valid_action_indices)
-                    action = int(valid_action_indices[np.argmax(child_score)])
-                    assert (
-                        child_score[np.where(valid_action_indices == action_c)[0][0]]
-                        >= child_score[np.where(valid_action_indices == action)[0][0]]
-                        - 1e-4
-                    )
-            else:
-                action = action_c
-
-            return action
         else:
+            action: int
             action_c = None
             try:
                 import _mbag
@@ -311,6 +234,94 @@ class MbagMCTSNode(Node):
                 action = action_c
 
             return action
+
+    def _best_action_bilevel(self, init_q_value: float, force_python_impl: bool) -> int:
+        action_type_c = None
+        try:
+            import _mbag
+
+            action_type_c = _mbag.mcts_best_action(
+                self.action_type_total_value,
+                self.action_type_number_visits,
+                self.action_type_priors,
+                self.number_visits,
+                self.mcts.c_puct,
+                init_q_value,
+                self.max_value,
+                self.min_value,
+                np.nonzero(self.valid_action_types)[0],
+            )
+        except ImportError:
+            if not force_python_impl:
+                logger.warning("C implementation of best_action not found")
+
+        if force_python_impl or action_type_c is None:
+            action_type_score = (
+                self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
+            )
+            action_type_score[~self.valid_action_types] = -np.inf
+            action_type = int(np.argmax(action_type_score))
+            assert action_type == action_type_c
+        else:
+            action_type = action_type_c
+
+        action_type_slice = self.action_type_slices[action_type]
+        valid_action_indices = (
+            np.nonzero(self.valid_actions[action_type_slice])[0]
+            + action_type_slice.start
+        )
+
+        action_c = None
+        try:
+            import _mbag
+
+            if self.mcts.fix_bilevel_action_selection:
+                number_visits = max(self.action_type_number_visits[action_type], 1)
+                if not self.mcts.init_q_with_max:
+                    init_q_value = (
+                        self.action_type_total_value[action_type] / number_visits
+                        if number_visits > 0
+                        else self.min_value
+                    )
+                prior_scale = 1.0 / self.action_type_priors[action_type]
+            else:
+                number_visits = self.number_visits
+                prior_scale = 1.0
+
+            action_c = _mbag.mcts_best_action(
+                self.child_total_value,
+                self.child_number_visits,
+                self.child_priors,
+                number_visits,
+                self.mcts.c_puct,
+                init_q_value,
+                self.max_value,
+                self.min_value,
+                valid_action_indices,
+                prior_scale=prior_scale,
+            )
+        except ImportError:
+            if not force_python_impl:
+                logger.warning("C implementation of best_action not found")
+
+        if force_python_impl or action_c is None:
+            if len(valid_action_indices) == 1:
+                action = int(valid_action_indices[0])
+                assert action == action_c
+            else:
+                child_score = self.child_Q(
+                    valid_action_indices
+                ) + self.mcts.c_puct * self.child_U(valid_action_indices)
+                action = int(valid_action_indices[np.argmax(child_score)])
+                assert (
+                    child_score[np.where(valid_action_indices == action_c)[0][0]]
+                    >= child_score[np.where(valid_action_indices == action)[0][0]]
+                    - 1e-4
+                )
+        else:
+            action = action_c
+
+        return action
 
     def expand(
         self,
@@ -455,12 +466,19 @@ class MbagMCTS(MCTS):
     _temperature_schedule: Optional[Schedule]
 
     def __init__(
-        self, model, mcts_param, gamma: float, use_critic=True, use_goal_predictor=True
+        self,
+        model,
+        mcts_param,
+        gamma: float,
+        use_critic=True,
+        use_goal_predictor=True,
+        _strict_mode=False,
     ):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
         self.use_goal_predictor = use_goal_predictor
+        self._strict_mode = _strict_mode
 
         self._temperature_schedule = None
         if mcts_param["temperature_schedule"] is not None:
@@ -670,6 +688,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 config["gamma"],
                 use_critic=config["use_critic"],
                 use_goal_predictor=config["use_goal_predictor"],
+                _strict_mode=config.get("_strict_mode", False),
             )
 
         self.env_creator = env_creator
@@ -771,9 +790,24 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
 
             for env_index, episode in enumerate(episodes):
+                if self.config["_strict_mode"] and not (
+                    self.config["use_goal_predictor"]
+                    or self.config["use_other_agent_action_predictor"]
+                ):
+                    # If there was an expected reward, make sure it matches the actual
+                    # reward given by the environment so we're not out of sync.
+                    if EXPECTED_REWARDS in episode.user_data:
+                        agent_index = input_dict[SampleBatch.AGENT_INDEX][env_index]
+                        agent_id = episode.get_agents()[agent_index]
+                        assert (
+                            episode.last_reward_for(agent_id)
+                            == episode.user_data[EXPECTED_REWARDS]
+                        )
+
                 if episode.length == 0:
                     episode.user_data[MCTS_POLICIES] = []
                 episode.user_data[MCTS_POLICIES].append(mcts_policies[env_index])
+                episode.user_data[EXPECTED_REWARDS] = expected_rewards[env_index]
 
         return (
             np.array(actions),
@@ -1008,9 +1042,9 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.num_steps_sampled_before_learning_starts = 0
         self.pretrain = False
         self.player_index: Optional[int] = None
+        self._strict_mode = False
 
         del self.vf_share_layers
-        # self.mcts_config["temperature_schedule"] = None
 
     def training(
         self,
@@ -1027,6 +1061,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         num_steps_sampled_before_learning_starts=NotProvided,
         pretrain=NotProvided,
         player_index=NotProvided,
+        _strict_mode=False,
         **kwargs,
     ):
         """
@@ -1051,6 +1086,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
                 actions.
             player_index (int): Override the AGENT_INDEX field in the sample
                 batch with this value.
+            _strict_mode (bool): Enables various assertions that may slow down or
+                mess up training in practice but are useful for testing.
         """
 
         super().training(*args, **kwargs)
@@ -1083,6 +1120,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             self.pretrain = pretrain
         if player_index is not NotProvided:
             self.player_index = player_index
+        if _strict_mode is not NotProvided:
+            self._strict_mode = _strict_mode
 
     def update_from_dict(self, config_dict):
         if "mcts_config" in config_dict and isinstance(config_dict, dict):

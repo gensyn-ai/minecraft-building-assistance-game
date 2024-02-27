@@ -60,6 +60,7 @@ def dummy_ppo_checkpoint_fname(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_single_agent(default_config):
     result = ex.run(
         config_updates={
@@ -73,6 +74,23 @@ def test_single_agent(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
+def test_ppo_with_bilevel_categorical(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagPPO",
+            "num_training_iters": 10,
+            "custom_action_dist": "mbag_bilevel_categorical",
+        }
+    ).result
+
+    assert result is not None
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_lstm(default_config):
     result = ex.run(
         config_updates={
@@ -89,6 +107,7 @@ def test_lstm(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_transformer(default_config):
     result = ex.run(
         config_updates={
@@ -122,6 +141,7 @@ def test_transformer(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
@@ -142,6 +162,7 @@ def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
@@ -155,6 +176,7 @@ def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_train_together(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
@@ -172,6 +194,7 @@ def test_train_together(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_alpha_zero(default_config, default_alpha_zero_config):
     result = ex.run(
         config_updates={
@@ -184,6 +207,22 @@ def test_alpha_zero(default_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
+def test_alpha_zero_strict_mode(default_config, default_alpha_zero_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
+            "num_training_iters": 2,
+            "strict_mode": True,
+        }
+    ).result
+    assert result is not None
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_alpha_zero_multiple_envs(default_config, default_alpha_zero_config):
     result = ex.run(
         config_updates={
@@ -198,6 +237,7 @@ def test_alpha_zero_multiple_envs(default_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_alpha_zero_assistant(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
 ):
@@ -221,6 +261,7 @@ def test_alpha_zero_assistant(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_lstm_alpha_zero_assistant(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
 ):
@@ -248,6 +289,7 @@ def test_lstm_alpha_zero_assistant(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_alpha_zero_assistant_with_lowest_block_agent(
     default_config, default_alpha_zero_config
 ):
@@ -270,6 +312,7 @@ def test_alpha_zero_assistant_with_lowest_block_agent(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_alpha_zero_assistant_pretraining(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
 ):
@@ -294,6 +337,7 @@ def test_alpha_zero_assistant_pretraining(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
     default_config, default_alpha_zero_config
 ):
@@ -336,6 +380,7 @@ def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_bc(default_config):
     result = ex.run(
         config_updates={

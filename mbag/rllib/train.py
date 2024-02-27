@@ -244,7 +244,7 @@ def sacred_config(_log):  # noqa
     simple_optimizer = True
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
-    grad_clip = 0.1
+    grad_clip = 10
     gamma = 0.95
     gae_lambda = 0.98
     vf_share_layers = False
@@ -263,6 +263,7 @@ def sacred_config(_log):  # noqa
     use_goal_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
     pretrain = False
+    strict_mode = False
 
     # MCTS
     puct_coefficient = 1.0
@@ -590,6 +591,7 @@ def sacred_config(_log):  # noqa
                 "storage_unit": StorageUnit.FRAGMENTS,
             },
             pretrain=pretrain,
+            _strict_mode=strict_mode,
         )
         evaluation_mcts_config = dict(mcts_config)
         evaluation_mcts_config["argmax_tree_policy"] = True
