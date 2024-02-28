@@ -479,7 +479,7 @@ class MbagMCTS(MCTS):
         self.use_bilevel_action_selection = mcts_param.get(
             "use_bilevel_action_selection", False
         )
-        self.dirichlet_action_subtype_noise_multiplier = mcts_param.get(
+        self.dirichlet_action_subtype_noise_multiplier: float = mcts_param.get(
             "dirichlet_action_subtype_noise_multiplier", 10
         )
 
