@@ -380,7 +380,10 @@ class MbagMCTSNode(Node):
                 ) / self.child_priors[type_mask].sum()
 
                 num_valid_actions = type_mask.astype(int).sum()
-                alpha = 10 / num_valid_actions
+                alpha = (
+                    self.mcts.dirichlet_action_subtype_noise_multiplier
+                    / num_valid_actions
+                )
                 dirichlet_noise = np.random.dirichlet(np.full(num_valid_actions, alpha))
                 self.child_priors[type_mask] = (
                     1 - self.mcts.dir_epsilon
@@ -493,6 +496,9 @@ class MbagMCTS(MCTS):
         self.init_q_with_max = mcts_param.get("init_q_with_max", False)
         self.use_bilevel_action_selection = mcts_param.get(
             "use_bilevel_action_selection", False
+        )
+        self.dirichlet_action_subtype_noise_multiplier: float = mcts_param.get(
+            "dirichlet_action_subtype_noise_multiplier", 10
         )
 
         # Previously, we used a version of bilevel action selection that wasn't

@@ -88,7 +88,7 @@ def main(
         for checkpoint in checkpoints:
             if checkpoint is not None:
                 out_dir = os.path.join(
-                    os.path.dirname(checkpoint),
+                    checkpoint,
                     f"evaluate_{experiment_name}{time_str}",
                 )
                 break
