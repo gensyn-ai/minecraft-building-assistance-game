@@ -525,6 +525,7 @@ class MbagEnv(object):
                 cast(Literal[1, 2], action.action_type),
                 action.block_location,
                 action.block_id,
+                random_seed=self.timestep,
             )
         else:
             if self._collides_with_players(
@@ -540,6 +541,7 @@ class MbagEnv(object):
                     other_player_locations=self.player_locations[:player_index]
                     + self.player_locations[player_index + 1 :],
                     is_human=self.config["players"][player_index]["is_human"],
+                    random_seed=self.timestep,
                 )
 
         if place_break_result is None:
