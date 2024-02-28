@@ -213,8 +213,11 @@ def test_alpha_zero_strict_mode(default_config, default_alpha_zero_config):
         config_updates={
             **default_config,
             **default_alpha_zero_config,
+            "use_goal_predictor": False,
             "num_training_iters": 2,
             "strict_mode": True,
+            "action_reward": [(0, -0.2), (100_000, 0)],
+            "num_workers": 0,
         }
     ).result
     assert result is not None

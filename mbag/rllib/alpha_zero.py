@@ -18,6 +18,7 @@ from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_st
 from ray.rllib.models import ActionDistribution, ModelV2
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
+from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import concat_samples
 from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
 from ray.rllib.policy.torch_policy import TorchPolicy
@@ -46,7 +47,7 @@ from .torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictor
 
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
-EXPECTED_REWARDS = "expected_rewardS"
+EXPECTED_REWARDS = "expected_rewards"
 
 
 logger = logging.getLogger(__name__)
@@ -677,15 +678,21 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         model = self.model
         assert isinstance(model, MbagTorchModel)
 
+        self.global_timestep_for_envs = 0
+
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
             # We should never use Malmo in the env model.
             env_config = copy.deepcopy(config["env_config"])
             env_config["malmo"]["use_malmo"] = False
             env = env_creator(env_config)
-            return MbagEnvModel(
+            env_model = MbagEnvModel(
                 env, env_config, line_of_sight_masking=model.line_of_sight_masking
             )
+            unwrap_mbag_env(env_model).update_global_timestep(
+                self.global_timestep_for_envs
+            )
+            return env_model
 
         def mcts_creator():
             return MbagMCTS(
@@ -708,6 +715,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
         )
+
+    def set_is_policy_to_train(self, is_policy_to_train: bool):
+        self.is_policy_to_train = is_policy_to_train
+
+        if not self.is_policy_to_train:
+            # Set global timestep to a huge value so that we get whatever the reward
+            # shaping schedule is at the end of training.
+            self.global_timestep_for_envs = 2**63 - 1
 
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
@@ -798,16 +813,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             for env_index, episode in enumerate(episodes):
                 if self.config["_strict_mode"] and not (
                     self.config["use_goal_predictor"]
-                    or self.config["use_other_agent_action_predictor"]
+                    or self.envs[env_index].config["num_players"] > 1
                 ):
                     # If there was an expected reward, make sure it matches the actual
                     # reward given by the environment so we're not out of sync.
                     if EXPECTED_REWARDS in episode.user_data:
-                        agent_index = input_dict[SampleBatch.AGENT_INDEX][env_index]
-                        agent_id = episode.get_agents()[agent_index]
-                        assert (
-                            episode.last_reward_for(agent_id)
-                            == episode.user_data[EXPECTED_REWARDS]
+                        assert np.isclose(
+                            input_dict[SampleBatch.REWARDS][env_index],
+                            episode.user_data[EXPECTED_REWARDS],
                         )
 
                 if episode.length == 0:
@@ -1031,6 +1044,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             )
         self.mcts.update_temperature(global_timestep=global_vars["timestep"])
 
+        if self.is_policy_to_train:
+            self.global_timestep_for_envs = global_vars["timestep"]
+        for env in self.envs:
+            unwrap_mbag_env(env).update_global_timestep(self.global_timestep_for_envs)
+
 
 class MbagAlphaZeroConfig(AlphaZeroConfig):
     def __init__(self, algo_class=None):
@@ -1048,7 +1066,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.num_steps_sampled_before_learning_starts = 0
         self.pretrain = False
         self.player_index: Optional[int] = None
-        self._strict_mode = False
+        self.strict_mode = False
 
         del self.vf_share_layers
 
@@ -1067,7 +1085,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         num_steps_sampled_before_learning_starts=NotProvided,
         pretrain=NotProvided,
         player_index=NotProvided,
-        _strict_mode=False,
+        _strict_mode=NotProvided,
         **kwargs,
     ):
         """
@@ -1145,6 +1163,28 @@ class MbagAlphaZero(AlphaZero):
 
         if not config.use_replay_buffer:
             self.local_replay_buffer = None
+
+        is_policy_to_train_dict = {}
+        assert self.workers is not None
+        policy_ids = self.workers.local_worker().foreach_policy(
+            lambda policy, policy_id, *args, **kwargs: policy_id
+        )
+        for policy_id in policy_ids:
+            is_policy_to_train_dict[
+                policy_id
+            ] = self.workers.local_worker().is_policy_to_train(
+                policy_id, None  # type: ignore
+            )
+
+        def set_is_policy_to_train(
+            policy: Policy,
+            policy_id: PolicyID,
+            is_policy_to_train_dict=is_policy_to_train_dict,
+        ):
+            if isinstance(policy, MbagAlphaZeroPolicy):
+                policy.set_is_policy_to_train(is_policy_to_train_dict[policy_id])
+
+        self.workers.foreach_policy_to_train(set_is_policy_to_train)
 
     @classmethod
     def get_default_config(cls):
