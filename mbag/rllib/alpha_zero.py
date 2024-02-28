@@ -675,10 +675,14 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             **kwargs,
         )
 
+        self.set_training(False)
+        # We default to setting policies as not training and only update this when
+        # train() is actually called. This ensures that if policies are loaded for
+        # evaluation then the shaped reward annealing is not used.
+
         model = self.model
         assert isinstance(model, MbagTorchModel)
-
-        self.global_timestep_for_envs = 0
+        line_of_sight_masking = model.line_of_sight_masking
 
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
@@ -687,7 +691,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             env_config["malmo"]["use_malmo"] = False
             env = env_creator(env_config)
             env_model = MbagEnvModel(
-                env, env_config, line_of_sight_masking=model.line_of_sight_masking
+                env, env_config, line_of_sight_masking=line_of_sight_masking
             )
             unwrap_mbag_env(env_model).update_global_timestep(
                 self.global_timestep_for_envs
@@ -716,13 +720,15 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
         )
 
-    def set_is_policy_to_train(self, is_policy_to_train: bool):
-        self.is_policy_to_train = is_policy_to_train
+    def set_training(self, training: bool):
+        self._training = training
 
-        if not self.is_policy_to_train:
+        if not self._training:
             # Set global timestep to a huge value so that we get whatever the reward
             # shaping schedule is at the end of training.
             self.global_timestep_for_envs = 2**63 - 1
+        else:
+            self.global_timestep_for_envs = getattr(self, "global_timestep", 0)
 
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
@@ -811,9 +817,13 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
 
             for env_index, episode in enumerate(episodes):
-                if self.config["_strict_mode"] and not (
-                    self.config["use_goal_predictor"]
-                    or self.envs[env_index].config["num_players"] > 1
+                if (
+                    self.config["_strict_mode"]
+                    and self._training
+                    and not (
+                        self.config["use_goal_predictor"]
+                        or self.envs[env_index].config["num_players"] > 1
+                    )
                 ):
                     # If there was an expected reward, make sure it matches the actual
                     # reward given by the environment so we're not out of sync.
@@ -1044,7 +1054,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             )
         self.mcts.update_temperature(global_timestep=global_vars["timestep"])
 
-        if self.is_policy_to_train:
+        if self._training:
             self.global_timestep_for_envs = global_vars["timestep"]
         for env in self.envs:
             unwrap_mbag_env(env).update_global_timestep(self.global_timestep_for_envs)
@@ -1164,6 +1174,16 @@ class MbagAlphaZero(AlphaZero):
         if not config.use_replay_buffer:
             self.local_replay_buffer = None
 
+        self._have_set_policies_training = False
+
+    @classmethod
+    def get_default_config(cls):
+        return MbagAlphaZeroConfig()
+
+    def get_default_policy_class(self, config):
+        return MbagAlphaZeroPolicy
+
+    def _set_policies_training(self):
         is_policy_to_train_dict = {}
         assert self.workers is not None
         policy_ids = self.workers.local_worker().foreach_policy(
@@ -1176,25 +1196,27 @@ class MbagAlphaZero(AlphaZero):
                 policy_id, None  # type: ignore
             )
 
-        def set_is_policy_to_train(
+        def set_policy_training(
             policy: Policy,
             policy_id: PolicyID,
             is_policy_to_train_dict=is_policy_to_train_dict,
         ):
             if isinstance(policy, MbagAlphaZeroPolicy):
-                policy.set_is_policy_to_train(is_policy_to_train_dict[policy_id])
+                policy.set_training(is_policy_to_train_dict[policy_id])
 
-        self.workers.foreach_policy_to_train(set_is_policy_to_train)
-
-    @classmethod
-    def get_default_config(cls):
-        return MbagAlphaZeroConfig()
-
-    def get_default_policy_class(self, config):
-        return MbagAlphaZeroPolicy
+        self.workers.foreach_policy_to_train(set_policy_training)
 
     def training_step(self) -> ResultDict:
         assert self.workers is not None
+
+        if not self._have_set_policies_training:
+            # Only policies that are set as training will use reward shaping schedules;
+            # others will just use the final point in the schedule.
+            # We only set the policies as training once train() is actually called so
+            # that if policies are loaded for evaluation then the shaped reward
+            # annealing is not used.
+            self._set_policies_training()
+            self._have_set_policies_training = True
 
         # Sample n MultiAgentBatches from n workers.
         with self._timers[SAMPLE_TIMER]:
