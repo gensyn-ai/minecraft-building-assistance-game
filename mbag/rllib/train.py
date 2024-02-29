@@ -31,7 +31,6 @@ from mbag.environment.config import (
     MbagPlayerConfigDict,
     RewardsConfigDict,
     RewardsConfigDictKey,
-    convert_dogmatics_to_standard,
 )
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
@@ -46,6 +45,7 @@ from mbag.environment.goals.transforms import (
 )
 from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
+from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
 
 from .callbacks import MbagCallbacks
 from .os_utils import available_cpu_count

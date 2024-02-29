@@ -1,13 +1,10 @@
-from collections.abc import Iterable, Mapping
-from typing import Any, List, Literal, Optional, Tuple, Type, TypedDict, Union, cast
-
-from sacred.config.custom_containers import DogmaticDict, DogmaticList
+from typing import List, Literal, Optional, Tuple, Type, TypedDict, Union, cast
 
 from .goals import GoalGenerator, GoalGeneratorConfig, TransformedGoalGenerator
 from .types import WorldSize
 
-RewardEndpoints = List[Tuple[int, float]]
-RewardType = Union[float, RewardEndpoints]
+RewardScheduleEndpoints = List[Tuple[int, float]]
+RewardSchedule = Union[float, RewardScheduleEndpoints]
 
 
 class MalmoConfigDict(TypedDict, total=False):
@@ -53,33 +50,33 @@ class MalmoConfigDict(TypedDict, total=False):
 
 
 class RewardsConfigDict(TypedDict, total=False):
-    noop: RewardType
+    noop: RewardSchedule
     """
     The reward for doing any action which does nothing. This is usually either zero,
     or negative to discourage noops.
     """
 
-    action: RewardType
+    action: RewardSchedule
     """
     The reward for doing any action which is not a noop. This could be negative to
     introduce some cost for acting.
     """
 
-    place_wrong: RewardType
+    place_wrong: RewardSchedule
     """
     The reward for placing a block which is not correct, but in a place where a block
     should go. The negative of this is also given for breaking a block which is not
     correct.
     """
 
-    own_reward_prop: RewardType
+    own_reward_prop: RewardSchedule
     """
     A number from 0 to 1. At 0, it gives the normal reward function which takes into
     account all players actions. At 1, it gives only reward for actions that the
     specific player took.
     """
 
-    get_resources: RewardType
+    get_resources: RewardSchedule
     """
     The reward for getting a resource block from the palette that the player
     did not have in their inventory previously.
@@ -308,18 +305,3 @@ def merge_configs(config_a: MbagConfigDict, config_b: MbagConfigDict) -> MbagCon
     """
 
     return cast(MbagConfigDict, _merge_configs(config_a, config_b))
-
-
-def convert_dogmatics_to_standard(obj: Any) -> Any:
-    """Recursively converts an object with Sacred Dogmatics to a standard Python object."""
-    if isinstance(obj, DogmaticDict):
-        return {k: convert_dogmatics_to_standard(v) for k, v in obj.items()}
-    elif isinstance(obj, DogmaticList):
-        return [convert_dogmatics_to_standard(elem) for elem in obj]
-    elif isinstance(obj, Mapping):
-        return {k: convert_dogmatics_to_standard(v) for k, v in obj.items()}
-    elif isinstance(obj, Iterable) and not isinstance(obj, str):
-        # Exclude strings as they are also iterable but should not be treated as a list of characters here.
-        return [convert_dogmatics_to_standard(elem) for elem in obj]
-    else:
-        return obj

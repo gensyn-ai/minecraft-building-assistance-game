@@ -1,6 +1,6 @@
 from sacred.config.custom_containers import DogmaticDict, DogmaticList
 
-from mbag.environment.config import convert_dogmatics_to_standard
+from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
 
 
 def test_dogmatic_dict_conversion():
