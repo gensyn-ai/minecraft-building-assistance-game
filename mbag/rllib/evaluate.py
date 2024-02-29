@@ -77,6 +77,8 @@ def main(
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    env_config_updates.setdefault("randomize_first_episode_length", False)
+
     algorithm_config_updates.setdefault("num_workers", 0)
     algorithm_config_updates.setdefault("num_envs_per_worker", 1)
     algorithm_config_updates.setdefault("evaluation_num_workers", 0)

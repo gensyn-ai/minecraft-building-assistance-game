@@ -113,7 +113,6 @@ class MbagEnv(object):
 
         if self.config["malmo"]["use_malmo"]:
             self.malmo_interface = MalmoInterface(self.config)
-            self.malmo_client = self.malmo_interface.get_malmo_client()
 
         self.global_timestep = 0
 
@@ -315,7 +314,10 @@ class MbagEnv(object):
                 for player_index, action_tuple in human_actions:
                     self.human_action_queues[player_index].append(action_tuple)
                 for player_index, action_queue in enumerate(self.human_action_queues):
-                    if len(action_queue) > 0:
+                    if (
+                        len(action_queue) > 0
+                        and self.config["players"][player_index]["is_human"]
+                    ):
                         any_human_actions = True
                 if any_human_actions:
                     break
@@ -330,8 +332,12 @@ class MbagEnv(object):
                     human_action_tuple[0] != MbagAction.NOOP
                     and not self.config["players"][player_index]["is_human"]
                 ):
+                    human_action = MbagAction(
+                        human_action_tuple, self.config["world_size"]
+                    )
                     logger.warning(
-                        f"received human action for non-human player {player_index}"
+                        f"received human action for non-human player {player_index}: "
+                        f"{human_action}"
                     )
 
             if not any_human_actions and not self.malmo_interface.running_ai_actions():

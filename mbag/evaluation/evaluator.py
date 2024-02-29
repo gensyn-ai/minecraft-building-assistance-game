@@ -116,7 +116,7 @@ class MbagEvaluator(object):
                 raise exception
 
         if self.env.config["malmo"]["use_malmo"]:
-            self.env.malmo_client.end_mission()
+            self.env.malmo_interface.end_episode()
 
         episode_info = EpisodeInfo(
             env_config=copy.deepcopy(self.env.config),

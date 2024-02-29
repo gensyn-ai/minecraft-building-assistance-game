@@ -15,6 +15,12 @@ class MalmoConfigDict(TypedDict, total=False):
     Adds in a spectator player to observe the game from a 3rd person point of view.
     """
 
+    rotate_spectator: bool
+    """
+    If true, the spectator will slowly rotate around the play area so that different
+    angles of the building can be seen.
+    """
+
     restrict_players: bool
     """
     Places a group of barrier blocks around players that prevents them from leaving
