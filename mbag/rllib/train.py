@@ -360,6 +360,7 @@ def sacred_config(_log):  # noqa
     # Resume from checkpoint
     checkpoint_path = None  # noqa: F841
     checkpoint_to_load_policies = None
+    load_config_from_checkpoint = True
 
     # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
     load_policies_mapping: Dict[str, str] = {}
@@ -434,12 +435,13 @@ def sacred_config(_log):  # noqa
             policy_spec = loaded_policy_dict[policy_id]
             if not isinstance(loaded_policy_dict, PolicySpec):
                 policy_spec = PolicySpec(*cast(tuple, policy_spec))
-            policy_spec.config = (
-                checkpoint_to_load_policies_config.copy().update_from_dict(
-                    policy_spec.config
+            if load_config_from_checkpoint:
+                policy_spec.config = (
+                    checkpoint_to_load_policies_config.copy().update_from_dict(
+                        policy_spec.config
+                    )
                 )
-            )
-            policy_spec.config.environment(env_config=dict(environment_params))
+                policy_spec.config.environment(env_config=dict(environment_params))
             policies[policy_id] = policy_spec
             if overwrite_loaded_policy_type:
                 policies[policy_id].policy_class = policy_class
