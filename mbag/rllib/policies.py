@@ -23,7 +23,10 @@ from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS, MbagObs
 
-from .torch_action_distributions import MbagAutoregressiveActionDistribution
+from .torch_action_distributions import (
+    MbagAutoregressiveActionDistribution,
+    MbagBilevelCategorical,
+)
 from .torch_models import ACTION_MASK, MbagTorchModel
 
 
@@ -182,6 +185,12 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
         assert isinstance(model, MbagTorchModel)
 
+        if hasattr(model, "action_dist"):
+            if isinstance(model.action_dist, MbagBilevelCategorical):
+                model.tower_stats["action_type_entropy"] = (
+                    model.action_dist.action_type_entropy()
+                )
+
         world_obs, _, _ = restore_original_dimensions(
             train_batch[SampleBatch.OBS],
             obs_space=self.observation_space,
@@ -286,6 +295,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
         self.log_mean_loss(info, "place_block_loss")
         self.log_mean_loss(info, "predict_goal_loss")
+        self.log_mean_loss(info, "action_type_entropy")
 
         return cast(
             Dict[str, TensorType],

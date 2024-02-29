@@ -252,7 +252,7 @@ def sacred_config(_log):  # noqa
     simple_optimizer = True
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
-    grad_clip = 0.1
+    grad_clip = 10
     gamma = 0.95
     gae_lambda = 0.98
     vf_share_layers = False
@@ -320,9 +320,10 @@ def sacred_config(_log):  # noqa
     num_unet_layers = 0
     unet_grow_factor = 2
     unet_use_bn = False
+    custom_action_dist = "categorical_no_inf"
     model_config = {
         "custom_model": f"mbag_{model}_model",
-        "custom_action_dist": "categorical_no_inf",
+        "custom_action_dist": custom_action_dist,
         "max_seq_len": max_seq_len,
         "vf_share_layers": vf_share_layers,
     }
@@ -382,7 +383,7 @@ def sacred_config(_log):  # noqa
             load_policies_mapping[key] = load_policies_mapping[key]
 
     if checkpoint_to_load_policies is not None:
-        checkpoint_to_load_policies_config = load_trainer_config(
+        checkpoint_to_load_policies_config: AlgorithmConfig = load_trainer_config(
             checkpoint_to_load_policies
         )
 
@@ -443,7 +444,16 @@ def sacred_config(_log):  # noqa
     }
     for policy_id in policy_ids:
         if policy_id in loaded_policy_dict:
-            policies[policy_id] = loaded_policy_dict[policy_id]
+            policy_spec = loaded_policy_dict[policy_id]
+            if not isinstance(loaded_policy_dict, PolicySpec):
+                policy_spec = PolicySpec(*cast(tuple, policy_spec))
+            policy_spec.config = (
+                checkpoint_to_load_policies_config.copy().update_from_dict(
+                    policy_spec.config
+                )
+            )
+            policy_spec.config.environment(env_config=dict(environment_params))
+            policies[policy_id] = policy_spec
             if overwrite_loaded_policy_type:
                 policies[policy_id].policy_class = policy_class
         elif policy_id in policies_to_train:

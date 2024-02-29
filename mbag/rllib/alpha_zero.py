@@ -479,7 +479,7 @@ class MbagMCTS(MCTS):
         self.use_bilevel_action_selection = mcts_param.get(
             "use_bilevel_action_selection", False
         )
-        self.dirichlet_action_subtype_noise_multiplier = mcts_param.get(
+        self.dirichlet_action_subtype_noise_multiplier: float = mcts_param.get(
             "dirichlet_action_subtype_noise_multiplier", 10
         )
 
@@ -680,12 +680,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         self.env_creator = env_creator
         self.mcts = mcts_creator()
-        self.envs = [env_creator() for _ in range(config["num_envs_per_worker"])]
-        for env in self.envs:
-            env.reset()
+        self.envs = []
         self.obs_space = observation_space
 
         self.view_requirements[ACTION_MASK] = ViewRequirement()
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -705,7 +704,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
             for state_out_part in state_out:
                 state_out_part[:] = 0
 
-        if self.config["player_index"] is not None:
+        while len(self.envs) < len(episodes):
+            env = self.env_creator()
+            env.reset()
+            self.envs.append(env)
+
+        if self.config.get("player_index") is not None:
             for env in self.envs:
                 env.set_player_index(self.config["player_index"])
         else:
@@ -790,6 +794,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 "expected_reward": expected_rewards,
                 "expected_own_reward": expected_own_rewards,
                 ACTION_MASK: action_mask,
+                SampleBatch.ACTION_DIST_INPUTS: mcts_policies,
             },
         )
 
