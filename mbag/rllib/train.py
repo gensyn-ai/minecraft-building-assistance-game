@@ -262,6 +262,7 @@ def sacred_config(_log):  # noqa
     use_critic = True
     use_goal_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
+    reward_scale = 1.0
     pretrain = False
 
     # MCTS
@@ -360,11 +361,11 @@ def sacred_config(_log):  # noqa
     # Resume from checkpoint
     checkpoint_path = None  # noqa: F841
     checkpoint_to_load_policies = None
-    load_config_from_checkpoint = True
 
     # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
     load_policies_mapping: Dict[str, str] = {}
     overwrite_loaded_policy_type = False
+    load_config_from_checkpoint = not overwrite_loaded_policy_type
     if isinstance(load_policies_mapping, DogmaticDict):
         # Weird shim for sacred
         for key in load_policies_mapping.revelation():
@@ -533,6 +534,7 @@ def sacred_config(_log):  # noqa
             sgd_minibatch_size=sgd_minibatch_size,
             num_sgd_iter=num_sgd_iter,
             vf_loss_coeff=vf_loss_coeff,
+            vf_clip_param=float("inf"),
             entropy_coeff_schedule=[
                 [0, entropy_coeff_start],
                 [entropy_coeff_horizon, entropy_coeff_end],
@@ -547,9 +549,11 @@ def sacred_config(_log):  # noqa
             config.training(
                 goal_loss_coeff=goal_loss_coeff,
                 place_block_loss_coeff=place_block_loss_coeff,
+                reward_scale=reward_scale,
             )
     elif "AlphaZero" in run:
         assert isinstance(config, MbagAlphaZeroConfig)
+        assert reward_scale == 1.0, "Reward scaling not supported for AlphaZero"
         mcts_config = {
             "puct_coefficient": puct_coefficient,
             "num_simulations": num_simulations,
@@ -675,4 +679,7 @@ def main(
 
     trainer.stop()
 
+    if result is None:
+        result = {}
+    result["final_checkpoint"] = checkpoint
     return result
