@@ -677,8 +677,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         self.envs = []
         self.obs_space = observation_space
 
-        self.view_requirements[ACTION_MASK] = ViewRequirement()
-        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
+        self.view_requirements[ACTION_MASK] = ViewRequirement(
+            space=spaces.MultiBinary(action_space.n)
+        )
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement(
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=(action_space.n,))
+        )
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
