@@ -29,7 +29,6 @@ from ray.rllib.utils.metrics import (
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.utils.schedules import PiecewiseSchedule, Schedule
 from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
 from ray.rllib.utils.typing import AgentID, PolicyID, ResultDict, TensorType
 from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
@@ -38,6 +37,7 @@ from torch import nn
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.schedule import PiecewiseSchedule, Schedule
 from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
 
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
@@ -470,7 +470,6 @@ class MbagMCTS(MCTS):
             self._temperature_schedule = PiecewiseSchedule(
                 mcts_param["temperature_schedule"],
                 outside_value=mcts_param["temperature_schedule"][-1][-1],
-                framework=None,
             )
             self.temperature = self._temperature_schedule.value(0)
 

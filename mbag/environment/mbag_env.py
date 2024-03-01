@@ -8,7 +8,6 @@ from typing import Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 from gymnasium import spaces
-from ray.rllib.utils.schedules import ConstantSchedule, PiecewiseSchedule, Schedule
 from typing_extensions import Literal
 
 from .actions import MbagAction, MbagActionTuple
@@ -27,6 +26,7 @@ from .malmo.ai_actions import (
 )
 from .malmo.malmo_interface import MalmoInterface
 from .malmo.malmo_state import MalmoState
+from .schedule import ConstantSchedule, PiecewiseSchedule, Schedule
 from .state import MbagStateDict
 from .types import (
     CURRENT_BLOCK_STATES,
@@ -986,9 +986,7 @@ class MbagEnv(object):
     def _get_reward(
         self, player_index: int, reward: str, global_timestep: int
     ) -> float:
-        return cast(
-            float, self._reward_schedules[player_index][reward].value(global_timestep)
-        )
+        return self._reward_schedules[player_index][reward].value(global_timestep)
 
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         return self.config["players"][player_index]["rewards"]
