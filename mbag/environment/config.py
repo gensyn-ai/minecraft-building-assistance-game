@@ -230,6 +230,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "malmo": {
         "use_malmo": False,
         "use_spectator": False,
+        "rotate_spectator": True,
         "restrict_players": False,
         "video_dir": None,
         "ssh_args": None,
