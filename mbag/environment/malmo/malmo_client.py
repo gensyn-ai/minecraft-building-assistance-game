@@ -62,6 +62,8 @@ class MalmoClient(object):
     ssh_processes: List[subprocess.Popen]
 
     def __init__(self):
+        # Importing malmo is necessary to set the MALMO_XSD_PATH environment variable.
+        import malmo  # noqa: F401
         import MalmoPython
 
         self.client_pool = MalmoPython.ClientPool()
