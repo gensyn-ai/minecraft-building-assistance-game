@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Union, cast
 
 import numpy as np
+from ray.rllib.algorithms.algorithm import Algorithm
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZeroDefaultCallbacks
 from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.evaluation.episode import Episode
@@ -23,6 +24,22 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             return cast(MbagInfoDict, episode.last_info_for(agent_id))
         else:
             return cast(MbagInfoDict, episode._last_infos[agent_id])
+
+    def on_train_result(self, *, algorithm: Algorithm, result: Dict, **kwargs) -> None:
+
+        def update_worker_envs_global_timestep(worker: RolloutWorker):
+            def update_env_global_timestep(env):
+                if worker.global_vars is not None:
+                    unwrap_mbag_env(env).update_global_timestep(
+                        worker.global_vars["timestep"]
+                    )
+
+            worker.foreach_env(update_env_global_timestep)
+
+        assert algorithm.workers is not None
+        algorithm.workers.foreach_worker(update_worker_envs_global_timestep)
+
+        super().on_train_result(algorithm=algorithm, result=result, **kwargs)
 
     def on_episode_start(
         self,
@@ -47,14 +64,6 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         episode.user_data["valid_actions"] = (
             MbagActionDistribution.get_valid_action_types(unwrap_mbag_env(env).config)
         )
-
-        def update_env_global_timestep(env):
-            if worker.global_vars is not None:
-                unwrap_mbag_env(env).update_global_timestep(
-                    worker.global_vars["timestep"]
-                )
-
-        worker.foreach_env(update_env_global_timestep)
 
     def _initialize_episode_metrics_if_necessary(
         self, episode: Union[Episode, EpisodeV2], policy_id: PolicyID

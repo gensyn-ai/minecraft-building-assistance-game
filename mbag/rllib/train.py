@@ -271,6 +271,7 @@ def sacred_config(_log):  # noqa
     use_goal_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
     pretrain = False
+    strict_mode = False
 
     # MCTS
     puct_coefficient = 1.0
@@ -604,6 +605,7 @@ def sacred_config(_log):  # noqa
                 "storage_unit": StorageUnit.FRAGMENTS,
             },
             pretrain=pretrain,
+            _strict_mode=strict_mode,
         )
         evaluation_mcts_config = dict(mcts_config)
         evaluation_mcts_config["argmax_tree_policy"] = True
