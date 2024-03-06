@@ -30,7 +30,11 @@ from ray.rllib.utils.metrics import (
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.utils.torch_utils import explained_variance, sequence_mask
+from ray.rllib.utils.torch_utils import (
+    apply_grad_clipping,
+    explained_variance,
+    sequence_mask,
+)
 from ray.rllib.utils.typing import AgentID, PolicyID, ResultDict, TensorType
 from ray.tune.registry import ENV_CREATOR, _global_registry, register_trainable
 from torch import nn
@@ -712,8 +716,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         self.envs = []
         self.obs_space = observation_space
 
-        self.view_requirements[ACTION_MASK] = ViewRequirement()
-        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
+        self.view_requirements[ACTION_MASK] = ViewRequirement(
+            space=spaces.MultiBinary(action_space.n)
+        )
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement(
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=(action_space.n,))
+        )
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -768,7 +776,16 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
                 expected_own_rewards = np.zeros(len(episodes))
                 mcts_policies = np.zeros((len(episodes), self.action_space.n))
                 mcts_policies[:, 0] = 1
-                action_mask = np.zeros((len(episodes), self.action_space.n), dtype=bool)
+
+                # Get action mask.
+                assert isinstance(self.model, MbagTorchModel)
+                obs = input_dict[SampleBatch.OBS]
+                obs = restore_original_dimensions(obs, self.obs_space, "numpy")
+                action_mask = MbagActionDistribution.get_mask_flat(
+                    self.config["env_config"],
+                    obs,
+                    line_of_sight_masking=self.model.line_of_sight_masking,
+                )
             else:
                 nodes: List[MbagMCTSNode] = []
                 for env_index, episode in enumerate(episodes):
@@ -1021,6 +1038,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         model.tower_stats["entropy"] = entropy
 
         return total_loss
+
+    def extra_grad_process(self, optimizer, loss):
+        return apply_grad_clipping(self, optimizer, loss)
 
     def extra_grad_info(self, train_batch: SampleBatch):
         grad_info: Dict[str, TensorType] = {
