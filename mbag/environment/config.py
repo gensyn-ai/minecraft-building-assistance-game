@@ -296,8 +296,10 @@ def _merge_configs(config_a, config_b):
                 merged_config_dict[key] = config_a[key]
         return merged_config_dict
     elif isinstance(config_a, list):
-        if not isinstance(config_b, list) or len(config_a) != len(config_b):
+        if not isinstance(config_b, list):
             raise ValueError(f"Cannot merge {config_a} with {config_b}")
+        if len(config_a) != len(config_b):
+            return config_b
         merged_config_list = [_merge_configs(a, b) for a, b in zip(config_a, config_b)]
         return merged_config_list
     else:

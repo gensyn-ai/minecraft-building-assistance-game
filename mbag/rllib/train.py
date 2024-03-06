@@ -120,6 +120,7 @@ def sacred_config(_log):  # noqa
     wall = False
     mirror = False
     min_width, min_height, min_depth = 4, 4, 4
+    remove_invisible_non_dirt = False
     if uniform_block_type:
         goal_transforms.append({"transform": "uniform_block_type"})
     if extract_largest_cc:
@@ -171,6 +172,8 @@ def sacred_config(_log):  # noqa
     goal_transforms.append({"transform": "density_filter", "config": density_config})
     goal_transforms.append({"transform": "randomly_place"})
     goal_transforms.append({"transform": "add_grass"})
+    if remove_invisible_non_dirt:
+        goal_transforms.append({"transform": "remove_invisible_non_dirt"})
     if mirror:
         goal_transforms.append({"transform": "mirror"})
     if force_single_cc:
