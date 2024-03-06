@@ -4,7 +4,7 @@ import copy
 import logging
 import random
 import time
-from typing import List, Optional, Sequence, Tuple, cast
+from typing import Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 from gymnasium import spaces
@@ -26,6 +26,7 @@ from .malmo.ai_actions import (
 )
 from .malmo.malmo_interface import MalmoInterface
 from .malmo.malmo_state import MalmoState
+from .schedule import ConstantSchedule, PiecewiseSchedule, Schedule
 from .state import MbagStateDict
 from .types import (
     CURRENT_BLOCK_STATES,
@@ -118,6 +119,22 @@ class MbagEnv(object):
 
         self.is_first_episode = True
         self.any_step_since_last_reset = True
+
+        # Initialize reward schedules.
+        self._reward_schedules: List[Dict[str, Schedule]] = []
+        for player_index in range(self.config["num_players"]):
+            player_reward_schedule: Dict[str, Schedule] = {}
+            reward_config = self._get_reward_config_for_player(player_index)
+            for key, value in reward_config.items():
+                if isinstance(value, list):
+                    player_reward_schedule[key] = PiecewiseSchedule(
+                        endpoints=value, outside_value=value[-1][-1]
+                    )
+                elif isinstance(value, (float, int)):
+                    player_reward_schedule[key] = ConstantSchedule(float(value))
+                else:
+                    raise ValueError(f"Invalid reward config for {key}: {value}")
+            self._reward_schedules.append(player_reward_schedule)
 
     @staticmethod
     def get_config(partial_config: MbagConfigDict) -> MbagConfigDict:
@@ -452,7 +469,9 @@ class MbagEnv(object):
                 goal_independent_reward += (
                     np.count_nonzero(new_inventory_block_counts)
                     - np.count_nonzero(prev_inventory_block_counts)
-                ) * self._get_reward_config_for_player(player_index)["get_resources"]
+                ) * self._get_reward(
+                    player_index, "get_resources", self.global_timestep
+                )
             else:
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
@@ -488,13 +507,13 @@ class MbagEnv(object):
             noop = 0 == self._handle_give_block(player_index, action)
 
         if noop:
-            goal_independent_reward += self._get_reward_config_for_player(player_index)[
-                "noop"
-            ]
+            goal_independent_reward += self._get_reward(
+                player_index, "noop", self.global_timestep
+            )
         else:
-            goal_independent_reward += self._get_reward_config_for_player(player_index)[
-                "action"
-            ]
+            goal_independent_reward += self._get_reward(
+                player_index, "action", self.global_timestep
+            )
 
         reward = goal_dependent_reward + goal_independent_reward
 
@@ -860,7 +879,7 @@ class MbagEnv(object):
             similarity[
                 (goal_block_id != MinecraftBlocks.AIR)
                 & (current_block_id != MinecraftBlocks.AIR)
-            ] = self._get_reward_config_for_player(player_index)["place_wrong"]
+            ] = self._get_reward(player_index, "place_wrong", self.global_timestep)
         similarity[goal_block_id == current_block_id] = 1
         return similarity
 
@@ -972,18 +991,16 @@ class MbagEnv(object):
                 ), "players are overlapping"
             world_obs[PLAYER_LOCATIONS, x, y, z] = marker
 
+    def _get_reward(
+        self, player_index: int, reward: str, global_timestep: int
+    ) -> float:
+        return self._reward_schedules[player_index][reward].value(global_timestep)
+
     def _get_reward_config_for_player(self, player_index: int) -> RewardsConfigDict:
         return self.config["players"][player_index]["rewards"]
 
     def _get_own_reward_prop(self, player_index: int) -> float:
-        reward_config = self._get_reward_config_for_player(player_index)
-        own_reward_prop = reward_config["own_reward_prop"]
-        own_reward_prop_horizon = reward_config["own_reward_prop_horizon"]
-        if own_reward_prop_horizon is not None:
-            own_reward_prop *= max(
-                1 - self.global_timestep / own_reward_prop_horizon, 0
-            )
-        return own_reward_prop
+        return self._get_reward(player_index, "own_reward_prop", self.global_timestep)
 
     def _get_player_reward(
         self, player_index: int, reward: float, own_reward: float

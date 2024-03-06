@@ -26,7 +26,12 @@ from sacred.observers import FileStorageObserver
 from typing_extensions import Literal
 
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
-from mbag.environment.config import MbagConfigDict, MbagPlayerConfigDict
+from mbag.environment.config import (
+    MbagConfigDict,
+    MbagPlayerConfigDict,
+    RewardsConfigDict,
+    RewardsConfigDictKey,
+)
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
@@ -40,6 +45,7 @@ from mbag.environment.goals.transforms import (
 )
 from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
+from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
 
 from .callbacks import MbagCallbacks
 from .os_utils import available_cpu_count
@@ -101,7 +107,6 @@ def sacred_config(_log):  # noqa
     timestep_skip = [1] * num_players
     is_human = [False] * num_players
     own_reward_prop = 0
-    own_reward_prop_horizon: Optional[int] = None
     goal_generator_config = {"subset": goal_subset}
 
     goal_transforms: List[GoalTransformSpec] = []
@@ -216,7 +221,6 @@ def sacred_config(_log):  # noqa
             "action": action_reward,
             "place_wrong": place_wrong_reward,
             "own_reward_prop": own_reward_prop,
-            "own_reward_prop_horizon": own_reward_prop_horizon,
             "get_resources": get_resources_reward,
         },
         "abilities": {
@@ -225,6 +229,10 @@ def sacred_config(_log):  # noqa
             "inf_blocks": inf_blocks,
         },
     }
+    # Convert Sacred DogmaticDicts and DogmaticLists to standard Python dicts and lists.
+    environment_params = convert_dogmatics_to_standard(environment_params)
+    environment_params["rewards"] = _format_reward_config(environment_params["rewards"])
+
     env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, environment_name)(
         environment_params
     )
@@ -267,6 +275,7 @@ def sacred_config(_log):  # noqa
     other_agent_action_predictor_loss_coeff = 1.0
     reward_scale = 1.0
     pretrain = False
+    strict_mode = False
 
     # MCTS
     puct_coefficient = 1.0
@@ -279,6 +288,11 @@ def sacred_config(_log):  # noqa
     argmax_tree_policy = False
     add_dirichlet_noise = True
     dirichlet_noise = 0.25
+    # If using bi-level action selection, the alpha parameter for the Dirichlet noise
+    # added to the second stage of action selection (after the action type is chosen)
+    # is dynamically set to dirichlet_action_subtype_noise_multiplier / num_valid_actions,
+    # where num_valid_actions is the number of valid actions at the current state.
+    dirichlet_action_subtype_noise_multiplier = 10
     prior_temperature = 1.0
     init_q_with_max = False
     use_bilevel_action_selection = True
@@ -567,6 +581,7 @@ def sacred_config(_log):  # noqa
             ],
             "dirichlet_epsilon": dirichlet_epsilon,
             "dirichlet_noise": dirichlet_noise,
+            "dirichlet_action_subtype_noise_multiplier": dirichlet_action_subtype_noise_multiplier,
             "argmax_tree_policy": argmax_tree_policy,
             "add_dirichlet_noise": add_dirichlet_noise,
             "prior_temperature": prior_temperature,
@@ -599,6 +614,7 @@ def sacred_config(_log):  # noqa
                 "storage_unit": StorageUnit.FRAGMENTS,
             },
             pretrain=pretrain,
+            _strict_mode=strict_mode,
         )
         evaluation_mcts_config = dict(mcts_config)
         evaluation_mcts_config["argmax_tree_policy"] = True
@@ -627,6 +643,36 @@ def sacred_config(_log):  # noqa
 
     observer = FileStorageObserver(experiment_dir)
     ex.observers.append(observer)
+
+
+def _format_reward_config(reward_config: RewardsConfigDict) -> RewardsConfigDict:
+    formatted_reward_config: RewardsConfigDict = {}
+    for key, value in reward_config.items():
+        key = cast(RewardsConfigDictKey, key)
+        if isinstance(value, (list, tuple)):
+            for points in value:
+                if (
+                    not isinstance(points, (list, tuple))
+                    or len(points) != 2
+                    or int(points[0]) != points[0]
+                ):
+                    raise ValueError(
+                        f"Reward config for {key} must be a number or a "
+                        "list/tuple of (timestep: int, value: float) tuples. "
+                        f"Got {value}"
+                    )
+
+            formatted_reward_config[key] = [
+                (int(points[0]), float(points[1])) for points in value
+            ]
+        elif isinstance(value, (float, int)):
+            formatted_reward_config[key] = float(value)
+        else:
+            raise ValueError(
+                f"Reward config for {key} must be a number or a "
+                f"list/tuple of (timestep, value) tuples. Got {value}"
+            )
+    return formatted_reward_config
 
 
 @ex.automain
