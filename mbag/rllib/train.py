@@ -16,6 +16,7 @@ from ray.rllib.evaluation import Episode
 from ray.rllib.policy import TorchPolicy
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
+from ray.rllib.utils.checkpoints import get_checkpoint_info
 from ray.rllib.utils.replay_buffers import StorageUnit
 from ray.rllib.utils.typing import MultiAgentPolicyConfigDict
 from ray.tune.registry import ENV_CREATOR, _global_registry, get_trainable_cls
@@ -712,6 +713,21 @@ def main(
 
     if checkpoint_path is not None:
         _log.info(f"Restoring checkpoint at {checkpoint_path}")
+
+        old_set_state = trainer.__setstate__
+
+        def new_set_state(checkpoint_data):
+            # Remove config information from checkpoint_data so we don't override
+            # the current config.
+            if "config" in checkpoint_data:
+                del checkpoint_data["config"]
+            for policy_state in checkpoint_data["worker"]["policy_states"].values():
+                if "policy_spec" in policy_state:
+                    del policy_state["policy_spec"]
+            return old_set_state(checkpoint_data)
+    
+        trainer.__setstate__ = new_set_state
+
         trainer.restore(checkpoint_path)
 
     result = None

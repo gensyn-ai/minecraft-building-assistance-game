@@ -834,7 +834,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
             for env_index, episode in enumerate(episodes):
                 if (
-                    self.config["_strict_mode"]
+                    self.config.get("_strict_mode", False)
                     and self._training
                     and not (
                         self.config["use_goal_predictor"]
