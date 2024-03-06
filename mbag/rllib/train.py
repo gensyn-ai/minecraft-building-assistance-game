@@ -725,7 +725,7 @@ def main(
                 if "policy_spec" in policy_state:
                     del policy_state["policy_spec"]
             return old_set_state(checkpoint_data)
-    
+
         trainer.__setstate__ = new_set_state
 
         trainer.restore(checkpoint_path)
