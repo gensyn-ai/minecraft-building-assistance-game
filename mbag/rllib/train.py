@@ -16,7 +16,6 @@ from ray.rllib.evaluation import Episode
 from ray.rllib.policy import TorchPolicy
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
-from ray.rllib.utils.checkpoints import get_checkpoint_info
 from ray.rllib.utils.replay_buffers import StorageUnit
 from ray.rllib.utils.typing import MultiAgentPolicyConfigDict
 from ray.tune.registry import ENV_CREATOR, _global_registry, get_trainable_cls
@@ -726,7 +725,7 @@ def main(
                     del policy_state["policy_spec"]
             return old_set_state(checkpoint_data)
 
-        trainer.__setstate__ = new_set_state
+        trainer.__setstate__ = new_set_state  # type: ignore
 
         trainer.restore(checkpoint_path)
 
