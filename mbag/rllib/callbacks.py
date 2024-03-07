@@ -109,7 +109,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
             self._initialize_episode_metrics_if_necessary(episode, policy_id)
 
-            info_dict = self._get_last_info(episode, agent_id)
+            info_dict = cast(MbagInfoDict, self._get_last_info(episode, agent_id))
             episode.custom_metrics[f"{policy_id}/own_reward"] += info_dict["own_reward"]
             episode.custom_metrics[f"{policy_id}/goal_dependent_reward"] += info_dict[
                 "goal_dependent_reward"
