@@ -737,6 +737,31 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
         else:
             self.global_timestep_for_envs = getattr(self, "global_timestep", 0)
 
+    def compute_actions(
+        self,
+        obs_batch,
+        state_batches=None,
+        prev_action_batch=None,
+        prev_reward_batch=None,
+        info_batch=None,
+        episodes=None,
+        **kwargs,
+    ):
+
+        input_dict = {"obs": obs_batch}
+        if prev_action_batch is not None:
+            input_dict["prev_actions"] = prev_action_batch
+        if prev_reward_batch is not None:
+            input_dict["prev_rewards"] = prev_reward_batch
+        for state_index, state_batch in enumerate(state_batches or []):
+            input_dict[f"state_in_{state_index}"] = state_batch
+
+        return self.compute_actions_from_input_dict(
+            input_dict=input_dict,
+            episodes=episodes,
+            state_batches=state_batches,
+        )
+
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
     ):

@@ -547,10 +547,6 @@ class MalmoInterface:
             self._ai_action_lock.notify()
 
     def _handle_ai_move_action(self, player_index: int, ai_action: MalmoMoveAIAction):
-        """
-        Executes a player's movement in Malmo. Returns the expected location difference.
-        """
-
         with self._malmo_lock:
             self._malmo_client.send_command(
                 player_index, "tp " + " ".join(map(str, ai_action.new_location))
