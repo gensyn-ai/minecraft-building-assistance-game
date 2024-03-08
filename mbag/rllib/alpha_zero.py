@@ -20,7 +20,7 @@ from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import concat_samples
-from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule
+from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule, LearningRateSchedule
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.metrics import (
@@ -658,7 +658,7 @@ class MbagMCTS(MCTS):
         )
 
 
-class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
+class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSchedule):
     mcts: MbagMCTS
     envs: List[MbagEnvModel]
     config: Dict[str, Any]
@@ -725,6 +725,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule):
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
+        )
+        LearningRateSchedule.__init__(
+            self,
+            config["lr"],
+            config["lr_schedule"],
         )
 
     def set_training(self, training: bool):
