@@ -1075,6 +1075,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
     def extra_grad_info(self, train_batch: SampleBatch):
         grad_info: Dict[str, TensorType] = {
             "entropy_coeff": self.entropy_coeff,
+            "cur_lr": self.cur_lr,
             "mcts/temperature": self.mcts.temperature,
         }
         for metric in [
