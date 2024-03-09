@@ -884,6 +884,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                 episode.user_data[MCTS_POLICIES].append(mcts_policies[env_index])
                 episode.user_data[EXPECTED_REWARDS] = expected_rewards[env_index]
 
+        action_dist_inputs = np.log(mcts_policies)
+        action_dist_inputs[mcts_policies == 0] = -1e4
+
         return (
             np.array(actions),
             state_out,
@@ -897,7 +900,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                 "expected_reward": expected_rewards,
                 "expected_own_reward": expected_own_rewards,
                 ACTION_MASK: action_mask,
-                SampleBatch.ACTION_DIST_INPUTS: mcts_policies,
+                SampleBatch.ACTION_DIST_INPUTS: action_dist_inputs,
             },
         )
 
