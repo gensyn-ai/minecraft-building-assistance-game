@@ -50,6 +50,8 @@ class RllibMbagAgent(MbagAgent):
             if time_since_last_action < self.min_action_interval:
                 return (MbagAction.NOOP, 0, 0)
 
+        self.last_action_time = time.time()
+
         obs_batch = tuple(obs_piece[None] for obs_piece in obs)
         state_batch = [state_piece[None] for state_piece in self.state]
         state_out_batch: List[TensorType]
@@ -58,8 +60,6 @@ class RllibMbagAgent(MbagAgent):
             obs_batch, state_batch, explore=self.explore, **compute_actions_kwargs
         )
         self.state = [state_piece[0] for state_piece in state_out_batch]
-
-        self.last_action_time = time.time()
 
         if isinstance(action_batch, tuple):
             return cast(
