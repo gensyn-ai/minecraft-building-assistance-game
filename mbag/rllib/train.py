@@ -405,7 +405,7 @@ def sacred_config(_log):  # noqa
         assert num_players == 2
         policy_ids = ["human", "assistant"]
         if heuristic is not None:
-            policy_ids[-1] = heuristic
+            policy_ids[0] = heuristic
 
         def policy_mapping_fn(
             agent_id: str,

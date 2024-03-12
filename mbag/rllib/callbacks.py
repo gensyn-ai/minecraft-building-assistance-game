@@ -13,6 +13,7 @@ from ray.rllib.utils.typing import AgentID, PolicyID
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MBAG_ACTION_BREAK_PALETTE_NAME, MbagAction
 from mbag.environment.types import MbagInfoDict
+from mbag.rllib.alpha_zero import EXPECTED_OWN_REWARDS, EXPECTED_REWARDS
 from mbag.rllib.rllib_env import unwrap_mbag_env
 
 
@@ -105,7 +106,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         state = env.get_state()
         episode.user_data["state"] = state
 
-        for agent_id in episode.get_agents():
+        for player_index, agent_id in enumerate(episode.get_agents()):
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
             self._initialize_episode_metrics_if_necessary(episode, policy_id)
 
@@ -138,6 +139,23 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 episode.custom_metrics[
                     f"{policy_id}/num_correct_{action_type_name.lower()}"
                 ] += 1
+
+            expected_reward: Optional[float] = episode.user_data.get(
+                EXPECTED_REWARDS, {}
+            ).get(player_index)
+            if expected_reward is not None:
+                episode.custom_metrics.setdefault(f"{policy_id}/expected_reward", 0)
+                episode.custom_metrics[
+                    f"{policy_id}/expected_reward"
+                ] += expected_reward
+            expected_own_reward: Optional[float] = episode.user_data.get(
+                EXPECTED_OWN_REWARDS, {}
+            ).get(player_index)
+            if expected_own_reward is not None:
+                episode.custom_metrics.setdefault(f"{policy_id}/expected_own_reward", 0)
+                episode.custom_metrics[
+                    f"{policy_id}/expected_own_reward"
+                ] += expected_own_reward
 
     def on_episode_end(
         self,

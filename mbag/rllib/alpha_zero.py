@@ -52,6 +52,7 @@ from .torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictor
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
 EXPECTED_REWARDS = "expected_rewards"
+EXPECTED_OWN_REWARDS = "expected_own_rewards"
 
 
 logger = logging.getLogger(__name__)
@@ -866,6 +867,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                 action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
 
             for env_index, episode in enumerate(episodes):
+                player_index = self.envs[env_index].player_index
                 if (
                     self.config.get("_strict_mode", False)
                     and self._training
@@ -876,13 +878,26 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                 ):
                     # If there was an expected reward, make sure it matches the actual
                     # reward given by the environment so we're not out of sync.
-                    if EXPECTED_REWARDS in episode.user_data:
+                    episode_expected_rewards: Dict[int, float] = episode.user_data.get(
+                        EXPECTED_REWARDS, {}
+                    )
+                    prev_expected_reward = episode_expected_rewards.get(player_index)
+                    if prev_expected_reward is not None:
                         assert np.isclose(
                             input_dict[SampleBatch.REWARDS][env_index],
-                            episode.user_data[EXPECTED_REWARDS],
+                            prev_expected_reward,
                         )
 
-                episode.user_data[EXPECTED_REWARDS] = expected_rewards[env_index]
+                episode_expected_rewards = episode.user_data.setdefault(
+                    EXPECTED_REWARDS, {}
+                )
+                episode_expected_rewards[player_index] = expected_rewards[env_index]
+                episode_expected_own_rewards = episode.user_data.setdefault(
+                    EXPECTED_OWN_REWARDS, {}
+                )
+                episode_expected_own_rewards[player_index] = expected_own_rewards[
+                    env_index
+                ]
 
         action_dist_inputs = np.log(mcts_policies)
         action_dist_inputs[mcts_policies == 0] = -1e4

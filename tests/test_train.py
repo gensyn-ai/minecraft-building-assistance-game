@@ -326,14 +326,15 @@ def test_alpha_zero_assistant_with_lowest_block_agent(
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
-            "policies_to_train": ["human"],
+            "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
             "heuristic": "lowest_block",
         }
     ).result
     assert result is not None
-    assert result["custom_metrics"]["human/own_reward_mean"] > -10
     assert result["custom_metrics"]["lowest_block/place_block_accuracy_mean"] == 1
+    assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
+    assert result["custom_metrics"]["assistant/expected_own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
