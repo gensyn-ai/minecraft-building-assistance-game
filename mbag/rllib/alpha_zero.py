@@ -719,6 +719,9 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         self.view_requirements[ACTION_MASK] = ViewRequirement(
             space=spaces.MultiBinary(action_space.n)
         )
+        self.view_requirements[MCTS_POLICIES] = ViewRequirement(
+            space=spaces.Box(low=0, high=1, shape=(action_space.n,))
+        )
         self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement(
             space=spaces.Box(low=-np.inf, high=np.inf, shape=(action_space.n,))
         )
@@ -879,9 +882,6 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                             episode.user_data[EXPECTED_REWARDS],
                         )
 
-                if episode.length == 0:
-                    episode.user_data[MCTS_POLICIES] = []
-                episode.user_data[MCTS_POLICIES].append(mcts_policies[env_index])
                 episode.user_data[EXPECTED_REWARDS] = expected_rewards[env_index]
 
         action_dist_inputs = np.log(mcts_policies)
@@ -900,6 +900,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                 "expected_reward": expected_rewards,
                 "expected_own_reward": expected_own_rewards,
                 ACTION_MASK: action_mask,
+                MCTS_POLICIES: mcts_policies,
                 SampleBatch.ACTION_DIST_INPUTS: action_dist_inputs,
             },
         )
@@ -928,11 +929,6 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                 :-1
             ].astype(np.float32)
             sample_batch[Postprocessing.VALUE_TARGETS] = discounted_returns
-
-        # Add MCTS policies to sample batch.
-        sample_batch[MCTS_POLICIES] = np.array(episode.user_data[MCTS_POLICIES])[
-            sample_batch[SampleBatch.T]
-        ]
 
         if other_agent_batches is not None:
             if len(other_agent_batches) > 1:
