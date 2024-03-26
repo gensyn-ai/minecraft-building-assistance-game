@@ -33,7 +33,7 @@ def sacred_config():
     policy_ids: Optional[List[str]] = None  # noqa: F841
     player_names = policy_ids  # noqa: F841
     seed = 0
-    save_samples = False
+    save_samples = False  # noqa: F841
 
     experiment_tag = None
     if experiment_tag is not None:
