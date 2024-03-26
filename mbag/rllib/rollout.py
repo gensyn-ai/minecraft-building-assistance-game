@@ -33,6 +33,7 @@ def sacred_config():
     policy_ids: Optional[List[str]] = None  # noqa: F841
     player_names = policy_ids  # noqa: F841
     seed = 0
+    save_samples = False
 
     experiment_tag = None
     if experiment_tag is not None:
@@ -44,10 +45,11 @@ def sacred_config():
         "seed": seed,
         "evaluation_num_workers": num_workers,
         "create_env_on_local_worker": True,
-        "evaluation_num_episodes": episodes,
+        "evaluation_duration": episodes,
+        "evaluation_duration_unit": "episodes",
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},
-        "env_config": {"malmo": {}},
+        "env_config": {"malmo": {}, "randomize_first_episode_length": False},
         "multiagent": {},
         "num_gpus": 1 if torch.cuda.is_available() else 0,
         "disable_env_checking": True,
@@ -58,6 +60,8 @@ def sacred_config():
     record_video = False  # noqa: F841
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if experiment_name:
+        experiment_name += "_"
     out_dir = os.path.join(  # noqa: F841
         checkpoint, f"rollouts_{experiment_name}{time_str}"
     )
@@ -74,6 +78,7 @@ def main(
     player_names: Optional[List[str]],
     record_video: bool,
     out_dir: str,
+    save_samples: bool,
     _log,
 ):
     ray.init(
@@ -91,7 +96,8 @@ def main(
         experiment_name += "_"
     _log.info(f"writing output to {out_dir}")
     os.makedirs(out_dir, exist_ok=True)
-    config_updates["output"] = out_dir
+    if save_samples:
+        config_updates["output"] = out_dir
 
     if policy_ids is not None:
 
