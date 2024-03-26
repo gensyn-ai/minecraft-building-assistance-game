@@ -9,7 +9,7 @@ from gymnasium import spaces
 from ray.rllib.algorithms.algorithm_config import NotProvided
 from ray.rllib.algorithms.alpha_zero.alpha_zero import AlphaZero, AlphaZeroConfig
 from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
-from ray.rllib.algorithms.alpha_zero.mcts import MCTS, Node, RootParentNode
+from ray.rllib.algorithms.alpha_zero.mcts import MCTS
 from ray.rllib.evaluation import SampleBatch
 from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
@@ -42,6 +42,7 @@ from torch import nn
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.config import MbagConfigDict
 from mbag.environment.schedule import PiecewiseSchedule, Schedule
 from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
 
@@ -58,10 +59,12 @@ EXPECTED_OWN_REWARDS = "expected_own_rewards"
 logger = logging.getLogger(__name__)
 
 
-class MbagRootParentNode(RootParentNode):
+class MbagRootParentNode:
     def __init__(self, env):
-        super().__init__(env)
-        self.child_number_visits = defaultdict(int)
+        self.parent = None
+        self.env = env
+        self.action_total_value = defaultdict(float)
+        self.action_number_visits = defaultdict(int)
 
         self.action_mapping = MbagActionDistribution.get_action_mapping(
             unwrap_mbag_env(self.env).config
@@ -76,7 +79,7 @@ class MbagRootParentNode(RootParentNode):
             assert len(mask) == action_type_slice.stop - action_type_slice.start
 
 
-class MbagMCTSNode(Node):
+class MbagMCTSNode:
     env: MbagEnvModel
     mcts: "MbagMCTS"
     children: Dict[Tuple[int, ...], "MbagMCTSNode"]
@@ -101,14 +104,35 @@ class MbagMCTSNode(Node):
         model_state_in,
         parent=None,
     ):
-        super().__init__(action, obs, done, reward, state, mcts, parent)
+        self.env = parent.env
+        self.action = action  # Action used to go to this state
 
+        self.is_expanded = False
+        self.parent = parent
+        self.children = {}
+
+        self.reward = reward
         self.info = info
+        self.done = done
+        self.state = state
+        self.obs = obs
+
+        self.mcts = mcts
 
         self.min_value = np.inf
         self.max_value = -np.inf
         self.action_mapping = self.parent.action_mapping
         self.action_type_slices = self.parent.action_type_slices
+
+        self.action_space_size = self.env.action_space.n
+        self.action_total_value = np.zeros(
+            [self.action_space_size], dtype=np.float32
+        )  # Q
+        self.child_priors = np.zeros([self.action_space_size], dtype=np.float32)  # P
+        self.action_number_visits = np.zeros(
+            [self.action_space_size], dtype=np.int64
+        )  # N
+        self.valid_actions = obs["action_mask"].astype(np.bool_)
 
         self.valid_action_types = np.array(
             [
@@ -123,28 +147,45 @@ class MbagMCTSNode(Node):
             MbagAction.NUM_ACTION_TYPES, dtype=np.int64
         )
 
-        self.child_number_visits = self.child_number_visits.astype(np.int64)
-
         self.action_type_dirichlet_noise = None
         self.dirichlet_noise = None
 
         self.goal_logits = None
         self.other_agent_action_dist = None
 
+        self._total_value = 0.0
+        self._number_visits = 0
+
         self.model_state_in = model_state_in
 
+    @property
+    def total_value(self):
+        return self._total_value
+
+    @total_value.setter
+    def total_value(self, value):
+        raise RuntimeError()
+
+    @property
+    def number_visits(self):
+        return self._number_visits
+
+    @number_visits.setter
+    def number_visits(self, value):
+        raise RuntimeError()
+
     def child_Q(self, mask=slice(None)):  # noqa: N802
-        Q = self.child_total_value[mask] / np.maximum(  # noqa: N806
-            self.child_number_visits[mask], 1
+        Q = self.action_total_value[mask] / np.maximum(  # noqa: N806
+            self.action_number_visits[mask], 1
         )
 
         if self.mcts.init_q_with_max:
             init_q_value = self.max_value
         else:
             if self.mcts.fix_bilevel_action_selection:
-                total_visits = np.sum(self.child_number_visits[mask])
+                total_visits = np.sum(self.action_number_visits[mask])
                 init_q_value = (
-                    np.sum(self.child_total_value[mask]) / total_visits
+                    np.sum(self.action_total_value[mask]) / total_visits
                     if total_visits > 0
                     else self.min_value
                 )
@@ -156,7 +197,7 @@ class MbagMCTSNode(Node):
                 )
                 init_q_value = V
 
-        Q[self.child_number_visits[mask] == 0] = init_q_value
+        Q[self.action_number_visits[mask] == 0] = init_q_value
         Q = (Q - self.min_value) / max(  # noqa: N806
             self.max_value - self.min_value, 0.01
         )
@@ -164,7 +205,7 @@ class MbagMCTSNode(Node):
 
     def child_U(self, mask=slice(None)):  # noqa: N802
         if self.mcts.fix_bilevel_action_selection:
-            number_visits = max(np.sum(self.child_number_visits[mask]), 1)
+            number_visits = max(np.sum(self.action_number_visits[mask]), 1)
         else:
             number_visits = self.number_visits
 
@@ -173,7 +214,9 @@ class MbagMCTSNode(Node):
             child_priors = child_priors / child_priors.sum()
 
         return (
-            np.sqrt(number_visits) * child_priors / (1 + self.child_number_visits[mask])
+            np.sqrt(number_visits)
+            * child_priors
+            / (1 + self.action_number_visits[mask])
         )
 
     def action_type_Q(self):  # noqa: N802
@@ -198,6 +241,12 @@ class MbagMCTSNode(Node):
 
     def best_action(self, force_python_impl=False) -> int:
         if self.mcts._strict_mode:
+            assert self.action_number_visits.sum() == self.number_visits
+            assert self.action_type_number_visits.sum() == self.number_visits
+            assert self.action_total_value.sum() == self.total_value
+            assert self.action_type_total_value.sum() == self.total_value
+
+        if self.mcts._strict_mode:
             force_python_impl = True
 
         if self.mcts.init_q_with_max:
@@ -219,8 +268,8 @@ class MbagMCTSNode(Node):
                 import _mbag
 
                 action_c = _mbag.mcts_best_action(
-                    self.child_total_value,
-                    self.child_number_visits,
+                    self.action_total_value,
+                    self.action_number_visits,
                     self.child_priors,
                     self.number_visits,
                     self.mcts.c_puct,
@@ -234,7 +283,10 @@ class MbagMCTSNode(Node):
                     logger.warning("C implementation of best_action not found")
 
             if force_python_impl or action_c is None:
-                action = super().best_action()
+                child_score = self.child_Q() + self.mcts.c_puct * self.child_U()
+                masked_child_score = child_score
+                masked_child_score[~self.valid_actions] = -np.inf
+                action = int(np.argmax(masked_child_score))
                 assert action == action_c
             else:
                 action = action_c
@@ -295,8 +347,8 @@ class MbagMCTSNode(Node):
                 prior_scale = 1.0
 
             action_c = _mbag.mcts_best_action(
-                self.child_total_value,
-                self.child_number_visits,
+                self.action_total_value,
+                self.action_number_visits,
                 self.child_priors,
                 number_visits,
                 self.mcts.c_puct,
@@ -329,6 +381,13 @@ class MbagMCTSNode(Node):
 
         return action
 
+    def select(self):
+        current_node = self
+        while current_node.is_expanded:
+            best_action = current_node.best_action()
+            current_node = current_node.get_child(best_action)
+        return current_node
+
     def expand(
         self,
         child_priors,
@@ -337,7 +396,10 @@ class MbagMCTSNode(Node):
         model_state_out: List[np.ndarray] = [],
         add_dirichlet_noise=False,
     ) -> None:
-        super().expand(child_priors)
+        self.is_expanded = True
+        self.child_priors = child_priors
+
+        assert self.number_visits == self.action_number_visits.sum()
 
         self.model_state_out = model_state_out
         self.goal_logits = goal_logits
@@ -440,17 +502,39 @@ class MbagMCTSNode(Node):
             )
         return self.children[all_actions]
 
+    def get_expected_rewards(self, action: int) -> Tuple[float, float]:
+        """
+        Get the expected reward for the given action. The value returned is a tuple of
+        (expected_reward, expected_own_reward).
+        """
+
+        action_children = [
+            child for actions, child in self.children.items() if actions[0] == action
+        ]
+        if self.mcts.use_goal_predictor:
+            expected_reward = np.mean(
+                [child.reward for child in action_children if child.is_expanded]
+            )
+        else:
+            expected_reward = np.mean([child.reward for child in action_children])
+        expected_own_reward = np.mean(
+            [child.info["own_reward"] for child in action_children]  # type: ignore[index]
+        )
+        return expected_reward, expected_own_reward
+
     def backup(self, value):
         current = self
         value = float(value)
         while True:
             value *= self.mcts.gamma
             value += current.reward
-            current.number_visits += 1
-            current.total_value += value
+            current._number_visits += 1
+            current._total_value += value
 
             if current.action is not None:
                 assert isinstance(current.parent, MbagMCTSNode)
+                current.parent.action_number_visits[current.action] += 1
+                current.parent.action_total_value[current.action] += value
                 action_type = int(self.action_mapping[current.action, 0])
                 current.parent.action_type_number_visits[action_type] += 1
                 current.parent.action_type_total_value[action_type] += value
@@ -519,29 +603,15 @@ class MbagMCTS(MCTS):
         if self._temperature_schedule is not None:
             self.temperature = self._temperature_schedule.value(global_timestep)
 
-    def compute_action(self, node: MbagMCTSNode):
-        tree_policies, actions, children = self.compute_actions([node])
-        return tree_policies[0], actions[0], children[0]
-
-    def _stack_obs(self, obs: list):
-        if isinstance(obs[0], dict):
-            stacked_obs = {}
-            for key in obs[0].keys():
-                stacked_obs[key] = self._stack_obs([o[key] for o in obs])
-            return stacked_obs
-        elif isinstance(obs[0], tuple):
-            return tuple(
-                self._stack_obs([o[i] for o in obs]) for i in range(len(obs[0]))
-            )
-        else:
-            return np.stack(obs, axis=0)
+    def compute_action(self, node: MbagMCTSNode) -> Tuple[np.ndarray, int]:
+        tree_policies, actions = self.compute_actions([node])
+        return tree_policies[0], int(actions[0])
 
     def compute_actions(
         self, nodes: List[MbagMCTSNode]
-    ) -> Tuple[np.ndarray, np.ndarray, List[MbagMCTSNode]]:
+    ) -> Tuple[np.ndarray, np.ndarray]:
         for _ in range(self.num_sims):
             leaves: List[MbagMCTSNode] = [node.select() for node in nodes]
-            # obs = self._stack_obs([leaf.obs for leaf in leaves])
             obs = [leaf.obs["obs"] for leaf in leaves]
             model_state_len = len(leaves[0].model_state_in)
             model_state_in = [
@@ -553,6 +623,7 @@ class MbagMCTS(MCTS):
             values: np.ndarray
             model_state_out: List[np.ndarray]
 
+            self.model.eval()
             child_priors, values, model_state_out = self.model.compute_priors_and_value(
                 obs, model_state_in, action_mask=action_mask
             )
@@ -596,7 +667,7 @@ class MbagMCTS(MCTS):
 
         # Tree policy target (TPT)
         tree_policies = np.stack(
-            [node.child_number_visits / node.number_visits for node in nodes], axis=0
+            [node.action_number_visits / node.number_visits for node in nodes], axis=0
         )
         tree_policies = tree_policies / np.max(
             tree_policies, axis=1, keepdims=True
@@ -619,24 +690,49 @@ class MbagMCTS(MCTS):
 
         if logger.isEnabledFor(logging.DEBUG):
             node, action, tree_policy = nodes[0], actions[0], tree_policies[0]
-            child = node.get_child(action)
+            expected_reward, expected_own_reward = node.get_expected_rewards(action)
             logger.debug(
                 "\t".join(
                     map(
                         str,
                         [
                             node.get_mbag_action(action),
-                            child.reward,
+                            expected_reward,
+                            expected_own_reward,
                             node.child_Q()[action],
                             node.child_U()[action],
                             node.child_priors[action],
-                            child.number_visits,
+                            node.action_number_visits[action],
                             tree_policy[action],
                             node.valid_actions.astype(int).sum(),
                         ],
                     )
                 )
             )
+            mbag_action = node.get_mbag_action(action)
+            if node.goal_logits is not None and mbag_action.action_type in [
+                MbagAction.BREAK_BLOCK,
+                MbagAction.PLACE_BLOCK,
+            ]:
+                block_location_goal_logits = node.goal_logits[
+                    :,
+                    mbag_action.block_location[0],
+                    mbag_action.block_location[1],
+                    mbag_action.block_location[2],
+                ]
+                block_location_goal_probs = np.exp(block_location_goal_logits)
+                block_location_goal_probs /= block_location_goal_probs.sum()
+                logger.debug(
+                    " ".join(f"{prob:.2f}" for prob in block_location_goal_probs)
+                )
+                logger.debug(
+                    node.obs["obs"][0][
+                        :,
+                        mbag_action.block_location[0],
+                        mbag_action.block_location[1],
+                        mbag_action.block_location[2],
+                    ]
+                )
 
             self.model.eval()
             _, values, _ = self.model.compute_priors_and_value(
@@ -647,15 +743,32 @@ class MbagMCTS(MCTS):
             plan = []
             current = node
             while len(current.children) > 0:
-                plan_action = int(np.argmax(current.child_number_visits))
+                plan_action = int(np.argmax(current.action_number_visits))
                 current = current.get_child(plan_action)
                 plan.append((node.get_mbag_action(plan_action), current.reward))
             logger.debug(plan)
 
+            # node = nodes[0]
+            # flat_goal_logits = node.goal_logits.reshape((MinecraftBlocks.NUM_BLOCKS, -1)).T
+            # flat_probs = np.exp(flat_goal_logits)
+            # flat_probs /= flat_probs.sum(axis=1, keepdims=True)
+            # goal_blocks = cast(MinecraftBlocks, node.state["goal_blocks"]).blocks
+            # width, height, depth = goal_blocks.shape
+            # flat_goal = goal_blocks.reshape(-1)
+            # correct_probs = flat_probs[np.arange(len(flat_goal)), flat_goal]
+            # correct_probs = correct_probs.reshape(goal_blocks.shape)
+            # for y in range(1, 4):
+            #     for z in range(depth):
+            #         #print(*[f"{correct_probs[x, y, z]:.2f}" for x in range(width)], sep="\t")
+            #         print(
+            #             *[" ░▒▓█"[int(correct_probs[x, y, z] * 4.99)] for x in range(width)],
+            #             sep="",
+            #         )
+            #     print()
+
         return (
             tree_policies,
             actions,
-            [node.get_child(action) for node, action in zip(nodes, actions)],
         )
 
 
@@ -691,7 +804,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
             # We should never use Malmo in the env model.
-            env_config = copy.deepcopy(config["env_config"])
+            env_config: MbagConfigDict = copy.deepcopy(config["env_config"])
             env_config["malmo"]["use_malmo"] = False
             env = env_creator(env_config)
             env_model = MbagEnvModel(
@@ -771,19 +884,29 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
             state_batches=state_batches,
         )
 
+    def _run_model_on_input_dict(self, input_dict):
+        input_dict = self._lazy_tensor_dict(input_dict)
+        state_batches = [
+            input_dict[k] for k in input_dict.keys() if "state_in" in k[:8]
+        ]
+        seq_lens = (
+            torch.tensor(
+                [1] * len(state_batches[0]),
+                dtype=torch.long,
+                device=state_batches[0].device,
+            )
+            if state_batches
+            else None
+        )
+        assert self.model is not None
+        return self.model(input_dict, state_batches, cast(torch.Tensor, seq_lens))
+
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
     ):
-        assert self.mcts.model == self.model
 
         model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
-        state_out = [
-            np.empty_like(input_dict[f"state_in_{state_index}"])
-            for state_index in range(model_state_len)
-        ]
-        if self.config["pretrain"]:
-            for state_out_part in state_out:
-                state_out_part[:] = 0
+        state_out: List[np.ndarray]
 
         while len(self.envs) < len(episodes):
             env = self.env_creator()
@@ -820,6 +943,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                     obs,
                     line_of_sight_masking=self.model.line_of_sight_masking,
                 )
+
+                # Run inputs through the model to get state_out.
+                cast(nn.Module, self.model).eval()
+                _, state_out_torch = self._run_model_on_input_dict(input_dict)
+                state_out = convert_to_numpy(state_out_torch)
             else:
                 nodes: List[MbagMCTSNode] = []
                 for env_index, episode in enumerate(episodes):
@@ -843,31 +971,33 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                         )
                     )
 
-                mcts_policies, actions, action_nodes = self.mcts.compute_actions(nodes)
+                mcts_policies, actions = self.mcts.compute_actions(nodes)
 
-                expected_rewards = np.array(
-                    [action_node.reward for action_node in action_nodes]
-                )
-                expected_own_rewards = np.array(
-                    [
-                        (
-                            action_node.info["own_reward"]
-                            if action_node.info is not None
-                            else np.nan
-                        )
-                        for action_node in action_nodes
-                    ]
-                )
+                expected_rewards_list: List[float] = []
+                expected_own_rewards_list: List[float] = []
+                for node, action in zip(nodes, actions):
+                    expected_reward, expected_own_reward = node.get_expected_rewards(
+                        action
+                    )
+                    expected_rewards_list.append(expected_reward)
+                    expected_own_rewards_list.append(expected_own_reward)
+                expected_rewards = np.array(expected_rewards_list)
+                expected_own_rewards = np.array(expected_own_rewards_list)
+
+                state_out = []
                 for state_index in range(model_state_len):
-                    state_out[state_index] = np.stack(
-                        [node.model_state_out[state_index] for node in nodes],
-                        axis=0,
+                    state_out.append(
+                        np.stack(
+                            [node.model_state_out[state_index] for node in nodes],
+                            axis=0,
+                        )
                     )
 
                 action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
 
             for env_index, episode in enumerate(episodes):
                 player_index = self.envs[env_index].player_index
+
                 if (
                     self.config.get("_strict_mode", False)
                     and self._training
@@ -902,6 +1032,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         action_dist_inputs = np.log(mcts_policies)
         action_dist_inputs[mcts_policies == 0] = -1e4
 
+        assert self.model is not None
+
         return (
             np.array(actions),
             state_out,
@@ -929,14 +1061,17 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         episode=None,
     ):
         with torch.no_grad():
-            input_dict = sample_batch.get_single_step_input_dict(
-                self.view_requirements, index="last"
-            )
-            input_dict = SampleBatch(input_dict)
-            input_dict = self._lazy_tensor_dict(input_dict)
-            assert self.model is not None
-            self.model(input_dict)
-            last_r = self.model.value_function()[0].item()
+            last_r: float
+            if sample_batch[SampleBatch.TERMINATEDS][-1]:
+                last_r = 0
+            else:
+                input_dict = sample_batch.get_single_step_input_dict(
+                    self.view_requirements, index="last"
+                )
+                input_dict = SampleBatch(input_dict)
+                assert self.model is not None
+                self._run_model_on_input_dict(input_dict)
+                last_r = self.model.value_function()[0].item()
             rewards_plus_v = np.concatenate(
                 [sample_batch[SampleBatch.REWARDS], np.array([last_r])]
             )
@@ -1300,23 +1435,23 @@ class MbagAlphaZero(AlphaZero):
         self._counters[NUM_AGENT_STEPS_SAMPLED] += new_sample_batch.agent_steps()
         # Store new samples in the replay buffer.
         if self.local_replay_buffer is not None:
-            self.local_replay_buffer.add(new_sample_batch)
+            with self._timers["replay_buffer"]:
+                self.local_replay_buffer.add(new_sample_batch)
 
-        if self.local_replay_buffer is not None:
-            cur_ts = self._counters[
-                (
-                    NUM_AGENT_STEPS_SAMPLED
-                    if self.config.count_steps_by == "agent_steps"
-                    else NUM_ENV_STEPS_SAMPLED
-                )
-            ]
+                cur_ts = self._counters[
+                    (
+                        NUM_AGENT_STEPS_SAMPLED
+                        if self.config.count_steps_by == "agent_steps"
+                        else NUM_ENV_STEPS_SAMPLED
+                    )
+                ]
 
-            if cur_ts > self.config.num_steps_sampled_before_learning_starts:
-                train_batch = self.local_replay_buffer.sample(
-                    self.config.train_batch_size
-                )
-            else:
-                train_batch = None
+                if cur_ts > self.config.num_steps_sampled_before_learning_starts:
+                    train_batch = self.local_replay_buffer.sample(
+                        self.config.train_batch_size
+                    )
+                else:
+                    train_batch = None
         else:
             train_batch = new_sample_batch
 
