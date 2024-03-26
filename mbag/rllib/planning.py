@@ -207,7 +207,7 @@ class MbagEnvModel(gym.Env):
             other_player_indices, info["other_player_infos"]
         ):
             goal_dependent_reward = self._get_predicted_goal_dependent_reward(
-                # I think it's okay to use the this player's obs even though it should
+                # I think it's okay to use this player's obs even though it should
                 # technically be the other player's
                 obs,
                 other_player_info["action"],
@@ -252,7 +252,8 @@ class MbagEnvModel(gym.Env):
         reward = 0.0
 
         if (
-            action.action_type == MbagAction.BREAK_BLOCK
+            not self.config["abilities"]["inf_blocks"]
+            and action.action_type == MbagAction.BREAK_BLOCK
             and action.block_location[0] == unwrap_mbag_env(self).palette_x
         ):
             # Breaking a palette block gives no reward.
