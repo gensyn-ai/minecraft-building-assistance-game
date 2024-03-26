@@ -907,7 +907,13 @@ class MbagEnv(object):
         # Add locations to the observation if the locations are actually meaningful
         # (i.e., if players do not have teleportation abilities).
         if not self.config["abilities"]["teleportation"]:
-            check_for_overlap = not self.config["malmo"]["use_malmo"]
+            check_for_overlap = not (
+                self.config["malmo"]["use_malmo"]
+                or any(
+                    player_config["is_human"]
+                    for player_config in self.config["players"]
+                )
+            )
 
             for other_player_index, other_player_location in enumerate(
                 self.player_locations
