@@ -3,6 +3,7 @@ black
 mypy
 pytest
 pytest-timeout 
+pytest-memray
 pep8-naming
 isort
 types-psutil
