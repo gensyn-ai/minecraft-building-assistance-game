@@ -20,7 +20,7 @@ from mbag.environment.types import (
     MbagObs,
 )
 
-from .rllib_env import (
+from ..rllib_env import (
     FlatActionSpaceWrapper,
     MbagMultiAgentEnv,
     MbagRllibWrapper,

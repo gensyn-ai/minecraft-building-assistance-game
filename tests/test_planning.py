@@ -6,7 +6,7 @@ from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG
-from mbag.rllib.planning import create_mbag_env_model
+from mbag.rllib.alpha_zero.planning import create_mbag_env_model
 
 
 def test_get_all_rewards():

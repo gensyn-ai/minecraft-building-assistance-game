@@ -5,7 +5,7 @@ RLLib-compatible MBAG environment.
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
 if TYPE_CHECKING:
-    from .planning import MbagEnvModel
+    from .alpha_zero.planning import MbagEnvModel
 
 from gymnasium import spaces
 from ray.rllib.env import MultiAgentEnv
