@@ -997,8 +997,8 @@ class SeparatedTransformerEncoder(nn.Module):
         layer_input = x_permuted.flatten(end_dim=-3)
         # We use the default (math) kernel for attention b/c the sequence lengths are
         # super short, so it ends up being faster.
-        if hasattr(torch.backends.cudnn, "sdp_kernel"):
-            with torch.backends.cudnn.sdp_kernel(
+        if hasattr(torch.backends.cuda, "sdp_kernel"):
+            with torch.backends.cuda.sdp_kernel(
                 enable_flash=False, enable_mem_efficient=False
             ):
                 layer_output = self._batched_layer_forward(layer, layer_input)
