@@ -30,6 +30,7 @@ from ray.rllib.utils.metrics import (
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
 from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.utils.replay_buffers import ReplayBuffer
 from ray.rllib.utils.torch_utils import (
     apply_grad_clipping,
     explained_variance,
@@ -1401,6 +1402,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
 
 
 class MbagAlphaZero(AlphaZero):
+    local_replay_buffer: Optional[ReplayBuffer]  # type: ignore[assignment]
+
     def __init__(self, config: MbagAlphaZeroConfig, *args, **kwargs):
         del config.ranked_rewards
 
@@ -1482,6 +1485,7 @@ class MbagAlphaZero(AlphaZero):
 
     def training_step(self) -> ResultDict:
         assert self.workers is not None
+        assert isinstance(self.config, MbagAlphaZeroConfig)
 
         if not self._have_set_policies_training:
             # Only policies that are set as training will use reward shaping schedules;
@@ -1516,6 +1520,15 @@ class MbagAlphaZero(AlphaZero):
         # Store new samples in the replay buffer.
         if self.local_replay_buffer is not None:
             with self._timers["replay_buffer"]:
+                # First, remove non-trainable policies.
+                policy_ids_to_train = (
+                    self.workers.local_worker().foreach_policy_to_train(
+                        lambda policy, policy_id, **kwargs: policy_id
+                    )
+                )
+                for policy_id in list(new_sample_batch.policy_batches.keys()):
+                    if policy_id not in policy_ids_to_train:
+                        del new_sample_batch.policy_batches[policy_id]
                 self.local_replay_buffer.add(new_sample_batch)
 
                 cur_ts = self._counters[
