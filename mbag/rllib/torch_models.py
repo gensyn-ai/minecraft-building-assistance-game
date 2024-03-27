@@ -74,6 +74,8 @@ class MbagModelConfig(TypedDict, total=False):
     """
     scale_obs: bool
     """Scale inventory and timestep observations."""
+    vf_scale: float
+    """Scale the value function output by this amount."""
 
 
 DEFAULT_CONFIG: MbagModelConfig = {
@@ -89,6 +91,7 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "mask_action_distribution": True,
     "line_of_sight_masking": False,
     "scale_obs": False,
+    "vf_scale": 1.0,
 }
 
 
@@ -139,6 +142,7 @@ class MbagTorchModel(ActorCriticModel):
         self.mask_action_distribution = extra_config["mask_action_distribution"]
         self.line_of_sight_masking = extra_config["line_of_sight_masking"]
         self.scale_obs = extra_config["scale_obs"]
+        self.vf_scale = extra_config["vf_scale"]
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -458,7 +462,7 @@ class MbagTorchModel(ActorCriticModel):
                 vf = self.value_head(self._backbone_out).squeeze(1)
             else:
                 vf = self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
-        return vf.float()
+        return vf.float() * self.vf_scale
 
     def goal_predictor(self):
         with self._amp_or_nothing:
@@ -888,7 +892,7 @@ class MbagRecurrentConvolutionalModel(MbagModel, nn.Module):
 
     def value_function(self):
         if self.model_config["vf_share_layers"]:
-            return self.value_head(self.rnn.get_outputs()).squeeze(1)
+            return self.value_head(self.rnn.get_outputs()).squeeze(1) * self.vf_scale
         else:
             return self.conv_model.value_function()
 
@@ -951,15 +955,6 @@ class SeparatedTransformerEncoder(nn.Module):
             self.layers.append(layer)
 
     def _layer_forward(self, layer: nn.TransformerEncoderLayer, x: torch.Tensor):
-        # Pad to a multiple of 8 for the sequence length, which lets us use the
-        # tensor core on GPUs.
-        # sequence_length = x.size()[1]
-        # padded_sequence_length = (sequence_length + 7) // 8 * 8
-        # padding = padded_sequence_length - sequence_length
-        # x_padded = F.pad(x, (0, 0, 0, padding))
-        # mask = torch.zeros((padded_sequence_length, padded_sequence_length), dtype=bool, device=x.device)
-        # mask[:sequence_length, :sequence_length] = True
-        # return layer(x_padded, src_mask=mask)[:, :sequence_length]
         return layer(x)
 
     def _batched_layer_forward(
@@ -982,27 +977,48 @@ class SeparatedTransformerEncoder(nn.Module):
                 )
             return torch.cat(minibatch_outputs, dim=0)
 
+    def _run_layer(self, layer_index: int, x: torch.Tensor) -> torch.Tensor:
+        n_spatial_dims = len(x.size()) - 2
+        layer = self.layers[layer_index]
+        spatial_dim = layer_index % n_spatial_dims
+        permutation = (
+            (0,)
+            + tuple(
+                other_spatial_dim + 2
+                for other_spatial_dim in range(n_spatial_dims)
+                if other_spatial_dim != spatial_dim
+            )
+            + (spatial_dim + 2, 1)
+        )
+        inverse_permutation = tuple(
+            permutation.index(dim) for dim in range(len(x.size()))
+        )
+        x_permuted = x.permute(*permutation)
+        layer_input = x_permuted.flatten(end_dim=-3)
+        # We use the default (math) kernel for attention b/c the sequence lengths are
+        # super short, so it ends up being faster.
+        if hasattr(torch.backends.cudnn, "sdp_kernel"):
+            with torch.backends.cudnn.sdp_kernel(
+                enable_flash=False, enable_mem_efficient=False
+            ):
+                layer_output = self._batched_layer_forward(layer, layer_input)
+        else:
+            layer_output = self._batched_layer_forward(layer, layer_input)
+        x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
-        n_spatial_dims = len(x.size()) - 2
-        for layer_index, layer in enumerate(self.layers):
-            spatial_dim = layer_index % n_spatial_dims
-            permutation = (
-                (0,)
-                + tuple(
-                    other_spatial_dim + 2
-                    for other_spatial_dim in range(n_spatial_dims)
-                    if other_spatial_dim != spatial_dim
+        for layer_index in range(len(self.layers)):
+            if self.training:
+                from torch.utils.checkpoint import checkpoint
+
+                x = checkpoint(
+                    lambda x, layer_index=layer_index: self._run_layer(layer_index, x),
+                    x,
                 )
-                + (spatial_dim + 2, 1)
-            )
-            inverse_permutation = tuple(
-                permutation.index(dim) for dim in range(len(x.size()))
-            )
-            x_permuted = x.permute(*permutation)
-            layer_input = x_permuted.flatten(end_dim=-3)
-            layer_output = self._batched_layer_forward(layer, layer_input)
-            x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+            else:
+                x = self._run_layer(layer_index, x)
 
         return x
 

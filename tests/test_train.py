@@ -244,6 +244,15 @@ def test_alpha_zero_strict_mode(default_config, default_alpha_zero_config):
     ).result
     assert result is not None
     assert result["custom_metrics"]["human/own_reward_mean"] > -10
+    prediction_stats = result["info"]["learner"]["human"]["custom_metrics"][
+        "prediction_stats"
+    ]
+    assert abs(prediction_stats["reward_bias"]) < 1e-4
+    assert abs(prediction_stats["reward_var"]) < 1e-4
+    assert abs(prediction_stats["reward_mse"]) < 1e-4
+    assert abs(prediction_stats["own_reward_bias"]) < 1e-4
+    assert abs(prediction_stats["own_reward_var"]) < 1e-4
+    assert abs(prediction_stats["own_reward_mse"]) < 1e-4
 
 
 @pytest.mark.uses_rllib
@@ -311,6 +320,44 @@ def test_lstm_alpha_zero_assistant(
     assert result is not None
     assert result["custom_metrics"]["human/own_reward_mean"] > -10
     assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(120)
+@pytest.mark.limit_memory("600 MB")
+def test_lstm_alpha_zero_memory_usage(
+    default_config,
+    default_alpha_zero_config,
+):
+    """
+    There wre previously some issues with training LSTM-based agents where the memory
+    usage would be very high due to saving state_out_* tensors in the replay buffer.
+    This makes sure that the memory usage is reasonable.
+    """
+
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
+            "ray_init_options": {
+                "object_store_memory": 78643200,
+            },
+            "num_envs_per_worker": 8,
+            "num_workers": 0,
+            "num_gpus": 0,  # Trying to use CUDA with memray seems to cause an error.
+            "num_simulations": 2,
+            "num_training_iters": 8,
+            "rollout_fragment_length": 100,
+            "max_seq_len": 10,
+            "sample_batch_size": 800,
+            "model": "transformer",
+            "use_per_location_lstm": True,
+            "sgd_minibatch_size": 20,
+            "train_batch_size": 1,
+            "vf_share_layers": True,
+        }
+    ).result
+    assert result is not None
 
 
 @pytest.mark.uses_rllib

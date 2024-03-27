@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from logging import Logger
 from typing import List, Optional
 
 import gymnasium as gym
@@ -14,6 +15,8 @@ from ray.rllib.utils import merge_dicts  # type: ignore
 from ray.rllib.utils.typing import PolicyID
 from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import SETTINGS, Experiment
+
+import mbag
 
 from .os_utils import available_cpu_count
 from .training_utils import load_trainer
@@ -79,13 +82,15 @@ def main(
     record_video: bool,
     out_dir: str,
     save_samples: bool,
-    _log,
+    _log: Logger,
 ):
     ray.init(
         num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
     )
+
+    mbag.logger.setLevel(_log.getEffectiveLevel())
 
     config_updates = merge_dicts(
         config_updates,

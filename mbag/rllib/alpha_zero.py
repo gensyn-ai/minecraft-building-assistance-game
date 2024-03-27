@@ -19,7 +19,7 @@ from ray.rllib.models import ActionDistribution, ModelV2
 from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_action_dist import TorchCategorical
 from ray.rllib.policy.policy import Policy
-from ray.rllib.policy.sample_batch import concat_samples
+from ray.rllib.policy.sample_batch import MultiAgentBatch, concat_samples
 from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule, LearningRateSchedule
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.policy.view_requirement import ViewRequirement
@@ -44,7 +44,7 @@ from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import MbagConfigDict
 from mbag.environment.schedule import PiecewiseSchedule, Schedule
-from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
+from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict
 
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
 from .rllib_env import unwrap_mbag_env
@@ -52,8 +52,10 @@ from .torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictor
 
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
+OWN_REWARDS = "own_rewards"
 EXPECTED_REWARDS = "expected_rewards"
 EXPECTED_OWN_REWARDS = "expected_own_rewards"
+VALUE_ESTIMATES = "value_estimates"
 
 
 logger = logging.getLogger(__name__)
@@ -241,10 +243,8 @@ class MbagMCTSNode:
 
     def best_action(self, force_python_impl=False) -> int:
         if self.mcts._strict_mode:
-            assert self.action_number_visits.sum() == self.number_visits
-            assert self.action_type_number_visits.sum() == self.number_visits
-            assert self.action_total_value.sum() == self.total_value
-            assert self.action_type_total_value.sum() == self.total_value
+            assert self.action_number_visits.sum() + 1 == self.number_visits
+            assert self.action_type_number_visits.sum() + 1 == self.number_visits
 
         if self.mcts._strict_mode:
             force_python_impl = True
@@ -391,6 +391,7 @@ class MbagMCTSNode:
     def expand(
         self,
         child_priors,
+        value_estimate: float,
         goal_logits: Optional[np.ndarray] = None,
         other_agent_action_dist: Optional[np.ndarray] = None,
         model_state_out: List[np.ndarray] = [],
@@ -398,8 +399,7 @@ class MbagMCTSNode:
     ) -> None:
         self.is_expanded = True
         self.child_priors = child_priors
-
-        assert self.number_visits == self.action_number_visits.sum()
+        self.value_estimate = value_estimate
 
         self.model_state_out = model_state_out
         self.goal_logits = goal_logits
@@ -488,6 +488,10 @@ class MbagMCTSNode:
                 goal_logits=self.goal_logits,
                 other_player_actions=other_agent_actions,
             )
+            if self.mcts.use_goal_predictor:
+                # If we're using the goal predictor, we assume we can't see the goal,
+                # which means we can't know when an episode is finished.
+                terminated = False
             next_state = self.env.get_state()
             self.children[all_actions] = MbagMCTSNode(
                 state=next_state,
@@ -511,15 +515,19 @@ class MbagMCTSNode:
         action_children = [
             child for actions, child in self.children.items() if actions[0] == action
         ]
-        if self.mcts.use_goal_predictor:
-            expected_reward = np.mean(
-                [child.reward for child in action_children if child.is_expanded]
-            )
-        else:
-            expected_reward = np.mean([child.reward for child in action_children])
-        expected_own_reward = np.mean(
-            [child.info["own_reward"] for child in action_children]  # type: ignore[index]
-        )
+        total_reward = 0
+        total_visits = 0
+        total_own_reward = 0
+        total_own_reward_visits = 0
+        for child in action_children:
+            if (not self.mcts.use_goal_predictor) or child.is_expanded:
+                total_reward += child.number_visits * child.reward
+                total_visits += child.number_visits
+            assert child.info is not None
+            total_own_reward += child.number_visits * child.info["own_reward"]
+            total_own_reward_visits += child.number_visits
+        expected_own_reward = total_own_reward / total_own_reward_visits
+        expected_reward = total_reward / total_visits
         return expected_reward, expected_own_reward
 
     def backup(self, value):
@@ -646,11 +654,13 @@ class MbagMCTS(MCTS):
 
             for env_index, leaf in enumerate(leaves):
                 if leaf.done:
+                    # TODO: how to handle terminal states for assistant?
                     value = 0.0
                 else:
                     value = float(values[env_index])
                     leaf.expand(
                         child_priors[env_index],
+                        value_estimate=value,
                         goal_logits=(
                             goal_logits[env_index] if goal_logits is not None else None
                         ),
@@ -734,37 +744,29 @@ class MbagMCTS(MCTS):
                     ]
                 )
 
-            self.model.eval()
-            _, values, _ = self.model.compute_priors_and_value(
-                [node.obs["obs"]], [state[None] for state in node.model_state_in]
-            )
-            logger.debug(f"{values[0]} {node.total_value / node.number_visits}")
-
-            plan = []
-            current = node
-            while len(current.children) > 0:
-                plan_action = int(np.argmax(current.action_number_visits))
-                current = current.get_child(plan_action)
-                plan.append((node.get_mbag_action(plan_action), current.reward))
-            logger.debug(plan)
-
-            # node = nodes[0]
-            # flat_goal_logits = node.goal_logits.reshape((MinecraftBlocks.NUM_BLOCKS, -1)).T
-            # flat_probs = np.exp(flat_goal_logits)
-            # flat_probs /= flat_probs.sum(axis=1, keepdims=True)
-            # goal_blocks = cast(MinecraftBlocks, node.state["goal_blocks"]).blocks
-            # width, height, depth = goal_blocks.shape
-            # flat_goal = goal_blocks.reshape(-1)
-            # correct_probs = flat_probs[np.arange(len(flat_goal)), flat_goal]
-            # correct_probs = correct_probs.reshape(goal_blocks.shape)
-            # for y in range(1, 4):
-            #     for z in range(depth):
-            #         #print(*[f"{correct_probs[x, y, z]:.2f}" for x in range(width)], sep="\t")
-            #         print(
-            #             *[" ░▒▓█"[int(correct_probs[x, y, z] * 4.99)] for x in range(width)],
-            #             sep="",
-            #         )
-            #     print()
+            if False:
+                node = nodes[0]
+                flat_goal_logits = node.goal_logits.reshape(
+                    (MinecraftBlocks.NUM_BLOCKS, -1)
+                ).T
+                flat_probs = np.exp(flat_goal_logits)
+                flat_probs /= flat_probs.sum(axis=1, keepdims=True)
+                goal_blocks = cast(MinecraftBlocks, node.state["goal_blocks"]).blocks
+                width, height, depth = goal_blocks.shape
+                flat_goal = goal_blocks.reshape(-1)
+                correct_probs = flat_probs[np.arange(len(flat_goal)), flat_goal]
+                correct_probs = correct_probs.reshape(goal_blocks.shape)
+                for y in range(1, 4):
+                    for z in range(depth):
+                        logger.debug(
+                            "".join(
+                                *[
+                                    " ░▒▓█"[int(correct_probs[x, y, z] * 4.99)]
+                                    for x in range(width)
+                                ]
+                            ),
+                        )
+                    logger.debug("")
 
         return (
             tree_policies,
@@ -839,6 +841,15 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement(
             space=spaces.Box(low=-np.inf, high=np.inf, shape=(action_space.n,))
         )
+        self.view_requirements[EXPECTED_REWARDS] = ViewRequirement(
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=())
+        )
+        self.view_requirements[EXPECTED_OWN_REWARDS] = ViewRequirement(
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=())
+        )
+        self.view_requirements[VALUE_ESTIMATES] = ViewRequirement(
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=())
+        )
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -904,6 +915,15 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
     def compute_actions_from_input_dict(
         self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
     ):
+        if logger.isEnabledFor(logging.DEBUG):
+            info: MbagInfoDict = episodes[0].last_info_for("player_1")
+            if info is not None:
+                reward = input_dict[SampleBatch.REWARDS][0]
+                own_reward = info["own_reward"]
+                goal_similarity = info["goal_similarity"]
+                logger.debug(f"{reward=} {own_reward=} {goal_similarity=}")
+
+        assert self.mcts.model == self.model
 
         model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
         state_out: List[np.ndarray]
@@ -944,10 +964,11 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                     line_of_sight_masking=self.model.line_of_sight_masking,
                 )
 
-                # Run inputs through the model to get state_out.
+                # Run inputs through the model to get state_out and value function.
                 cast(nn.Module, self.model).eval()
                 _, state_out_torch = self._run_model_on_input_dict(input_dict)
                 state_out = convert_to_numpy(state_out_torch)
+                value_estimates = convert_to_numpy(self.model.value_function())
             else:
                 nodes: List[MbagMCTSNode] = []
                 for env_index, episode in enumerate(episodes):
@@ -995,6 +1016,8 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
 
                 action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
 
+                value_estimates = np.array([node.value_estimate for node in nodes])
+
             for env_index, episode in enumerate(episodes):
                 player_index = self.envs[env_index].player_index
 
@@ -1032,8 +1055,6 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         action_dist_inputs = np.log(mcts_policies)
         action_dist_inputs[mcts_policies == 0] = -1e4
 
-        assert self.model is not None
-
         return (
             np.array(actions),
             state_out,
@@ -1044,11 +1065,12 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                     self.model,
                     cast(Any, None),
                 ),
-                "expected_reward": expected_rewards,
-                "expected_own_reward": expected_own_rewards,
                 ACTION_MASK: action_mask,
                 MCTS_POLICIES: mcts_policies,
                 SampleBatch.ACTION_DIST_INPUTS: action_dist_inputs,
+                EXPECTED_REWARDS: expected_rewards,
+                EXPECTED_OWN_REWARDS: expected_own_rewards,
+                VALUE_ESTIMATES: value_estimates,
             },
         )
 
@@ -1058,7 +1080,7 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
         other_agent_batches: Optional[
             Dict[AgentID, Tuple[PolicyID, Type[TorchPolicy], SampleBatch]]
         ] = None,
-        episode=None,
+        episode: Optional[Episode] = None,
     ):
         with torch.no_grad():
             last_r: float
@@ -1099,6 +1121,20 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
                     )
             else:
                 pass  # No need to include other agent batch for single player case.
+
+        assert episode is not None
+        infos: List[MbagInfoDict] = list(sample_batch[SampleBatch.INFOS][1:])
+        agent_index = sample_batch[SampleBatch.AGENT_INDEX][0]
+        agent_id = episode.get_agents()[agent_index]
+        last_info = cast(MbagInfoDict, episode.last_info_for(agent_id))
+        infos.append(last_info)
+        sample_batch[OWN_REWARDS] = np.array([info["own_reward"] for info in infos])
+
+        # Remove state_out_* entries from the sample batch since they aren't needed
+        # for training and they take up a lot of space.
+        for key in list(sample_batch.keys()):
+            if key.startswith("state_out_"):
+                del sample_batch[key]
 
         return sample_batch
 
@@ -1405,6 +1441,45 @@ class MbagAlphaZero(AlphaZero):
 
         self.workers.foreach_policy_to_train(set_policy_training)
 
+    def get_reward_and_value_prediction_metrics(
+        self, sample_batch: MultiAgentBatch
+    ) -> Dict[PolicyID, dict]:
+        metrics_by_policy = {}
+
+        for policy_id, policy_batch in sample_batch.policy_batches.items():
+            policy = self.get_policy(policy_id)
+            if not isinstance(policy, MbagAlphaZeroPolicy):
+                continue
+
+            prediction_stats = {}
+            for stat_key, estimates, targets in [
+                (
+                    "vf",
+                    policy_batch[VALUE_ESTIMATES],
+                    policy_batch[Postprocessing.VALUE_TARGETS],
+                ),
+                (
+                    "reward",
+                    policy_batch[EXPECTED_REWARDS],
+                    policy_batch[SampleBatch.REWARDS],
+                ),
+                (
+                    "own_reward",
+                    policy_batch[EXPECTED_OWN_REWARDS],
+                    policy_batch[OWN_REWARDS],
+                ),
+            ]:
+                bias = np.mean(estimates - targets)
+                mse = np.mean((estimates - targets) ** 2)
+                var = mse - bias**2
+                prediction_stats[f"{stat_key}_bias"] = bias
+                prediction_stats[f"{stat_key}_var"] = var
+                prediction_stats[f"{stat_key}_mse"] = mse
+
+            metrics_by_policy[policy_id] = {"prediction_stats": prediction_stats}
+
+        return metrics_by_policy
+
     def training_step(self) -> ResultDict:
         assert self.workers is not None
 
@@ -1429,6 +1504,11 @@ class MbagAlphaZero(AlphaZero):
             new_sample_batch = concat_samples(new_sample_batches)
         else:
             new_sample_batch = new_sample_batches
+
+        assert isinstance(new_sample_batch, MultiAgentBatch)
+        prediction_metrics_by_policy = self.get_reward_and_value_prediction_metrics(
+            new_sample_batch
+        )
 
         # Update sampling step counters.
         self._counters[NUM_ENV_STEPS_SAMPLED] += new_sample_batch.env_steps()
@@ -1472,6 +1552,11 @@ class MbagAlphaZero(AlphaZero):
         }
         with self._timers[SYNCH_WORKER_WEIGHTS_TIMER]:
             self.workers.sync_weights(global_vars=global_vars)
+
+        for policy_id, prediction_metrics in prediction_metrics_by_policy.items():
+            train_results.setdefault(policy_id, {}).setdefault(
+                "custom_metrics", {}
+            ).update(prediction_metrics)
 
         # Return all collected metrics for the iteration.
         return train_results

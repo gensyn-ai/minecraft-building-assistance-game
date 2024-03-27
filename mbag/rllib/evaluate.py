@@ -15,6 +15,7 @@ from ray.rllib.algorithms import Algorithm
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
+import mbag
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS, merge_configs
 from mbag.environment.mbag_env import MbagConfigDict
@@ -76,6 +77,8 @@ def main(  # noqa: C901
         ignore_reinit_error=True,
         include_dashboard=False,
     )
+
+    mbag.logger.setLevel(_log.getEffectiveLevel())
 
     algorithm_config_updates["seed"] = seed
     random.seed(seed)
