@@ -775,7 +775,7 @@ class MbagMCTS(MCTS):
         )
 
 
-class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSchedule):
+class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroPolicy):
     mcts: MbagMCTS
     envs: List[MbagEnvModel]
     config: Dict[str, Any]
@@ -1284,12 +1284,6 @@ class MbagAlphaZeroPolicy(AlphaZeroPolicy, EntropyCoeffSchedule, LearningRateSch
 
     def on_global_var_update(self, global_vars):
         super().on_global_var_update(global_vars)
-        if self._entropy_coeff_schedule is not None:
-            self.entropy_coeff = self._entropy_coeff_schedule.value(
-                global_vars["timestep"]
-            )
-        self.mcts.update_temperature(global_timestep=global_vars["timestep"])
-
         if self._training:
             self.global_timestep_for_envs = global_vars["timestep"]
         for env in self.envs:
