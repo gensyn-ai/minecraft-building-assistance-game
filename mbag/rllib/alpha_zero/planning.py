@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Sequence, TypedDict, Union, cast
+from typing import Dict, List, Optional, Sequence, cast
 
 import gymnasium as gym
 import numpy as np
@@ -28,15 +28,6 @@ from ..rllib_env import (
 )
 
 
-class MbagObsWithMask(TypedDict):
-    obs: MbagObs
-    action_mask: np.ndarray
-
-
-class MbagEnvModelStateDict(MbagStateDict, total=False):
-    last_obs: Union[MbagObs, MbagObsWithMask]
-
-
 class MbagEnvModelInfoDict(MbagInfoDict):
     other_player_infos: List[MbagInfoDict]
 
@@ -48,7 +39,6 @@ class MbagEnvModel(gym.Env):
     """
 
     action_space: spaces.Discrete
-    last_obs: Union[MbagObs, MbagObsWithMask]
     last_obs_dict: Dict[AgentID, MbagObs]
 
     def __init__(
@@ -56,7 +46,6 @@ class MbagEnvModel(gym.Env):
         env: MbagRllibWrapper,
         config: MbagConfigDict,
         player_index: int = 0,
-        include_action_mask_in_obs=True,
         line_of_sight_masking=False,
     ):
         super().__init__()
@@ -64,23 +53,13 @@ class MbagEnvModel(gym.Env):
         self.env = env
         self.config = config
         self.set_player_index(player_index)
-        self.include_action_mask_in_obs = include_action_mask_in_obs
         self.line_of_sight_masking = line_of_sight_masking
 
-        assert isinstance(self.env.action_space, spaces.Discrete)
-        self.action_space = self.env.action_space
-        if include_action_mask_in_obs:
-            self.observation_space = spaces.Dict(
-                {
-                    "obs": self.env.observation_space,
-                    "action_mask": spaces.Box(
-                        np.zeros(self.action_space.n, dtype=bool),
-                        np.ones(self.action_space.n, dtype=bool),
-                    ),
-                }
-            )
-        else:
-            self.observation_space = self.env.observation_space
+        assert isinstance(self.env.action_space, spaces.Dict)
+        action_space = self.env.action_space.spaces[self.agent_id]
+        assert isinstance(action_space, spaces.Discrete)
+        self.action_space = action_space
+        self.observation_space = self.env.observation_space
 
     def set_player_index(self, player_index: int):
         self.player_index = player_index
@@ -89,25 +68,10 @@ class MbagEnvModel(gym.Env):
     def _store_last_obs_dict(self, obs_dict):
         self.last_obs_dict = obs_dict
 
-    def _process_obs(self, obs: MbagObs):
-        if self.include_action_mask_in_obs:
-            world_obs, inventory_obs, timestep = obs
-            self.last_obs = {
-                "obs": obs,
-                "action_mask": MbagActionDistribution.get_mask_flat(
-                    self.config,
-                    (world_obs[None], inventory_obs[None], timestep[None]),
-                    line_of_sight_masking=self.line_of_sight_masking,
-                )[0],
-            }
-        else:
-            self.last_obs = obs
-        return self.last_obs
-
     def reset(self):
         obs_dict, info_dict = self.env.reset()
         self._store_last_obs_dict(obs_dict)
-        return self._process_obs(cast(MbagObs, obs_dict[self.agent_id]))
+        return cast(MbagObs, obs_dict[self.agent_id])
 
     def step(
         self,
@@ -157,37 +121,30 @@ class MbagEnvModel(gym.Env):
 
         self._store_last_obs_dict(obs_dict)
 
+        obs: MbagObs = obs_dict[self.agent_id]
+
         return (
-            self._process_obs(obs_dict[self.agent_id]),
+            obs,
             reward,
             terminated_dict.get(self.agent_id, terminated_dict["__all__"]),
             truncated_dict.get(self.agent_id, truncated_dict["__all__"]),
             info,
         )
 
-    def get_state(self) -> MbagEnvModelStateDict:
-        env_state = self.env.get_state()
-        return {
-            "current_blocks": env_state["current_blocks"],
-            "goal_blocks": env_state["goal_blocks"],
-            "player_locations": env_state["player_locations"],
-            "player_directions": env_state["player_directions"],
-            "player_inventories": env_state["player_inventories"],
-            "last_interacted": env_state["last_interacted"],
-            "timestep": env_state["timestep"],
-            "last_obs": self.last_obs,
-        }
+    def get_valid_actions(self, obs: MbagObs) -> np.ndarray:
+        world_obs, inventory_obs, timestep = obs
+        action_mask: np.ndarray = MbagActionDistribution.get_mask_flat(
+            self.config,
+            (world_obs[None], inventory_obs[None], timestep[None]),
+            line_of_sight_masking=self.line_of_sight_masking,
+        )[0]
+        return action_mask
 
-    def set_state(self, state: MbagEnvModelStateDict):
-        if "last_obs" in state:
-            self.env.set_state_no_obs(state)
-            self.last_obs = state["last_obs"]
-            # TODO: load last obs dict?
-            return self.last_obs
-        else:
-            obs_dict = self.env.set_state(state)
-            self._store_last_obs_dict(obs_dict)
-            return self._process_obs(obs_dict[self.agent_id])
+    def get_state(self) -> MbagStateDict:
+        return self.env.get_state()
+
+    def set_state(self, state: MbagStateDict):
+        self.env.set_state_no_obs(state)
 
     def get_reward_with_other_agent_actions(
         self,
@@ -347,7 +304,8 @@ class MbagEnvModel(gym.Env):
 
 
 def create_mbag_env_model(
-    config: MbagConfigDict, player_index: int = 0, include_action_mask_in_obs=True
+    config: MbagConfigDict,
+    player_index: int = 0,
 ) -> MbagEnvModel:
     # We should never use Malmo in the env model.
     config["malmo"]["use_malmo"] = False
@@ -357,7 +315,6 @@ def create_mbag_env_model(
         flat_env,
         config,
         player_index=player_index,
-        include_action_mask_in_obs=include_action_mask_in_obs,
     )
     return env_model
 

@@ -486,7 +486,6 @@ class MbagTorchModel(ActorCriticModel):
         input_dict = {
             SampleBatch.OBS: restore_original_dimensions(obs, self.obs_space, "torch"),
         }
-        tensor_state_in = [convert_to_torch_tensor(state) for state in state_in]
 
         if action_mask is not None:
             action_mask = convert_to_torch_tensor(action_mask)
@@ -495,7 +494,7 @@ class MbagTorchModel(ActorCriticModel):
         with torch.no_grad():
             logits, state_out = self.forward(
                 input_dict,
-                tensor_state_in,
+                state_in,
                 np.ones(batch_size, dtype=int),
                 mask_logits=False,
             )
@@ -505,7 +504,7 @@ class MbagTorchModel(ActorCriticModel):
             priors = priors.cpu().numpy()
             value = value.cpu().numpy()
 
-            return priors, value, [state.cpu().numpy() for state in state_out]
+            return priors, value, [state.detach() for state in state_out]
 
 
 class ResidualBlock(nn.Module):

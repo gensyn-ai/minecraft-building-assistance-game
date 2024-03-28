@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type, Union, ca
 
 import ray
 import torch
+from gymnasium import spaces
 from ray.rllib.algorithms import Algorithm, AlgorithmConfig
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.env import MultiAgentEnv
@@ -237,6 +238,8 @@ def sacred_config(_log):  # noqa
     env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, environment_name)(
         environment_params
     )
+    observation_space = cast(spaces.Dict, env.observation_space).spaces["player_0"]
+    action_space = cast(spaces.Dict, env.action_space).spaces["player_0"]
 
     # Training
     num_workers = 2
@@ -473,8 +476,8 @@ def sacred_config(_log):  # noqa
         elif policy_id in policies_to_train:
             policies[policy_id] = PolicySpec(
                 policy_class,
-                env.observation_space,
-                env.action_space,
+                observation_space,
+                action_space,
                 policy_config,
             )
         else:
@@ -482,8 +485,8 @@ def sacred_config(_log):  # noqa
             mbag_agent = ALL_HEURISTIC_AGENTS[policy_id]({}, environment_params)
             policies[policy_id] = PolicySpec(
                 MbagAgentPolicy,
-                env.observation_space,
-                env.action_space,
+                observation_space,
+                action_space,
                 {"mbag_agent": mbag_agent},
             )
 

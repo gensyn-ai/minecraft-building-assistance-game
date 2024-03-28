@@ -1,8 +1,9 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
+import torch
 from ray.rllib.algorithms.alpha_zero.mcts import MCTS
 from ray.rllib.utils.numpy import convert_to_numpy
 
@@ -12,18 +13,18 @@ from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.schedule import PiecewiseSchedule, Schedule
 
 from ..rllib_env import unwrap_mbag_env
-from ..torch_models import OtherAgentActionPredictorMixin
+from ..torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
 from .planning import MbagEnvModel, MbagEnvModelInfoDict
 
 logger = logging.getLogger(__name__)
 
 
 class MbagRootParentNode:
-    def __init__(self, env):
+    def __init__(self, env: MbagEnvModel):
         self.parent = None
         self.env = env
-        self.action_total_value = defaultdict(float)
-        self.action_number_visits = defaultdict(int)
+        self.action_total_value: Any = defaultdict(float)
+        self.action_number_visits: Any = defaultdict(int)
 
         self.action_mapping = MbagActionDistribution.get_action_mapping(
             unwrap_mbag_env(self.env).config
@@ -48,8 +49,8 @@ class MbagMCTSNode:
     goal_logits: Optional[np.ndarray]
     other_agent_action_dist: Optional[np.ndarray]
     other_reward: float
-    model_state_in: List[np.ndarray]
-    model_state_out: List[np.ndarray]
+    model_state_in: List[torch.Tensor]
+    model_state_out: List[torch.Tensor]
 
     def __init__(
         self,
@@ -59,9 +60,9 @@ class MbagMCTSNode:
         info: Optional[MbagEnvModelInfoDict],
         reward,
         state,
-        mcts,
-        model_state_in,
-        parent=None,
+        mcts: "MbagMCTS",
+        model_state_in: Union[List[np.ndarray], List[torch.Tensor]],
+        parent: Union["MbagMCTSNode", MbagRootParentNode],
     ):
         self.env = parent.env
         self.action = action  # Action used to go to this state
@@ -91,14 +92,15 @@ class MbagMCTSNode:
         self.action_number_visits = np.zeros(
             [self.action_space_size], dtype=np.int64
         )  # N
-        self.valid_actions = obs["action_mask"].astype(np.bool_)
 
+        self.valid_actions = self.env.get_valid_actions(self.obs)
         self.valid_action_types = np.array(
             [
                 np.any(self.valid_actions[self.action_type_slices[action_type]])
                 for action_type in range(MbagAction.NUM_ACTION_TYPES)
             ]
         )
+
         self.action_type_total_value = np.zeros(
             MbagAction.NUM_ACTION_TYPES, dtype=np.float32
         )
@@ -115,7 +117,17 @@ class MbagMCTSNode:
         self._total_value = 0.0
         self._number_visits = 0
 
-        self.model_state_in = model_state_in
+        assert isinstance(self.mcts.model, MbagTorchModel)
+        if model_state_in:
+            tensor_model_state_in = [
+                torch.from_numpy(state) if isinstance(state, np.ndarray) else state
+                for state in model_state_in
+            ]
+            self.model_state_in = [
+                state.to(self.mcts.model.device) for state in tensor_model_state_in
+            ]
+        else:
+            self.model_state_in = []
 
     @property
     def total_value(self):
@@ -351,7 +363,7 @@ class MbagMCTSNode:
         value_estimate: float,
         goal_logits: Optional[np.ndarray] = None,
         other_agent_action_dist: Optional[np.ndarray] = None,
-        model_state_out: List[np.ndarray] = [],
+        model_state_out: List[torch.Tensor] = [],
         add_dirichlet_noise=False,
     ) -> None:
         self.is_expanded = True
@@ -369,7 +381,7 @@ class MbagMCTSNode:
         ):
             # We need to update the reward for this node based on the new goal_logits.
             self.reward = self.env.get_reward_with_other_agent_actions(
-                self.parent.obs["obs"],
+                self.parent.obs,
                 self.info,
                 self.goal_logits,
             )
@@ -577,18 +589,19 @@ class MbagMCTS(MCTS):
     ) -> Tuple[np.ndarray, np.ndarray]:
         for _ in range(self.num_sims):
             leaves: List[MbagMCTSNode] = [node.select() for node in nodes]
-            obs = [leaf.obs["obs"] for leaf in leaves]
+            obs = [leaf.obs for leaf in leaves]
             model_state_len = len(leaves[0].model_state_in)
             model_state_in = [
-                np.stack([leaf.model_state_in[state_index] for leaf in leaves], axis=0)
+                torch.stack(
+                    [leaf.model_state_in[state_index] for leaf in leaves], dim=0
+                )
                 for state_index in range(model_state_len)
             ]
             action_mask = np.stack([leaf.valid_actions for leaf in leaves])
             child_priors: np.ndarray
             values: np.ndarray
-            model_state_out: List[np.ndarray]
+            model_state_out: List[torch.Tensor]
 
-            self.model.eval()
             child_priors, values, model_state_out = self.model.compute_priors_and_value(
                 obs, model_state_in, action_mask=action_mask
             )
@@ -693,7 +706,7 @@ class MbagMCTS(MCTS):
                     " ".join(f"{prob:.2f}" for prob in block_location_goal_probs)
                 )
                 logger.debug(
-                    node.obs["obs"][0][
+                    node.obs[0][
                         :,
                         mbag_action.block_location[0],
                         mbag_action.block_location[1],

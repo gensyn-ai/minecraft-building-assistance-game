@@ -25,7 +25,6 @@ from ray.rllib.utils.typing import AgentID, PolicyID, TensorType
 from ray.tune.registry import ENV_CREATOR, _global_registry
 from torch import nn
 
-from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import MbagConfigDict
 from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict
@@ -80,6 +79,9 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             # We should never use Malmo in the env model.
             env_config: MbagConfigDict = copy.deepcopy(config["env_config"])
             env_config["malmo"]["use_malmo"] = False
+            # Don't waste time generating goals in the env model.
+            env_config["goal_generator"] = "basic"
+            env_config["goal_generator_config"] = {}
             env = env_creator(env_config)
             env_model = MbagEnvModel(
                 env, env_config, line_of_sight_masking=line_of_sight_masking
@@ -196,6 +198,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 logger.debug(f"{reward=} {own_reward=} {goal_similarity=}")
 
         assert self.mcts.model == self.model
+        cast(nn.Module, self.model).eval()
 
         model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
         state_out: List[np.ndarray]
@@ -216,6 +219,9 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
         assert isinstance(self.action_space, spaces.Discrete)
 
+        obs = input_dict[SampleBatch.OBS]
+        obs = restore_original_dimensions(obs, self.obs_space, "numpy")
+
         with torch.no_grad():
             episode: Episode
 
@@ -228,16 +234,9 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
                 # Get action mask.
                 assert isinstance(self.model, MbagTorchModel)
-                obs = input_dict[SampleBatch.OBS]
-                obs = restore_original_dimensions(obs, self.obs_space, "numpy")
-                action_mask = MbagActionDistribution.get_mask_flat(
-                    self.config["env_config"],
-                    obs,
-                    line_of_sight_masking=self.model.line_of_sight_masking,
-                )
+                action_mask = self.envs[0].get_valid_actions(obs)
 
                 # Run inputs through the model to get state_out and value function.
-                cast(nn.Module, self.model).eval()
                 _, state_out_torch = self._run_model_on_input_dict(input_dict)
                 state_out = convert_to_numpy(state_out_torch)
                 value_estimates = convert_to_numpy(self.model.value_function())
@@ -249,11 +248,11 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                         input_dict[f"state_in_{state_index}"][env_index]
                         for state_index in range(model_state_len)
                     ]
-                    obs = self.envs[env_index].set_state(env_state)
+                    self.envs[env_index].set_state(env_state)
                     nodes.append(
                         MbagMCTSNode(
                             state=env_state,
-                            obs=obs,
+                            obs=[obs_piece[env_index] for obs_piece in obs],
                             reward=0,
                             done=False,
                             info=None,
@@ -281,7 +280,10 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 for state_index in range(model_state_len):
                     state_out.append(
                         np.stack(
-                            [node.model_state_out[state_index] for node in nodes],
+                            [
+                                node.model_state_out[state_index].cpu().numpy()
+                                for node in nodes
+                            ],
                             axis=0,
                         )
                     )

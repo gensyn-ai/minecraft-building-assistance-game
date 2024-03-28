@@ -729,7 +729,7 @@ class MbagEnv(object):
 
         player_inventory = self.player_inventories[player_index]
         inventory_obs = get_block_counts_in_inventory(player_inventory)
-        return inventory_obs
+        return inventory_obs.astype(np.int32)
 
     def _try_give_player_blocks(
         self, block_id: int, player_index: int, give: bool, num_to_give: int = 1

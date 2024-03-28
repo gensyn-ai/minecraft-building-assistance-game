@@ -2,14 +2,14 @@
 RLLib-compatible MBAG environment.
 """
 
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Tuple, Union, cast
 
 if TYPE_CHECKING:
     from .alpha_zero.planning import MbagEnvModel
 
 from gymnasium import spaces
 from ray.rllib.env import MultiAgentEnv
-from ray.rllib.utils.typing import AgentID, MultiAgentDict
+from ray.rllib.utils.typing import MultiAgentDict
 from ray.tune.registry import register_env
 
 from mbag.agents.action_distributions import MbagActionDistribution
@@ -18,15 +18,7 @@ from mbag.environment.state import MbagStateDict
 
 
 class MbagRllibWrapper(MultiAgentEnv):
-    action_space: spaces.Space
     env: Union["MbagRllibWrapper", MbagEnv]
-
-    def action_space_sample(
-        self, agent_ids: Optional[List[AgentID]] = None
-    ) -> MultiAgentDict:
-        if agent_ids is None:
-            agent_ids = list(self._agent_ids)
-        return {agent_id: self.action_space.sample() for agent_id in agent_ids}
 
     def get_state(self) -> MbagStateDict:
         return self.env.get_state()
@@ -46,12 +38,16 @@ class MbagMultiAgentEnv(MbagRllibWrapper):
 
         self.env = MbagEnv(cast(MbagConfigDict, config))
 
-        self.action_space = self.env.action_space
-        self.observation_space = self.env.observation_space
         self._agent_ids = {
             self._agent_id(player_index)
             for player_index in range(config["num_players"])
         }
+        self.action_space = spaces.Dict(
+            {agent_id: self.env.action_space for agent_id in self._agent_ids}
+        )
+        self.observation_space = spaces.Dict(
+            {agent_id: self.env.observation_space for agent_id in self._agent_ids}
+        )
 
     def _agent_id(self, player_index: int) -> str:
         return f"player_{player_index}"
@@ -110,7 +106,7 @@ class FlatActionSpaceWrapper(MbagRllibWrapper):
 
     def __init__(
         self,
-        env,
+        env: MbagRllibWrapper,
         config: MbagConfigDict,
     ):
         super().__init__()
@@ -121,7 +117,12 @@ class FlatActionSpaceWrapper(MbagRllibWrapper):
         self.action_mapping = MbagActionDistribution.get_action_mapping(self.config)
 
         num_flat_actions, _ = self.action_mapping.shape
-        self.action_space = spaces.Discrete(num_flat_actions)
+        self.action_space = spaces.Dict(
+            {
+                agent_id: spaces.Discrete(num_flat_actions)
+                for agent_id in self._agent_ids
+            }
+        )
         self.observation_space = self.env.observation_space
 
     def reset(self, **kwargs):

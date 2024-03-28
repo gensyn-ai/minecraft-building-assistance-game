@@ -17,7 +17,7 @@ def test_get_all_rewards():
     cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
     wool = MinecraftBlocks.NAME2ID["wool"]
 
-    env = create_mbag_env_model(config, include_action_mask_in_obs=False)
+    env = create_mbag_env_model(config)
     obs = env.reset()
     assert isinstance(obs, tuple)
     world_obs, inventory_obs, timestep = obs
@@ -57,7 +57,7 @@ def test_get_all_rewards():
     # Now test with negative place_wrong reward.
     assert isinstance(config["rewards"], dict)
     config["rewards"]["place_wrong"] = -1
-    env = create_mbag_env_model(config, include_action_mask_in_obs=False)
+    env = create_mbag_env_model(config)
     rewards = env.get_all_rewards(obs_batch)
     rewards = rewards[0]
 
