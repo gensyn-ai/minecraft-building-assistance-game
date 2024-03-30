@@ -1086,10 +1086,10 @@ class MbagEnv(object):
                     self.player_locations[player_index] = malmo_location
 
     def _done(self) -> bool:
-        return (
-            self.timestep >= self.config["horizon"]
-            or self.current_blocks == self.goal_blocks
-        )
+        done = self.timestep >= self.config["horizon"]
+        if self.config["terminate_on_goal_completion"]:
+            done = done or self.current_blocks == self.goal_blocks
+        return done
 
     def get_state(self) -> MbagStateDict:
         return {

@@ -278,8 +278,8 @@ def test_rllib_heuristic_agents():
                     policies={
                         "pq": PolicySpec(
                             policy_class=MbagAgentPolicy,
-                            observation_space=env.observation_space,
-                            action_space=env.action_space,
+                            observation_space=env.observation_space.spaces["player_0"],
+                            action_space=env.action_space.spaces["player_0"],
                             config={"mbag_agent": heuristic_agent},
                         )
                     },

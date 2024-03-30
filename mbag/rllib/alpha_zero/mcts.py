@@ -457,10 +457,6 @@ class MbagMCTSNode:
                 goal_logits=self.goal_logits,
                 other_player_actions=other_agent_actions,
             )
-            if self.mcts.use_goal_predictor:
-                # If we're using the goal predictor, we assume we can't see the goal,
-                # which means we can't know when an episode is finished.
-                terminated = False
             next_state = self.env.get_state()
             self.children[all_actions] = MbagMCTSNode(
                 state=next_state,

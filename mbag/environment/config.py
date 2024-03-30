@@ -204,6 +204,12 @@ class MbagConfigDict(TypedDict, total=False):
     of episodes are not strongly correlated across environments.
     """
 
+    terminate_on_goal_completion: bool
+    """
+    If True (the default), the environment will terminate when the goal is completed.
+    Otherwise the episode will continue until the horizon is reached.
+    """
+
 
 DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
     "player_name": None,
@@ -220,6 +226,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "horizon": 50,
     "world_size": (5, 5, 5),
     "random_start_locations": False,
+    "terminate_on_goal_completion": True,
     "goal_generator": TransformedGoalGenerator,
     "goal_generator_config": {
         "goal_generator": "random",

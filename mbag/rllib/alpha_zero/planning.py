@@ -71,7 +71,9 @@ class MbagEnvModel(gym.Env):
     def reset(self):
         obs_dict, info_dict = self.env.reset()
         self._store_last_obs_dict(obs_dict)
-        return cast(MbagObs, obs_dict[self.agent_id])
+        return cast(MbagObs, obs_dict[self.agent_id]), cast(
+            MbagInfoDict, info_dict[self.agent_id]
+        )
 
     def step(
         self,
@@ -131,13 +133,23 @@ class MbagEnvModel(gym.Env):
             info,
         )
 
-    def get_valid_actions(self, obs: MbagObs) -> np.ndarray:
-        world_obs, inventory_obs, timestep = obs
+    def get_valid_actions(self, obs: MbagObs, is_batch=False) -> np.ndarray:
+        if not is_batch:
+            world_obs, inventory_obs, timestep = obs
+            batched_obs = (
+                world_obs[None],
+                inventory_obs[None],
+                timestep[None],
+            )
+        else:
+            batched_obs = obs
         action_mask: np.ndarray = MbagActionDistribution.get_mask_flat(
             self.config,
-            (world_obs[None], inventory_obs[None], timestep[None]),
+            batched_obs,
             line_of_sight_masking=self.line_of_sight_masking,
-        )[0]
+        )
+        if not is_batch:
+            action_mask = action_mask[0]
         return action_mask
 
     def get_state(self) -> MbagStateDict:

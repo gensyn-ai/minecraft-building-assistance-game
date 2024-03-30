@@ -74,6 +74,15 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         assert isinstance(model, MbagTorchModel)
         line_of_sight_masking = model.line_of_sight_masking
 
+        self.mcts = MbagMCTS(
+            self.model,
+            config["mcts_config"],
+            config["gamma"],
+            use_critic=config["use_critic"],
+            use_goal_predictor=config["use_goal_predictor"],
+            _strict_mode=config.get("_strict_mode", False),
+        )
+
         def env_creator():
             env_creator = _global_registry.get(ENV_CREATOR, config["env"])
             # We should never use Malmo in the env model.
@@ -82,6 +91,10 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             # Don't waste time generating goals in the env model.
             env_config["goal_generator"] = "basic"
             env_config["goal_generator_config"] = {}
+            # If we're using a goal predictor, then we shouldn't end the episode when
+            # the goal is completed because that leaks information about the goal.
+            if self.mcts.use_goal_predictor:
+                env_config["terminate_on_goal_completion"] = False
             env = env_creator(env_config)
             env_model = MbagEnvModel(
                 env, env_config, line_of_sight_masking=line_of_sight_masking
@@ -91,18 +104,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             )
             return env_model
 
-        def mcts_creator():
-            return MbagMCTS(
-                self.model,
-                config["mcts_config"],
-                config["gamma"],
-                use_critic=config["use_critic"],
-                use_goal_predictor=config["use_goal_predictor"],
-                _strict_mode=config.get("_strict_mode", False),
-            )
-
         self.env_creator = env_creator
-        self.mcts = mcts_creator()
         self.envs = []
         self.obs_space = observation_space
 
@@ -234,7 +236,8 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
                 # Get action mask.
                 assert isinstance(self.model, MbagTorchModel)
-                action_mask = self.envs[0].get_valid_actions(obs)
+                action_mask = self.envs[0].get_valid_actions(obs, is_batch=True)
+                input_dict[ACTION_MASK] = action_mask
 
                 # Run inputs through the model to get state_out and value function.
                 _, state_out_torch = self._run_model_on_input_dict(input_dict)

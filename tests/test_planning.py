@@ -3,10 +3,38 @@ import copy
 import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.agents.heuristic_agents import LowestBlockAgent
 from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG
 from mbag.rllib.alpha_zero.planning import create_mbag_env_model
+
+
+def test_env_model_termination():
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config["world_size"] = (5, 5, 5)
+    config["goal_generator"] = "basic"
+    config["horizon"] = 100
+
+    for terminate_on_goal_completion in [True, False]:
+        config["terminate_on_goal_completion"] = terminate_on_goal_completion
+        env = create_mbag_env_model(config)
+        obs, info = env.reset()
+        agent = LowestBlockAgent({}, config)
+
+        for timestep in range(100):
+            action = agent.get_action(obs)
+            flat_action = MbagActionDistribution.get_flat_action(config, action)
+            obs, reward, terminated, truncated, info = env.step(flat_action)
+            if terminated:
+                timestep += 1
+                break
+
+        assert info["goal_similarity"] == 125
+        if terminate_on_goal_completion:
+            assert timestep < 100
+        else:
+            assert timestep == 100
 
 
 def test_get_all_rewards():
@@ -18,7 +46,7 @@ def test_get_all_rewards():
     wool = MinecraftBlocks.NAME2ID["wool"]
 
     env = create_mbag_env_model(config)
-    obs = env.reset()
+    obs, info = env.reset()
     assert isinstance(obs, tuple)
     world_obs, inventory_obs, timestep = obs
 
