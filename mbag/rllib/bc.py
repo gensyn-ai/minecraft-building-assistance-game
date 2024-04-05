@@ -1,9 +1,12 @@
 import logging
-import random
-from typing import Dict, List, Optional, Set, Type, cast
+from collections import defaultdict
+from typing import Collection, Dict, List, NamedTuple, Optional, Tuple, Type, cast
 
+import numpy as np
 import torch
 from ray.rllib.algorithms.algorithm import Algorithm, AlgorithmConfig
+from ray.rllib.evaluation import Episode
+from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
 from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
 from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
 from ray.rllib.models.action_dist import ActionDistribution
@@ -11,6 +14,7 @@ from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.policy import Policy
+from ray.rllib.policy.rnn_sequencing import pad_batch_to_sequences_of_same_size
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch, concat_samples
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.utils.from_config import NotProvided
@@ -20,10 +24,32 @@ from ray.rllib.utils.metrics import (
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
 from ray.rllib.utils.numpy import convert_to_numpy
-from ray.rllib.utils.typing import AlgorithmConfigDict, ResultDict, TensorType
+from ray.rllib.utils.sgd import minibatches
+from ray.rllib.utils.torch_utils import (
+    apply_grad_clipping,
+    explained_variance,
+    sequence_mask,
+)
+from ray.rllib.utils.typing import (
+    AlgorithmConfigDict,
+    PolicyID,
+    ResultDict,
+    SampleBatchType,
+    TensorType,
+)
 from ray.tune.registry import register_trainable
 
+from .human_data import PARTICIPANT_ID
+
 logger = logging.getLogger(__name__)
+
+
+class BCTorchLossesAndStats(NamedTuple):
+    bc_loss: torch.Tensor
+    value_loss: torch.Tensor
+    entropy: torch.Tensor
+    accuracy: torch.Tensor
+    vf_explained_var: torch.Tensor
 
 
 class BCTorchPolicy(TorchPolicy):
@@ -38,6 +64,62 @@ class BCTorchPolicy(TorchPolicy):
 
         self._initialize_loss_from_dummy_batch()
 
+    def _get_losses_and_stats(
+        self,
+        model: TorchModelV2,
+        dist_class: Type[TorchDistributionWrapper],
+        train_batch: SampleBatch,
+    ):
+        model_out, state = model(train_batch)
+        values = model.value_function()
+        action_dist: ActionDistribution = dist_class(model_out, model)
+        actions = train_batch[SampleBatch.ACTIONS]
+        logprobs = action_dist.logp(actions)
+
+        # RNN case: Mask away 0-padded chunks at end of time axis.
+        if state:
+            B = len(train_batch[SampleBatch.SEQ_LENS])  # noqa: N806
+            max_seq_len = model_out.shape[0] // B
+            mask = sequence_mask(
+                train_batch[SampleBatch.SEQ_LENS],
+                max_seq_len,
+                time_major=model.is_time_major(),
+            )
+            assert isinstance(mask, torch.Tensor)
+            mask = torch.reshape(mask, [-1])
+            num_valid = torch.sum(mask)
+
+            def reduce_mean_valid(t):
+                return torch.sum(t[mask]) / num_valid
+
+        # non-RNN case: No masking.
+        else:
+            mask = None
+            reduce_mean_valid = torch.mean
+
+        bc_loss = reduce_mean_valid(-logprobs)
+        accuracy = reduce_mean_valid(
+            (action_dist.deterministic_sample() == actions).float()
+        )
+
+        value_loss = reduce_mean_valid(
+            (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
+        )
+        vf_explained_var = cast(
+            torch.Tensor,
+            explained_variance(train_batch[Postprocessing.VALUE_TARGETS], values),
+        )
+
+        entropy = action_dist.entropy().mean()
+
+        return BCTorchLossesAndStats(
+            bc_loss=bc_loss,
+            value_loss=value_loss,
+            entropy=entropy,
+            accuracy=accuracy,
+            vf_explained_var=vf_explained_var,
+        )
+
     def loss(
         self,
         model: ModelV2,
@@ -46,71 +128,91 @@ class BCTorchPolicy(TorchPolicy):
     ):
         assert isinstance(model, TorchModelV2)
 
-        episode_ids: Set[int] = set(train_batch[SampleBatch.EPS_ID].tolist())
-        episode_in_validation: Dict[int, bool] = {
-            episode_id: random.Random(episode_id).random()
-            < self.config.get("validation_prop", 0)
-            for episode_id in episode_ids
-        }
-        validation_mask = torch.tensor(
-            [
-                episode_in_validation[episode_id.item()]
-                for episode_id in train_batch[SampleBatch.EPS_ID]
-            ],
-            dtype=torch.bool,
-            device=self.device,
+        losses_and_stats = self._get_losses_and_stats(model, dist_class, train_batch)
+
+        model.tower_stats["bc_loss"] = losses_and_stats.bc_loss
+        model.tower_stats["accuracy"] = losses_and_stats.accuracy
+        model.tower_stats["vf_loss"] = losses_and_stats.value_loss
+        model.tower_stats["vf_explained_var"] = losses_and_stats.vf_explained_var
+        model.tower_stats["entropy"] = losses_and_stats.entropy
+
+        loss = (
+            losses_and_stats.bc_loss
+            + self.config["vf_loss_coeff"] * losses_and_stats.value_loss
+            - self.config["entropy_coeff"] * losses_and_stats.entropy
         )
-
-        model_out, _ = model(train_batch)
-        action_dist: ActionDistribution = dist_class(model_out, model)
-        actions = train_batch[SampleBatch.ACTIONS]
-        logprobs = action_dist.logp(actions)
-
-        bc_loss = -torch.mean(logprobs[~validation_mask])
-        model.tower_stats["bc_loss"] = bc_loss
-        model.tower_stats["accuracy"] = (
-            (action_dist.deterministic_sample() == actions)[~validation_mask]
-            .float()
-            .mean()
-        )
-
-        entropy = action_dist.entropy().mean()
-        model.tower_stats["entropy"] = entropy
-
-        loss = bc_loss - self.config["entropy_coeff"] * entropy
-
-        validation_cross_entropy: Optional[torch.Tensor]
-        if torch.any(validation_mask):
-            validation_cross_entropy = -logprobs[validation_mask].mean()
-            model.tower_stats["validation_cross_entropy"] = validation_cross_entropy
-        else:
-            validation_cross_entropy = None
-            model.tower_stats["validation_cross_entropy"] = torch.zeros(size=(0,))
 
         return loss
 
+    def extra_grad_process(self, optimizer, loss):
+        return apply_grad_clipping(self, optimizer, loss)
+
     def extra_grad_info(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
-        stats = {
-            "bc_loss": torch.mean(
-                torch.stack(cast(List[torch.Tensor], self.get_tower_stats("bc_loss")))
-            ),
-            "entropy": torch.mean(
-                torch.stack(cast(List[torch.Tensor], self.get_tower_stats("entropy")))
-            ),
-            "accuracy": torch.mean(
-                torch.stack(cast(List[torch.Tensor], self.get_tower_stats("accuracy")))
-            ),
-        }
-        if self.get_tower_stats("validation_cross_entropy")[0] is not None:
-            stats["validation/cross_entropy"] = torch.mean(
-                torch.stack(
-                    cast(
-                        List[torch.Tensor],
-                        self.get_tower_stats("validation_cross_entropy"),
+        assert isinstance(self.model, TorchModelV2)
+        stats: Dict[str, TensorType] = {}
+        for stat_key in [
+            "bc_loss",
+            "accuracy",
+            "vf_loss",
+            "vf_explained_var",
+            "entropy",
+        ]:
+            if stat_key in self.model.tower_stats:
+                stats[stat_key] = torch.mean(
+                    torch.stack(
+                        cast(List[torch.Tensor], self.get_tower_stats(stat_key))
                     )
                 )
-            )
         return cast(Dict[str, TensorType], convert_to_numpy(stats))
+
+    def postprocess_trajectory(
+        self,
+        sample_batch: SampleBatch,
+        other_agent_batches=None,
+        episode: Optional[Episode] = None,
+    ) -> SampleBatch:
+        # This isn't actually called during BC training when trajectories are loaded
+        # from disk, but it's needed to avoid errors during RLlib's
+        # _initialize_loss_from_dummy_batch method.
+        sample_batch = super().postprocess_trajectory(
+            sample_batch, other_agent_batches, episode
+        )
+        sample_batch[Postprocessing.VALUE_TARGETS] = discount_cumsum(
+            cast(np.ndarray, sample_batch[SampleBatch.REWARDS]),
+            self.config["gamma"],
+        ).astype(np.float32)
+        return sample_batch
+
+    def validation(self, validation_batch: SampleBatch) -> Dict[str, float]:
+        assert isinstance(self.model, TorchModelV2)
+        assert self.dist_class is not None
+        assert issubclass(self.dist_class, TorchDistributionWrapper)
+
+        validation_batch.decompress_if_needed()
+
+        if not validation_batch.zero_padded:
+            pad_batch_to_sequences_of_same_size(
+                batch=validation_batch,
+                max_seq_len=self.max_seq_len,
+                shuffle=False,
+                batch_divisibility_req=self.batch_divisibility_req,
+                view_requirements=self.view_requirements,
+            )
+
+        validation_batch.set_training(True)
+        self._lazy_tensor_dict(validation_batch, device=self.devices[0])
+        with torch.no_grad():
+            losses_and_stats = self._get_losses_and_stats(
+                self.model, self.dist_class, validation_batch
+            )
+
+        return {
+            "cross_entropy": losses_and_stats.bc_loss.item(),
+            "accuracy": losses_and_stats.accuracy.item(),
+            "vf_loss": losses_and_stats.value_loss.item(),
+            "vf_explained_var": losses_and_stats.vf_explained_var.item(),
+            "entropy": losses_and_stats.entropy.item(),
+        }
 
 
 class BCConfig(AlgorithmConfig):
@@ -119,8 +221,9 @@ class BCConfig(AlgorithmConfig):
 
         self.sgd_minibatch_size = 128
         self.num_sgd_iter = 30
-        self.validation_prop: float = 0.0
+        self.validation_participant_ids: Collection[int] = []
         self.entropy_coeff: float = 0.0
+        self.vf_loss_coeff: float = 0.0
 
         self.exploration_config = {
             "type": "StochasticSampling",
@@ -131,8 +234,9 @@ class BCConfig(AlgorithmConfig):
         *args,
         sgd_minibatch_size=NotProvided,
         num_sgd_iter=NotProvided,
-        validation_prop=NotProvided,
         entropy_coeff=NotProvided,
+        vf_loss_coeff=NotProvided,
+        validation_participant_ids=NotProvided,
         **kwargs,
     ):
         """
@@ -148,10 +252,12 @@ class BCConfig(AlgorithmConfig):
             self.sgd_minibatch_size = sgd_minibatch_size
         if num_sgd_iter is not NotProvided:
             self.num_sgd_iter = num_sgd_iter
-        if validation_prop is not NotProvided:
-            self.validation_prop = validation_prop
         if entropy_coeff is not NotProvided:
             self.entropy_coeff = entropy_coeff
+        if vf_loss_coeff is not NotProvided:
+            self.vf_loss_coeff = vf_loss_coeff
+        if validation_participant_ids is not NotProvided:
+            self.validation_participant_ids = validation_participant_ids
 
 
 class BC(Algorithm):
@@ -165,6 +271,68 @@ class BC(Algorithm):
             return BCTorchPolicy
         else:
             raise NotImplementedError()
+
+    def _split_training_and_validation_data(
+        self,
+        train_batch: MultiAgentBatch,
+    ) -> Tuple[MultiAgentBatch, Optional[MultiAgentBatch]]:
+        if not self.config["validation_participant_ids"]:
+            return train_batch, None
+        else:
+            train_policy_batches: Dict[PolicyID, SampleBatch] = {}
+            validation_policy_batches: Dict[PolicyID, SampleBatch] = {}
+            for policy_id, policy_batch in train_batch.policy_batches.items():
+                train_episodes: List[SampleBatchType] = []
+                validation_episodes: List[SampleBatchType] = []
+                for episode_batch in policy_batch.split_by_episode():
+                    assert PARTICIPANT_ID in episode_batch
+                    participant_id = episode_batch[PARTICIPANT_ID][0]
+                    assert np.all(episode_batch[PARTICIPANT_ID] == participant_id)
+                    if participant_id in self.config["validation_participant_ids"]:
+                        validation_episodes.append(episode_batch)
+                    else:
+                        train_episodes.append(episode_batch)
+                train_policy_batch = cast(SampleBatch, concat_samples(train_episodes))
+                train_policy_batches[policy_id] = train_policy_batch
+                validation_policy_batch = cast(
+                    SampleBatch, concat_samples(validation_episodes)
+                )
+                validation_policy_batches[policy_id] = validation_policy_batch
+            # Approximate number of env steps in each batch.
+            train_prop = train_policy_batch.count / (
+                train_policy_batch.count + validation_policy_batch.count
+            )
+            train_env_steps = int(train_batch.count * train_prop)
+            validation_env_steps = int(train_batch.count * (1 - train_prop))
+            return (
+                MultiAgentBatch(train_policy_batches, train_env_steps),
+                MultiAgentBatch(validation_policy_batches, validation_env_steps),
+            )
+
+    def _run_validation(self, validation_batch: MultiAgentBatch) -> dict:
+        assert self.workers is not None
+        validation_results: Dict[str, dict] = {}
+        for policy_id, policy_batch in validation_batch.policy_batches.items():
+            policy = self.workers.local_worker().get_policy(policy_id)
+            validation_totals: Dict[str, float] = defaultdict(float)
+            validation_counts: Dict[str, int] = defaultdict(int)
+            assert isinstance(policy, BCTorchPolicy)
+            for minibatch in minibatches(
+                policy_batch, self.config["sgd_minibatch_size"]
+            ):
+                results = policy.validation(minibatch)
+                for key, value in results.items():
+                    if np.isnan(value):
+                        continue
+                    validation_totals[key] += value * minibatch.count
+                    validation_counts[key] += minibatch.count
+            validation_results[policy_id] = {
+                "validation": {
+                    key: value / validation_counts[key]
+                    for key, value in validation_totals.items()
+                }
+            }
+        return validation_results
 
     def training_step(self) -> ResultDict:
         assert self.workers is not None
@@ -193,12 +361,33 @@ class BC(Algorithm):
             if "infos" in policy_batch:
                 del policy_batch["infos"]
 
+            # Add VF targets.
+            episode_vf_targets: List[np.ndarray] = []
+            for episode_batch in policy_batch.split_by_episode():
+                episode_vf_targets.append(
+                    discount_cumsum(
+                        cast(np.ndarray, episode_batch[SampleBatch.REWARDS]),
+                        self.config["gamma"],
+                    ).astype(np.float32),
+                )
+            policy_batch[Postprocessing.VALUE_TARGETS] = np.concatenate(
+                episode_vf_targets
+            )
+
+        train_batch, val_batch = self._split_training_and_validation_data(train_batch)
+
         # Train
         train_results: ResultDict
         if self.config["simple_optimizer"]:
             train_results = train_one_step(self, train_batch)
         else:
             train_results = multi_gpu_train_one_step(self, train_batch)
+
+        # Validation
+        if val_batch is not None:
+            validation_results = self._run_validation(val_batch)
+            for policy_id, policy_results in validation_results.items():
+                train_results[policy_id].update(policy_results)
 
         policies_to_update = list(train_results.keys())
 

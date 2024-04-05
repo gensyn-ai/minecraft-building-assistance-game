@@ -51,6 +51,7 @@ def default_alpha_zero_config():
 def default_bc_config():
     return {
         "run": "BC",
+        "train_batch_size": 914,  # total number of timesteps in the dataset
         "num_workers": 0,
         "evaluation_num_workers": 2,
         "use_extra_features": True,
@@ -459,10 +460,31 @@ def test_bc(default_config, default_bc_config):
         config_updates={
             **default_config,
             **default_bc_config,
-            "validation_prop": 0.1,
+            "validation_participant_ids": [4],
         }
     ).result
     assert result is not None
+
+    # Without value loss, the value function shouldn't learn anything.
+    assert result["info"]["learner"]["human"]["validation"]["vf_explained_var"] < 0.1
+    assert result["info"]["learner"]["human"]["validation"]["vf_loss"] > 10
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
+def test_bc_with_value_loss(default_config, default_bc_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            "validation_participant_ids": [4],
+            "vf_loss_coeff": 0.01,
+        }
+    ).result
+    assert result is not None
+
+    assert result["info"]["learner"]["human"]["validation"]["vf_explained_var"] > 0.3
+    assert result["info"]["learner"]["human"]["validation"]["vf_loss"] < 5
 
 
 @pytest.mark.uses_rllib
@@ -481,7 +503,7 @@ def test_pikl(default_config, default_bc_config):
             **default_bc_config,
             **env_configs,
             "goal_generator": "tutorial",
-            "validation_prop": 0.1,
+            "validation_participant_ids": [4],
         }
     ).result
     assert bc_result is not None

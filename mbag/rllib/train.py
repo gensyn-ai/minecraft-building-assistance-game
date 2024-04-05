@@ -265,7 +265,7 @@ def sacred_config(_log):  # noqa
     gamma = 0.95
     gae_lambda = 0.98
     vf_share_layers = False
-    vf_loss_coeff = 1e-2
+    vf_loss_coeff = 0 if run == "BC" else 1e-2
     entropy_coeff_start = 0 if "AlphaZero" in run else 0.01
     entropy_coeff_end = 0
     entropy_coeff_horizon = 1e5
@@ -638,7 +638,7 @@ def sacred_config(_log):  # noqa
         )
     elif run == "BC":
         assert isinstance(config, BCConfig)
-        validation_prop = 0
+        validation_participant_ids: List[int] = []
         config.training(
             lr=lr,
             gamma=gamma,
@@ -647,7 +647,8 @@ def sacred_config(_log):  # noqa
             num_sgd_iter=num_sgd_iter,
             grad_clip=grad_clip,
             entropy_coeff=entropy_coeff_start,
-            validation_prop=validation_prop,
+            vf_loss_coeff=vf_loss_coeff,
+            validation_participant_ids=validation_participant_ids,
         )
 
     del env
