@@ -56,7 +56,7 @@ class MbagMCTSNode:
         self,
         action,
         obs,
-        done,
+        done: bool,
         info: Optional[MbagEnvModelInfoDict],
         reward,
         state,
@@ -485,7 +485,7 @@ class MbagMCTSNode:
         total_own_reward = 0
         total_own_reward_visits = 0
         for child in action_children:
-            if (not self.mcts.use_goal_predictor) or child.is_expanded:
+            if (not self.mcts.use_goal_predictor) or child.is_expanded or child.done:
                 total_reward += child.number_visits * child.reward
                 total_visits += child.number_visits
             assert child.info is not None
@@ -620,7 +620,6 @@ class MbagMCTS(MCTS):
 
             for env_index, leaf in enumerate(leaves):
                 if leaf.done:
-                    # TODO: how to handle terminal states for assistant?
                     value = 0.0
                 else:
                     value = float(values[env_index])
