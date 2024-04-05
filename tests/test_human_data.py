@@ -1,6 +1,7 @@
 from typing import cast
 
 import numpy as np
+import pytest
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.offline import JsonReader
 from ray.rllib.policy.sample_batch import SampleBatch
@@ -57,6 +58,7 @@ def test_convert_human_data_consistency_with_rllib_env(tmp_path):
         assert info_dict["player_0"]["goal_similarity"] == 216
 
 
+@pytest.mark.timeout(30)
 def test_convert_human_data_to_rllib_participant_id(tmp_path):
     out_dir = str(tmp_path / "rllib")
     convert_human_data_to_rllib_ex.run(
