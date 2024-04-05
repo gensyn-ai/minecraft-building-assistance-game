@@ -40,7 +40,7 @@ class MbagMultiAgentEnv(MbagRllibWrapper):
 
         self._agent_ids = {
             self._agent_id(player_index)
-            for player_index in range(config["num_players"])
+            for player_index in range(self.env.config["num_players"])
         }
         self.action_space = spaces.Dict(
             {agent_id: self.env.action_space for agent_id in self._agent_ids}

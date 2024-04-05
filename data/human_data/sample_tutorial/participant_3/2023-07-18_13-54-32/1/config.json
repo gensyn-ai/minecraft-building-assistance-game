@@ -1,0 +1,493 @@
+{
+  "__annotations__": {
+    "mbag_config": {
+      "py/type": "mbag.environment.mbag_env.MbagConfigDict"
+    },
+    "world_size": {
+      "py/reduce": [
+        {
+          "py/function": "_operator.getitem"
+        },
+        {
+          "py/tuple": [
+            {
+              "__doc__": "Tuple type; Tuple[X, Y] is the cross-product type of X and Y.\n\n    Example: Tuple[T1, T2] is a tuple of two elements corresponding\n    to type variables T1 and T2.  Tuple[int, float, str] is a tuple\n    of an int, a float and a string.\n\n    To specify a variable-length tuple of homogeneous type, use Tuple[T, ...].\n    ",
+              "__origin__": {
+                "py/type": "builtins.tuple"
+              },
+              "__slots__": null,
+              "_inst": false,
+              "_name": "Tuple",
+              "_nparams": -1,
+              "py/object": "typing._TupleType"
+            },
+            {
+              "py/tuple": [
+                {
+                  "py/type": "builtins.int"
+                },
+                {
+                  "py/type": "builtins.int"
+                },
+                {
+                  "py/type": "builtins.int"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "data_path": "data/human_data",
+  "experiment_parts": [],
+  "goal_generator": {
+    "py/type": "mbag.environment.goals.simple.TutorialGoalGenerator"
+  },
+  "goal_generator_config": {
+    "goal_generator": "craftassist",
+    "goal_generator_config": {
+      "data_dir": "data/craftassist",
+      "house_id": null,
+      "subset": "train"
+    },
+    "transforms": [
+      {
+        "config": {
+          "connectivity": 18
+        },
+        "transform": "largest_cc"
+      },
+      {
+        "transform": "crop_air"
+      },
+      {
+        "config": {
+          "density_threshold": 0.1
+        },
+        "transform": "crop_low_density_bottom_layers"
+      },
+      {
+        "config": {
+          "min_size": [
+            4,
+            4,
+            4
+          ]
+        },
+        "transform": "min_size_filter"
+      },
+      {
+        "config": {
+          "interpolate": true,
+          "interpolation_order": 1,
+          "max_scaling_factor": 2,
+          "max_scaling_factor_ratio": 1.5,
+          "preserve_paths": true,
+          "scale_y_independently": true
+        },
+        "transform": "area_sample"
+      },
+      {
+        "config": {
+          "max_density": 1,
+          "min_density": 0
+        },
+        "transform": "density_filter"
+      },
+      {
+        "transform": "randomly_place"
+      },
+      {
+        "transform": "add_grass"
+      },
+      {
+        "config": {
+          "connectivity": 18
+        },
+        "transform": "single_cc_filter"
+      }
+    ]
+  },
+  "house_id": null,
+  "launch_minecraft": false,
+  "mbag_config": {
+    "abilities": {
+      "flying": true,
+      "inf_blocks": false,
+      "teleportation": false
+    },
+    "goal_generator": {
+      "py/type": "mbag.environment.goals.simple.TutorialGoalGenerator"
+    },
+    "goal_generator_config": {
+      "goal_generator": "craftassist",
+      "goal_generator_config": {
+        "data_dir": "data/craftassist",
+        "house_id": null,
+        "subset": "train"
+      },
+      "transforms": [
+        {
+          "config": {
+            "connectivity": 18
+          },
+          "transform": "largest_cc"
+        },
+        {
+          "transform": "crop_air"
+        },
+        {
+          "config": {
+            "density_threshold": 0.1
+          },
+          "transform": "crop_low_density_bottom_layers"
+        },
+        {
+          "config": {
+            "min_size": [
+              4,
+              4,
+              4
+            ]
+          },
+          "transform": "min_size_filter"
+        },
+        {
+          "config": {
+            "interpolate": true,
+            "interpolation_order": 1,
+            "max_scaling_factor": 2,
+            "max_scaling_factor_ratio": 1.5,
+            "preserve_paths": true,
+            "scale_y_independently": true
+          },
+          "transform": "area_sample"
+        },
+        {
+          "config": {
+            "max_density": 1,
+            "min_density": 0
+          },
+          "transform": "density_filter"
+        },
+        {
+          "transform": "randomly_place"
+        },
+        {
+          "transform": "add_grass"
+        },
+        {
+          "config": {
+            "connectivity": 18
+          },
+          "transform": "single_cc_filter"
+        }
+      ]
+    },
+    "horizon": 1000000000,
+    "malmo": {
+      "action_delay": 0.001,
+      "restrict_players": true,
+      "ssh_args": [
+        null,
+        [
+          "baymax"
+        ]
+      ],
+      "start_port": 10000,
+      "use_malmo": true,
+      "use_spectator": false,
+      "video_dir": null
+    },
+    "num_players": 1,
+    "players": [
+      {
+        "give_items": [
+          {
+            "count": 1,
+            "enchantments": [
+              {
+                "id": 33,
+                "level": 1
+              },
+              {
+                "id": 34,
+                "level": 3
+              }
+            ],
+            "id": "diamond_pickaxe"
+          },
+          {
+            "count": 1,
+            "enchantments": [
+              {
+                "id": 33,
+                "level": 1
+              },
+              {
+                "id": 34,
+                "level": 3
+              }
+            ],
+            "id": "diamond_axe"
+          },
+          {
+            "count": 1,
+            "enchantments": [
+              {
+                "id": 33,
+                "level": 1
+              },
+              {
+                "id": 34,
+                "level": 3
+              }
+            ],
+            "id": "diamond_shovel"
+          },
+          {
+            "count": 1,
+            "enchantments": [],
+            "id": "shears"
+          }
+        ],
+        "is_human": true
+      }
+    ],
+    "world_size": [
+      6,
+      6,
+      6
+    ]
+  },
+  "num_players": 1,
+  "observer": {
+    "basedir": "data/human_data/2023-07-18_13-54-32",
+    "config": {
+      "__annotations__": {
+        "mbag_config": {
+          "py/type": "mbag.environment.mbag_env.MbagConfigDict"
+        },
+        "world_size": {
+          "py/id": 0
+        }
+      },
+      "data_path": "data/human_data",
+      "experiment_parts": {
+        "py/id": 16
+      },
+      "goal_generator": {
+        "py/type": "mbag.environment.goals.simple.TutorialGoalGenerator"
+      },
+      "goal_generator_config": {
+        "goal_generator": "craftassist",
+        "goal_generator_config": {
+          "data_dir": "data/craftassist",
+          "house_id": null,
+          "subset": "train"
+        },
+        "transforms": {
+          "py/id": 3
+        }
+      },
+      "house_id": null,
+      "launch_minecraft": false,
+      "mbag_config": {
+        "abilities": {
+          "flying": true,
+          "inf_blocks": false,
+          "teleportation": false
+        },
+        "goal_generator": {
+          "py/type": "mbag.environment.goals.simple.TutorialGoalGenerator"
+        },
+        "goal_generator_config": {
+          "goal_generator": "craftassist",
+          "goal_generator_config": {
+            "data_dir": "data/craftassist",
+            "house_id": null,
+            "subset": "train"
+          },
+          "transforms": {
+            "py/id": 6
+          }
+        },
+        "horizon": 1000000000,
+        "malmo": {
+          "action_delay": 0.001,
+          "restrict_players": true,
+          "ssh_args": {
+            "py/id": 8
+          },
+          "start_port": 10000,
+          "use_malmo": true,
+          "use_spectator": false,
+          "video_dir": null
+        },
+        "num_players": 1,
+        "players": {
+          "py/id": 10
+        },
+        "world_size": {
+          "py/id": 5
+        }
+      },
+      "num_players": 1,
+      "observer": {
+        "py/id": 17
+      },
+      "result_dir": "data/human_data/2023-07-18_13-54-32",
+      "seed": 931726823,
+      "world_size": {
+        "py/id": 2
+      }
+    },
+    "copy_artifacts": true,
+    "copy_sources": true,
+    "cout": "",
+    "cout_write_cursor": 0,
+    "dir": "data/human_data/2023-07-18_13-54-32/1",
+    "info": {},
+    "priority": 20,
+    "py/object": "sacred.observers.file_storage.FileStorageObserver",
+    "resource_dir": {
+      "py/reduce": [
+        {
+          "py/type": "pathlib.PosixPath"
+        },
+        {
+          "py/tuple": [
+            "data",
+            "human_data",
+            "2023-07-18_13-54-32",
+            "_resources"
+          ]
+        }
+      ]
+    },
+    "run_entry": {
+      "artifacts": [],
+      "command": "main",
+      "experiment": {
+        "base_dir": "/home/cassidy/sh/Programs/Python/minecraft-building-assistance-game/mbag/scripts",
+        "dependencies": [
+          "malmo==0.37.0.0",
+          "numpy==1.21.6",
+          "sacred==0.8.4"
+        ],
+        "mainfile": "run_human_data_collection.py",
+        "name": "run_human_data_collection",
+        "repositories": [
+          {
+            "commit": "7fb114f0f11a503a5381d961cb9fe37874c4c4ed",
+            "dirty": false,
+            "url": "https://github.com/cassidylaidlaw/minecraft-building-assistance-game"
+          }
+        ],
+        "sources": [
+          [
+            "run_human_data_collection.py",
+            "_sources/run_human_data_collection_d077a55be2a34a2cce20abf6189776f4.py"
+          ]
+        ]
+      },
+      "heartbeat": null,
+      "host": {
+        "ENV": {},
+        "cpu": "Intel(R) Core(TM) i9-9920X CPU @ 3.50GHz",
+        "gpus": {
+          "driver_version": "530.41.03",
+          "gpus": [
+            {
+              "model": "NVIDIA GeForce GTX 1080 Ti",
+              "persistence_mode": false,
+              "total_memory": 11264
+            }
+          ]
+        },
+        "hostname": "spinach",
+        "os": [
+          "Linux",
+          "Linux-5.19.0-43-generic-x86_64-with-glibc2.35"
+        ],
+        "python_version": "3.9.16"
+      },
+      "meta": {
+        "command": "main",
+        "config_updates": {
+          "mbag_config": {
+            "malmo": {
+              "ssh_args": [
+                null,
+                [
+                  "baymax"
+                ]
+              ]
+            }
+          },
+          "num_players": 1
+        },
+        "named_configs": [
+          "tutorial"
+        ],
+        "options": {
+          "--beat-interval": null,
+          "--capture": null,
+          "--comment": null,
+          "--debug": false,
+          "--enforce_clean": false,
+          "--file_storage": null,
+          "--force": false,
+          "--help": false,
+          "--id": null,
+          "--loglevel": null,
+          "--mongo_db": null,
+          "--name": null,
+          "--pdb": false,
+          "--print-config": false,
+          "--priority": null,
+          "--queue": false,
+          "--s3": null,
+          "--sql": null,
+          "--tiny_db": null,
+          "--unobserved": false,
+          "COMMAND": null,
+          "UPDATE": [
+            "mbag_config.malmo.ssh_args=[None,[\"baymax\"]]",
+            "num_players=1",
+            "tutorial"
+          ],
+          "help": false,
+          "with": true
+        }
+      },
+      "resources": [],
+      "start_time": "2023-07-18T20:54:32.246631",
+      "status": "RUNNING"
+    },
+    "source_dir": {
+      "py/reduce": [
+        {
+          "py/type": "pathlib.PosixPath"
+        },
+        {
+          "py/tuple": [
+            "data",
+            "human_data",
+            "2023-07-18_13-54-32",
+            "_sources"
+          ]
+        }
+      ]
+    },
+    "template": null
+  },
+  "result_dir": "data/human_data/2023-07-18_13-54-32",
+  "seed": 931726823,
+  "world_size": [
+    6,
+    6,
+    6
+  ]
+}
