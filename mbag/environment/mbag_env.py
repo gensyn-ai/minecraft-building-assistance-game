@@ -219,7 +219,7 @@ class MbagEnv(object):
         self.current_blocks.blocks[:, 0, :] = MinecraftBlocks.BEDROCK
         self.current_blocks.blocks[:, 1, :] = MinecraftBlocks.NAME2ID["dirt"]
 
-        self.last_interacted = np.zeros(self.config["world_size"])
+        self.last_interacted = np.zeros(self.config["world_size"], dtype=np.int8)
         self.last_interacted[:] = NO_INTERACTION
 
         if force_regenerate_goal or self.any_step_since_last_reset:
