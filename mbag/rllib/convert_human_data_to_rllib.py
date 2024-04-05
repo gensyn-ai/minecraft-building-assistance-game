@@ -135,7 +135,22 @@ def main(  # noqa: C901
                         )
                     else:
                         action_id = action.to_tuple()
-                    obs = obs[0], obs[1], np.array(t)
+                    world_obs = obs[0]
+                    inventory_obs = obs[1]
+                    if inventory_obs.ndim == 1:
+                        # Old observations, which may be present in old human data,
+                        # only had the block counts for the given player, not for
+                        # all players. We need to add the block counts for all players
+                        # in this case.
+                        inventory_obs_pieces = [inventory_obs]
+                        for other_player_index in range(mbag_config["num_players"]):
+                            if other_player_index != player_index:
+                                other_inventory = episode_info.obs_history[i][
+                                    other_player_index
+                                ][1]
+                                inventory_obs_pieces.append(other_inventory)
+                        inventory_obs = np.stack(inventory_obs_pieces, axis=0)
+                    obs = world_obs, inventory_obs, np.array(t)
                     if flat_observations:
                         obs = np.concatenate([obs_piece.flat for obs_piece in obs])
                     sample_batch_builder.add_values(

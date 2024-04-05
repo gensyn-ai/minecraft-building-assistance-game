@@ -44,7 +44,7 @@ def test_convert_human_data_consistency_with_rllib_env(tmp_path):
             for obs_piece, expected_obs_piece in zip(
                 obs_dict["player_0"][:2], episode[SampleBatch.OBS][t][:2]
             ):
-                assert np.all(obs_piece == expected_obs_piece)
+                np.testing.assert_array_equal(obs_piece, expected_obs_piece)
             (
                 obs_dict,
                 reward_dict,

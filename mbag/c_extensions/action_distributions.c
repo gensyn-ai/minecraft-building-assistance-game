@@ -99,8 +99,8 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
     if (!PyArray_Check(inventory_obs_array)) {
         PyErr_SetString(PyExc_TypeError, "inventory_obs must be an array");
         return NULL;
-    } else if (PyArray_NDIM(inventory_obs_array) != 1) {
-        PyErr_SetString(PyExc_TypeError, "inventory_obs must be a 1d array");
+    } else if (PyArray_NDIM(inventory_obs_array) != 2) {
+        PyErr_SetString(PyExc_TypeError, "inventory_obs must be a 2d array");
         return NULL;
     } else if (PyArray_TYPE(inventory_obs_array) != NPY_INT32) {
         PyErr_SetString(PyExc_TypeError, "inventory_obs must be an array of dtype int32");
@@ -190,7 +190,7 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
         if (inf_blocks) {
             have_block = block_id != AIR && block_id != BEDROCK;
         } else {
-            have_block = *(npy_int32*)PyArray_GETPTR1(inventory_obs_array, block_id) > 0;
+            have_block = *(npy_int32*)PyArray_GETPTR2(inventory_obs_array, 0, block_id) > 0;
         }
         if (!have_block) continue;
         for (x = min_place_x; x <= max_place_x; x++) {
@@ -318,7 +318,7 @@ PyObject* _mbag_get_action_distribution_mask(PyObject *self, PyObject *args, PyO
             max_give_z = fmin(depth - 1, ceil(player_z + 1));
         }
         for (block_id = 0; block_id < NUM_BLOCKS; block_id++) {
-            have_block = *(npy_int32*)PyArray_GETPTR1(inventory_obs_array, block_id) > 0;
+            have_block = *(npy_int32*)PyArray_GETPTR2(inventory_obs_array, 0, block_id) > 0;
             if (!have_block) continue;
             for (x = min_give_x; x <= max_give_x; x++) {
                 for (y = min_give_y; y <= max_give_y; y++) {

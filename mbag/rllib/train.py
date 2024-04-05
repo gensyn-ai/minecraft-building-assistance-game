@@ -313,6 +313,7 @@ def sacred_config(_log):  # noqa
     embedding_size = 8
     position_embedding_size = 18
     mask_goal = False
+    mask_other_players = num_players == 1
     use_extra_features = not mask_goal
     num_conv_1_layers = 1
     num_layers = 1
@@ -346,6 +347,7 @@ def sacred_config(_log):  # noqa
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
             "mask_goal": mask_goal,
+            "mask_other_players": mask_other_players,
             "num_conv_1_layers": num_conv_1_layers,
             "num_layers": num_layers,
             "use_resnet": use_resnet,
@@ -370,6 +372,7 @@ def sacred_config(_log):  # noqa
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
             "mask_goal": mask_goal,
+            "mask_other_players": mask_other_players,
             "position_embedding_size": position_embedding_size,
             "num_layers": num_layers,
             "num_heads": num_heads,
@@ -470,6 +473,9 @@ def sacred_config(_log):  # noqa
                     )
                 )
                 policy_spec.config.environment(env_config=dict(environment_params))
+            # Observation space may change from an agent trained alone to one
+            # trained with other agents.
+            policy_spec.observation_space = observation_space
             policies[policy_id] = policy_spec
             if overwrite_loaded_policy_type:
                 policies[policy_id].policy_class = policy_class

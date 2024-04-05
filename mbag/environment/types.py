@@ -18,7 +18,8 @@ WorldLocation = Tuple[float, float, float]
 
 MbagInventoryObs = np.ndarray
 """
-1D array mapping block ids with number held in inventory.
+2D array mapping (player, block_id) to the number held in inventory of that player.
+player=0 is the current player, player=1,2,... are other players.
 """
 
 FacingDirection = Tuple[float, float]  # Degrees horizontally, then vertically

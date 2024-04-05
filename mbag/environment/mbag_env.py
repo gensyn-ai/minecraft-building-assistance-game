@@ -83,7 +83,10 @@ class MbagEnv(object):
                 spaces.Box(
                     0,
                     INVENTORY_NUM_SLOTS * STACK_SIZE,
-                    (MinecraftBlocks.NUM_BLOCKS,),
+                    (
+                        self.config["num_players"],
+                        MinecraftBlocks.NUM_BLOCKS,
+                    ),
                     dtype=np.int32,
                 ),
                 spaces.Box(0, 0x7FFFFFFF, (), dtype=np.int32),
@@ -727,9 +730,20 @@ class MbagEnv(object):
         Gets the array representation of the given player's inventory.
         """
 
-        player_inventory = self.player_inventories[player_index]
-        inventory_obs = get_block_counts_in_inventory(player_inventory)
-        return inventory_obs.astype(np.int32)
+        inventory_obs = np.zeros(
+            (self.config["num_players"], MinecraftBlocks.NUM_BLOCKS), dtype=np.int32
+        )
+
+        player_indices = [player_index] + [
+            other_player_index
+            for other_player_index in range(self.config["num_players"])
+            if other_player_index != player_index
+        ]
+        for player_tag, player_index in enumerate(player_indices):
+            player_inventory = self.player_inventories[player_index]
+            inventory_obs[player_tag] = get_block_counts_in_inventory(player_inventory)
+
+        return inventory_obs
 
     def _try_give_player_blocks(
         self, block_id: int, player_index: int, give: bool, num_to_give: int = 1

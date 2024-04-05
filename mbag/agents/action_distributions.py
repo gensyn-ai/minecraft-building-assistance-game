@@ -451,7 +451,7 @@ class MbagActionDistribution(object):
         if not config["abilities"]["inf_blocks"]:
             # If we don't have infinite blocks, we can only place or give blocks we
             # have.
-            have_blocks = inventory_obs > 0
+            have_blocks = inventory_obs[:, 0] > 0
             have_blocks = np.tile(
                 have_blocks[:, :, None, None, None], (1, 1) + world_obs.shape[-3:]
             )

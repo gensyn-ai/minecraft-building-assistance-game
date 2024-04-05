@@ -251,7 +251,7 @@ def test_mask_no_teleportation_no_inf_blocks():
     # Suppose the player has dirt in their inventory.
     dirt = MinecraftBlocks.NAME2ID["dirt"]
     planks = MinecraftBlocks.NAME2ID["planks"]
-    inventory_obs[dirt] += 1
+    inventory_obs[0, dirt] += 1
 
     obs_batch = (
         world_obs[None].repeat(2, 0),

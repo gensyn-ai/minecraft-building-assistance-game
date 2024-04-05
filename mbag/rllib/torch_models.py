@@ -26,6 +26,7 @@ from mbag.environment.mbag_env import DEFAULT_CONFIG as DEFAULT_ENV_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import (
     CURRENT_BLOCKS,
+    CURRENT_PLAYER,
     GOAL_BLOCKS,
     LAST_INTERACTED,
     PLAYER_LOCATIONS,
@@ -55,6 +56,11 @@ class MbagModelConfig(TypedDict, total=False):
     """Use extra hand-designed features as input to the network."""
     mask_goal: bool
     """Remove goal information from observations before passing into the network."""
+    mask_other_players: bool
+    """
+    Remove other players from observations (locations, inventories, last interacted)
+    before passing into the network.
+    """
     fake_state: bool
     """Whether to add fake state to this model so that it's treated as recurrent."""
     hidden_size: int
@@ -83,6 +89,7 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "embedding_size": 8,
     "use_extra_features": False,
     "mask_goal": False,
+    "mask_other_players": True,
     "fake_state": False,
     "hidden_size": 16,
     "num_action_layers": 1,
@@ -134,6 +141,7 @@ class MbagTorchModel(ActorCriticModel):
         self.embedding_size = extra_config["embedding_size"]
         self.use_extra_features = extra_config["use_extra_features"]
         self.mask_goal = extra_config["mask_goal"]
+        self.mask_other_players = extra_config["mask_other_players"]
         self.fake_state: bool = extra_config["fake_state"]
         self.hidden_size = extra_config["hidden_size"]
         self.num_action_layers = extra_config["num_action_layers"]
@@ -185,15 +193,18 @@ class MbagTorchModel(ActorCriticModel):
         embedded observation.
         """
 
-        # We have in-planes for current blocks, player locations, and
+        # We have in-planes for current blocks, player locations, last interacted, and
         # goal blocks if mask_goal is False.
-        return 3 if self.mask_goal else 4  # TODO: update if we add more
+        return 3 if self.mask_goal else 4
 
     def _get_in_channels(self) -> int:
         """Get the number of channels in the embedded observation."""
         in_channels = self._get_in_planes() * self.embedding_size
         # Add inventory observation as extra input channels.
-        in_channels += MinecraftBlocks.NUM_BLOCKS
+        num_players_in_inventory_obs = (
+            1 if self.mask_other_players else self.env_config["num_players"]
+        )
+        in_channels += MinecraftBlocks.NUM_BLOCKS * num_players_in_inventory_obs
         # Timestep observation
         in_channels += 1
         if self.use_extra_features:
@@ -244,16 +255,6 @@ class MbagTorchModel(ActorCriticModel):
             )
             if layer_index < self.num_action_layers - 1:
                 action_head_layers.append(nn.LeakyReLU())
-
-        # Tamp down probabilities of actions which don't require a block location,
-        # since otherwise these dominate the action distribution at the start of
-        # training.
-        logit_layer = cast(nn.Conv3d, action_head_layers[-1])
-        assert logit_layer.bias is not None
-        # for action_type in MbagAction.ACTION_TYPES:
-        #     if action_type in MbagAction.BLOCK_ID_ACTION_TYPES:
-        #         channel = MbagActionDistribution.ACTION_TYPE2CHANNEL[action_type]
-        #         logit_layer.bias.data[channel] -= np.log(MinecraftBlocks.NUM_BLOCKS)
 
         return nn.Sequential(*action_head_layers)
 
@@ -309,10 +310,18 @@ class MbagTorchModel(ActorCriticModel):
         if not self.mask_goal:
             embedded_goal_blocks = self.block_id_embedding(world_obs[:, GOAL_BLOCKS])
             embedded_obs_pieces.append(embedded_goal_blocks)
-        embedded_player_locations = self.player_id_embedding(
-            world_obs[:, PLAYER_LOCATIONS]
-        )
+
+        player_locations = world_obs[:, PLAYER_LOCATIONS]
+        if self.mask_other_players:
+            player_locations = player_locations.clamp(max=CURRENT_PLAYER)
+
+        embedded_player_locations = self.player_id_embedding(player_locations)
         embedded_obs_pieces.append(embedded_player_locations)
+
+        if self.mask_other_players:
+            inventory_obs = inventory_obs[:, 0]
+        else:
+            inventory_obs = inventory_obs.flatten(start_dim=1)
         inventory_piece = inventory_obs[:, None, None, None, :].expand(
             *embedded_obs_pieces[0].size()[:-1], -1
         )
