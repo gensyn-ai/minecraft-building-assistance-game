@@ -244,7 +244,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
         "video_dir": None,
         "ssh_args": None,
         "start_port": 10000,
-        "action_delay": 0.3,
+        "action_delay": 0.8,
     },
     "rewards": {
         "noop": 0.0,

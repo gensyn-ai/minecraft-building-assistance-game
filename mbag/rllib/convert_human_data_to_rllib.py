@@ -1,26 +1,22 @@
 import glob
 import logging
 import os
-import random
 import zipfile
-from typing import List, Union
+from typing import List
 
-import numpy as np
-from ray.rllib.evaluation.sample_batch_builder import SampleBatchBuilder
 from ray.rllib.offline.json_writer import JsonWriter
 from ray.rllib.policy.sample_batch import SampleBatch
 from sacred import Experiment
 
-from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.compatibility_utils import (
     OldHumanDataUnpickler,
     convert_old_rewards_config_to_new,
 )
-from mbag.environment.actions import MbagAction, MbagActionTuple
+from mbag.environment.config import DEFAULT_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
 
-from .human_data import EPISODE_DIR, PARTICIPANT_ID
+from .human_data import convert_episode_info_to_sample_batch
 
 ex = Experiment()
 
@@ -34,6 +30,7 @@ def sacred_config():
         "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
     }
     include_noops = False  # noqa: F841
+    action_delay = DEFAULT_CONFIG["malmo"]["action_delay"]  # noqa: F841
     flat_actions = True  # noqa: F841
     flat_observations = True  # noqa: F841
     offset_rewards = False  # noqa: F841
@@ -53,6 +50,7 @@ def main(  # noqa: C901
     out_dir: str,
     mbag_config: MbagConfigDict,
     include_noops: bool,
+    action_delay: float,
     flat_actions: bool,
     flat_observations: bool,
     offset_rewards: bool,
@@ -70,7 +68,6 @@ def main(  # noqa: C901
     if os.path.exists(out_dir):
         raise FileExistsError(f"Output directory {out_dir} already exists.")
 
-    sample_batch_builder = SampleBatchBuilder()
     json_writer = JsonWriter(out_dir)
 
     for episode_fname in sorted(episode_fnames):
@@ -114,68 +111,22 @@ def main(  # noqa: C901
 
         for player_index in player_indices:
             _log.info(f"converting to RLlib format for player {player_index}...")
-            episode_id = random.randrange(int(1e18))
-            t = 0
-            for i in range(episode_info.length):
-                obs = episode_info.obs_history[i][player_index]
-                info = episode_info.info_history[i][player_index]
-                reward = episode_info.reward_history[i]
-                if offset_rewards:
-                    reward = episode_info.reward_history[i + 1]
-                assert (
-                    reward
-                    == info["goal_dependent_reward"] + info["goal_independent_reward"]
-                )
-                action = info["action"]
-                if include_noops or action.action_type != MbagAction.NOOP:
-                    action_id: Union[int, MbagActionTuple]
-                    if flat_actions:
-                        action_id = MbagActionDistribution.get_flat_action(
-                            mbag_config, action.to_tuple()
-                        )
-                    else:
-                        action_id = action.to_tuple()
-                    world_obs = obs[0]
-                    inventory_obs = obs[1]
-                    if inventory_obs.ndim == 1:
-                        # Old observations, which may be present in old human data,
-                        # only had the block counts for the given player, not for
-                        # all players. We need to add the block counts for all players
-                        # in this case.
-                        inventory_obs_pieces = [inventory_obs]
-                        for other_player_index in range(mbag_config["num_players"]):
-                            if other_player_index != player_index:
-                                other_inventory = episode_info.obs_history[i][
-                                    other_player_index
-                                ][1]
-                                inventory_obs_pieces.append(other_inventory)
-                        inventory_obs = np.stack(inventory_obs_pieces, axis=0)
-                    obs = world_obs, inventory_obs, np.array(t)
-                    if flat_observations:
-                        obs = np.concatenate([obs_piece.flat for obs_piece in obs])
-                    sample_batch_builder.add_values(
-                        **{
-                            SampleBatch.T: t,
-                            SampleBatch.EPS_ID: episode_id,
-                            SampleBatch.AGENT_INDEX: player_index,
-                            SampleBatch.OBS: obs,
-                            SampleBatch.ACTIONS: action_id,
-                            SampleBatch.ACTION_PROB: 1.0,
-                            SampleBatch.ACTION_LOGP: 0.0,
-                            SampleBatch.REWARDS: reward,
-                            SampleBatch.DONES: False,
-                            SampleBatch.INFOS: info,
-                            PARTICIPANT_ID: participant_id,
-                            EPISODE_DIR: episode_dir,
-                        }
-                    )
-                    t += 1
-            if t == 0:
+            sample_batch = convert_episode_info_to_sample_batch(
+                episode_info,
+                player_index=player_index,
+                participant_id=participant_id,
+                episode_dir=episode_dir,
+                mbag_config=mbag_config,
+                offset_rewards=offset_rewards,
+                include_noops=include_noops,
+                flat_actions=flat_actions,
+                flat_observations=flat_observations,
+                action_delay=action_delay,
+            )
+            if len(sample_batch) == 0:
                 _log.info("skipping empty trajectory")
                 continue
-            _log.info("saving trajectory...")
-            sample_batch = sample_batch_builder.build_and_reset()
-            total_reward = sample_batch["rewards"].sum()
+            total_reward = sample_batch[SampleBatch.REWARDS].sum()
             _log.info(
                 "episode info: participant ID=%d length=%d total reward=%.1f",
                 participant_id,
@@ -183,6 +134,7 @@ def main(  # noqa: C901
                 total_reward,
             )
             assert total_reward == episode_info.cumulative_reward
+            _log.info("saving trajectory...")
             json_writer.write(sample_batch)
 
     return {"mbag_config": mbag_config, "out_dir": out_dir}
