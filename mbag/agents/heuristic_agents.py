@@ -372,6 +372,33 @@ class MirrorBuildingAgent(MbagAgent):
             )
 
 
+class RandomAgent(MbagAgent):
+    """
+    Randomly takes actions.
+    """
+
+    def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
+        action_dist = np.ones(
+            (MbagActionDistribution.NUM_CHANNELS,) + self.env_config["world_size"]
+        )
+        obs_batch = obs[0][None], obs[1][None], obs[2][None]
+        action_mask = MbagActionDistribution.get_mask(self.env_config, obs_batch)[0]
+        action_dist[~action_mask] = 0
+
+        # Make each possible action equally likely.
+        for action_type in MbagAction.ACTION_TYPES:
+            action_type_channel = MbagActionDistribution.ACTION_TYPE2CHANNEL[
+                action_type
+            ]
+            total_action_type_prob = action_dist[action_type_channel].sum()
+            if total_action_type_prob > 0:
+                action_dist[action_type_channel] /= total_action_type_prob
+
+        action_dist /= action_dist.sum()
+
+        return action_dist
+
+
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
     "layer_builder": LayerBuilderAgent,
     "priority_queue": PriorityQueueAgent,

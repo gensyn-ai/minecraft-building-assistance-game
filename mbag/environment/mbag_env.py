@@ -64,6 +64,7 @@ class MbagEnv(object):
     player_inventories: List[MbagInventory]
     palette_x: int
     last_interacted: np.ndarray
+    previous_step_timestamp: float
     timestep: int
     global_timestep: int
 
@@ -208,6 +209,10 @@ class MbagEnv(object):
     ) -> Tuple[List[MbagObs], List[MbagInfoDict]]:
         """Reset Minecraft environment and return player observations for each player."""
 
+        if self.config["malmo"]["use_malmo"]:
+            # End any previous Malmo episode before starting the new one.
+            self.malmo_interface.end_episode()
+
         if self.is_first_episode and self.config.get(
             "randomize_first_episode_length", False
         ):
@@ -268,6 +273,8 @@ class MbagEnv(object):
             )
             self.human_action_queues = [[] for _ in range(self.config["num_players"])]
 
+        self.previous_step_timestamp = time.time()
+
         obs_list = [
             self._get_player_obs(player_index)
             for player_index in range(self.config["num_players"])
@@ -324,50 +331,13 @@ class MbagEnv(object):
             assert info is not None
             infos.append(info)
 
-        self.timestep += 1
-
         if self.config["malmo"]["use_malmo"]:
-            begin = time.time()
-            any_human_actions = False
-            while time.time() - begin < self.config["malmo"]["action_delay"]:
-                human_actions = self.malmo_interface.get_human_actions()
-                for player_index, action_tuple in human_actions:
-                    self.human_action_queues[player_index].append(action_tuple)
-                for player_index, action_queue in enumerate(self.human_action_queues):
-                    if (
-                        len(action_queue) > 0
-                        and self.config["players"][player_index]["is_human"]
-                    ):
-                        any_human_actions = True
-                if any_human_actions:
-                    break
-                time.sleep(0.01)
+            self._wait_for_malmo_and_sync()
+            self._add_human_actions_to_info(infos)
 
-            for player_index, info in enumerate(infos):
-                human_action_tuple: MbagActionTuple = (MbagAction.NOOP, 0, 0)
-                if len(self.human_action_queues[player_index]) > 0:
-                    human_action_tuple = self.human_action_queues[player_index].pop(0)
-                info["human_action"] = human_action_tuple
-                if (
-                    human_action_tuple[0] != MbagAction.NOOP
-                    and not self.config["players"][player_index]["is_human"]
-                ):
-                    human_action = MbagAction(
-                        human_action_tuple, self.config["world_size"]
-                    )
-                    logger.warning(
-                        f"received human action for non-human player {player_index}: "
-                        f"{human_action}"
-                    )
+        self.previous_step_timestamp = time.time()
 
-            if not any_human_actions and not self.malmo_interface.running_ai_actions():
-                # If there are no pending human actions coming from Malmo and no
-                # pending AI actions going to Malmo, then Malmo and the environment
-                # should be in sync. We call _update_state_from_malmo to ensure that
-                # any remaining discrepancies are resolved.
-                self._update_state_from_malmo(
-                    self.malmo_interface.get_current_malmo_state()
-                )
+        self.timestep += 1
 
         if (
             self.current_blocks.blocks[self.palette_x]
@@ -623,6 +593,10 @@ class MbagEnv(object):
 
         action_type = action.action_type
         player_x, player_y, player_z = self.player_locations[player_index]
+        # Snap player to center of block.
+        player_x = int(player_x) + 0.5
+        player_y = int(player_y)
+        player_z = int(player_z) + 0.5
         dx, dy, dz = MbagAction.MOVE_ACTION_DELTAS[action_type]
         new_player_location: WorldLocation = (
             player_x + dx,
@@ -1024,6 +998,66 @@ class MbagEnv(object):
     ) -> float:
         own_reward_prop = self._get_own_reward_prop(player_index)
         return own_reward_prop * own_reward + (1 - own_reward_prop) * reward
+
+    def _wait_for_malmo_and_sync(self):
+        """
+        Wait until action_delay seconds have passed since the end of the previous
+        environment timestep. However, if any human actions are detected, then the
+        delay is cut short in order to process the human actions. Any detected human
+        actions are added to self.human_action_queues.
+
+        If no human actions are detected and no AI actions are running after the delay,
+        then update the environment state from the latest Malmo state.
+        """
+
+        any_human_actions = False
+        while True:
+            human_actions, malmo_state = (
+                self.malmo_interface.get_human_actions_and_malmo_state()
+            )
+            for player_index, action_tuple in human_actions:
+                self.human_action_queues[player_index].append(action_tuple)
+            for player_index, action_queue in enumerate(self.human_action_queues):
+                if (
+                    len(action_queue) > 0
+                    and self.config["players"][player_index]["is_human"]
+                ):
+                    any_human_actions = True
+            if any_human_actions or (
+                time.time() - self.previous_step_timestamp
+                >= self.config["malmo"]["action_delay"]
+            ):
+                break
+            time.sleep(0.01)
+
+        if not any_human_actions and self.malmo_interface.running_ai_actions():
+            logger.warning(
+                "AI actions did not finish during action delay; environment and "
+                "Malmo may be out of sync"
+            )
+
+        if not any_human_actions and not self.malmo_interface.running_ai_actions():
+            # If there are no pending human actions coming from Malmo and no
+            # pending AI actions going to Malmo, then Malmo and the environment
+            # should be in sync. We call _update_state_from_malmo to ensure that
+            # any remaining discrepancies are resolved.
+            self._update_state_from_malmo(malmo_state)
+
+    def _add_human_actions_to_info(self, infos: List[MbagInfoDict]):
+        for player_index, info in enumerate(infos):
+            human_action_tuple: MbagActionTuple = (MbagAction.NOOP, 0, 0)
+            if len(self.human_action_queues[player_index]) > 0:
+                human_action_tuple = self.human_action_queues[player_index].pop(0)
+            info["human_action"] = human_action_tuple
+            if (
+                human_action_tuple[0] != MbagAction.NOOP
+                and not self.config["players"][player_index]["is_human"]
+            ):
+                human_action = MbagAction(human_action_tuple, self.config["world_size"])
+                logger.warning(
+                    f"received human action for non-human player {player_index}: "
+                    f"{human_action}"
+                )
 
     def _update_state_from_malmo(self, malmo_state: MalmoState):
         self._update_blocks_from_malmo(malmo_state)

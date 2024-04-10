@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Sequence, cast
+from typing import Dict, List, Optional, Sequence, Union, cast
 
 import gymnasium as gym
 import numpy as np
@@ -10,7 +10,7 @@ from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import MbagConfigDict
-from mbag.environment.state import MbagStateDict
+from mbag.environment.state import MbagStateDict, mbag_obs_to_state
 from mbag.environment.types import (
     CURRENT_BLOCK_STATES,
     CURRENT_BLOCKS,
@@ -26,6 +26,10 @@ from ..rllib_env import (
     MbagRllibWrapper,
     unwrap_mbag_env,
 )
+
+
+class MbagEnvModelStateDict(MbagStateDict, total=False):
+    last_obs_dict: Dict[AgentID, MbagObs]
 
 
 class MbagEnvModelInfoDict(MbagInfoDict):
@@ -152,11 +156,34 @@ class MbagEnvModel(gym.Env):
             action_mask = action_mask[0]
         return action_mask
 
-    def get_state(self) -> MbagStateDict:
-        return self.env.get_state()
+    def get_state(self) -> MbagEnvModelStateDict:
+        env_state = self.env.get_state()
+        return {
+            "current_blocks": env_state["current_blocks"],
+            "goal_blocks": env_state["goal_blocks"],
+            "player_locations": env_state["player_locations"],
+            "player_directions": env_state["player_directions"],
+            "player_inventories": env_state["player_inventories"],
+            "last_interacted": env_state["last_interacted"],
+            "timestep": env_state["timestep"],
+            "last_obs_dict": self.last_obs_dict,
+        }
 
-    def set_state(self, state: MbagStateDict):
-        self.env.set_state_no_obs(state)
+    def set_state(self, state: Union[MbagEnvModelStateDict, MbagStateDict]):
+        if "last_obs_dict" in state:
+            state = cast(MbagEnvModelStateDict, state)
+            self.env.set_state_no_obs(state)
+            self.last_obs_dict = state["last_obs_dict"]
+            return self.last_obs_dict[self.agent_id]
+        else:
+            obs_dict = self.env.set_state(state)
+            self._store_last_obs_dict(obs_dict)
+            return obs_dict[self.agent_id]
+
+    def set_state_from_obs(self, obs: MbagObs) -> MbagStateDict:
+        state = mbag_obs_to_state(obs, self.player_index)
+        self.set_state(state)
+        return state
 
     def get_reward_with_other_agent_actions(
         self,

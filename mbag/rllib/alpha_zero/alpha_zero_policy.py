@@ -21,7 +21,7 @@ from ray.rllib.utils.torch_utils import (
     explained_variance,
     sequence_mask,
 )
-from ray.rllib.utils.typing import AgentID, PolicyID, TensorType
+from ray.rllib.utils.typing import AgentID, PolicyID, TensorStructType, TensorType
 from ray.tune.registry import ENV_CREATOR, _global_registry
 from torch import nn
 
@@ -40,6 +40,7 @@ OWN_REWARDS = "own_rewards"
 EXPECTED_REWARDS = "expected_rewards"
 EXPECTED_OWN_REWARDS = "expected_own_rewards"
 VALUE_ESTIMATES = "value_estimates"
+FORCE_NOOP = "force_noop"
 
 
 logger = logging.getLogger(__name__)
@@ -148,14 +149,23 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
     def compute_actions(
         self,
-        obs_batch,
-        state_batches=None,
-        prev_action_batch=None,
-        prev_reward_batch=None,
-        info_batch=None,
-        episodes=None,
+        obs_batch: Union[List[TensorStructType], TensorStructType],
+        state_batches: Optional[List[TensorType]] = None,
+        prev_action_batch: Optional[
+            Union[List[TensorStructType], TensorStructType]
+        ] = None,
+        prev_reward_batch: Optional[
+            Union[List[TensorStructType], TensorStructType]
+        ] = None,
+        info_batch: Optional[Dict[str, list]] = None,
+        episodes: Optional[List[Episode]] = None,
+        explore: Optional[bool] = None,
+        timestep: Optional[int] = None,
+        *,
+        force_noop=False,
         **kwargs,
     ):
+        super().compute_actions
 
         input_dict = {"obs": obs_batch}
         if prev_action_batch is not None:
@@ -169,6 +179,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             input_dict=input_dict,
             episodes=episodes,
             state_batches=state_batches,
+            force_noop=force_noop,
         )
 
     def _run_model_on_input_dict(self, input_dict):
@@ -189,15 +200,22 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         return self.model(input_dict, state_batches, cast(torch.Tensor, seq_lens))
 
     def compute_actions_from_input_dict(
-        self, input_dict, explore=None, timestep=None, episodes=None, **kwargs
+        self,
+        input_dict,
+        explore=None,
+        timestep=None,
+        episodes=None,
+        force_noop=False,
+        **kwargs,
     ):
         if logger.isEnabledFor(logging.DEBUG):
-            info: MbagInfoDict = episodes[0].last_info_for("player_1")
-            if info is not None:
-                reward = input_dict[SampleBatch.REWARDS][0]
-                own_reward = info["own_reward"]
-                goal_similarity = info["goal_similarity"]
-                logger.debug(f"{reward=} {own_reward=} {goal_similarity=}")
+            if episodes is not None:
+                info: MbagInfoDict = episodes[0].last_info_for("player_1")
+                if info is not None:
+                    reward = input_dict[SampleBatch.REWARDS][0]
+                    own_reward = info["own_reward"]
+                    goal_similarity = info["goal_similarity"]
+                    logger.debug(f"{reward=} {own_reward=} {goal_similarity=}")
 
         assert self.mcts.model == self.model
         cast(nn.Module, self.model).eval()
@@ -205,7 +223,11 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
         state_out: List[np.ndarray]
 
-        while len(self.envs) < len(episodes):
+        obs = input_dict[SampleBatch.OBS]
+        obs = restore_original_dimensions(obs, self.obs_space, "numpy")
+
+        num_envs = obs[0].shape[0]
+        while len(self.envs) < num_envs:
             env = self.env_creator()
             env.reset()
             self.envs.append(env)
@@ -221,17 +243,12 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
         assert isinstance(self.action_space, spaces.Discrete)
 
-        obs = input_dict[SampleBatch.OBS]
-        obs = restore_original_dimensions(obs, self.obs_space, "numpy")
-
         with torch.no_grad():
-            episode: Episode
-
-            if self.config["pretrain"]:
-                actions = np.array([0] * len(episodes))
-                expected_rewards = np.zeros(len(episodes))
-                expected_own_rewards = np.zeros(len(episodes))
-                mcts_policies = np.zeros((len(episodes), self.action_space.n))
+            if self.config["pretrain"] or force_noop:
+                actions = np.zeros(num_envs, dtype=int)
+                expected_rewards = np.zeros(num_envs)
+                expected_own_rewards = np.zeros(num_envs)
+                mcts_policies = np.zeros((num_envs, self.action_space.n))
                 mcts_policies[:, 0] = 1
 
                 # Get action mask.
@@ -245,17 +262,17 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 value_estimates = convert_to_numpy(self.model.value_function())
             else:
                 nodes: List[MbagMCTSNode] = []
-                for env_index, episode in enumerate(episodes):
-                    env_state = episode.user_data["state"]
+                for env_index in range(num_envs):
+                    env_obs = tuple(obs_piece[env_index] for obs_piece in obs)
+                    env_state = self.envs[env_index].set_state_from_obs(env_obs)
                     model_state = [
                         input_dict[f"state_in_{state_index}"][env_index]
                         for state_index in range(model_state_len)
                     ]
-                    self.envs[env_index].set_state(env_state)
                     nodes.append(
                         MbagMCTSNode(
                             state=env_state,
-                            obs=[obs_piece[env_index] for obs_piece in obs],
+                            obs=env_obs,
                             reward=0,
                             done=False,
                             info=None,
@@ -295,39 +312,42 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
                 value_estimates = np.array([node.value_estimate for node in nodes])
 
-            for env_index, episode in enumerate(episodes):
-                player_index = self.envs[env_index].player_index
+            if episodes is not None:
+                for env_index, episode in enumerate(episodes):
+                    player_index = self.envs[env_index].player_index
 
-                if (
-                    self.config.get("_strict_mode", False)
-                    and self._training
-                    and not (
-                        self.config["use_goal_predictor"]
-                        or self.envs[env_index].config["num_players"] > 1
-                    )
-                ):
-                    # If there was an expected reward, make sure it matches the actual
-                    # reward given by the environment so we're not out of sync.
-                    episode_expected_rewards: Dict[int, float] = episode.user_data.get(
+                    if (
+                        self.config.get("_strict_mode", False)
+                        and self._training
+                        and not (
+                            self.config["use_goal_predictor"]
+                            or self.envs[env_index].config["num_players"] > 1
+                        )
+                    ):
+                        # If there was an expected reward, make sure it matches the actual
+                        # reward given by the environment so we're not out of sync.
+                        episode_expected_rewards: Dict[int, float] = (
+                            episode.user_data.get(EXPECTED_REWARDS, {})
+                        )
+                        prev_expected_reward = episode_expected_rewards.get(
+                            player_index
+                        )
+                        if prev_expected_reward is not None:
+                            assert np.isclose(
+                                input_dict[SampleBatch.REWARDS][env_index],
+                                prev_expected_reward,
+                            )
+
+                    episode_expected_rewards = episode.user_data.setdefault(
                         EXPECTED_REWARDS, {}
                     )
-                    prev_expected_reward = episode_expected_rewards.get(player_index)
-                    if prev_expected_reward is not None:
-                        assert np.isclose(
-                            input_dict[SampleBatch.REWARDS][env_index],
-                            prev_expected_reward,
-                        )
-
-                episode_expected_rewards = episode.user_data.setdefault(
-                    EXPECTED_REWARDS, {}
-                )
-                episode_expected_rewards[player_index] = expected_rewards[env_index]
-                episode_expected_own_rewards = episode.user_data.setdefault(
-                    EXPECTED_OWN_REWARDS, {}
-                )
-                episode_expected_own_rewards[player_index] = expected_own_rewards[
-                    env_index
-                ]
+                    episode_expected_rewards[player_index] = expected_rewards[env_index]
+                    episode_expected_own_rewards = episode.user_data.setdefault(
+                        EXPECTED_OWN_REWARDS, {}
+                    )
+                    episode_expected_own_rewards[player_index] = expected_own_rewards[
+                        env_index
+                    ]
 
         action_dist_inputs = np.log(mcts_policies)
         action_dist_inputs[mcts_policies == 0] = -1e4

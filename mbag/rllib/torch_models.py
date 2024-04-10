@@ -318,7 +318,7 @@ class MbagTorchModel(ActorCriticModel):
         embedded_player_locations = self.player_id_embedding(player_locations)
         embedded_obs_pieces.append(embedded_player_locations)
 
-        if self.mask_other_players:
+        if self.mask_other_players and inventory_obs.ndim > 2:
             inventory_obs = inventory_obs[:, 0]
         else:
             inventory_obs = inventory_obs.flatten(start_dim=1)

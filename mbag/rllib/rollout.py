@@ -46,6 +46,7 @@ def sacred_config():
     output_max_file_size = 64 * 1024 * 1024
     config_updates = {  # noqa: F841
         "seed": seed,
+        "num_workers": 0,
         "evaluation_num_workers": num_workers,
         "create_env_on_local_worker": True,
         "evaluation_duration": episodes,

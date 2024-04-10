@@ -3,8 +3,14 @@ import os
 import tempfile
 
 import pytest
+import torch
+import torch.nn.functional as F  # noqa: N812
+from ray.rllib.models.catalog import ModelCatalog
 
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import GOAL_BLOCKS
 from mbag.rllib.rollout import ex as rollout_ex
+from mbag.rllib.torch_models import MbagTransformerModel
 from mbag.rllib.train import ex
 
 
@@ -451,6 +457,50 @@ def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
     horizon = config_updates["horizon"]
     assert result["custom_metrics"]["human/num_noop_mean"] < horizon
     assert result["custom_metrics"]["assistant/num_noop_mean"] == horizon
+
+
+class PerfectGoalPredictorModel(MbagTransformerModel):
+    def goal_predictor(self):
+        goal_blocks = self._world_obs[:, GOAL_BLOCKS]
+        predicted_probs = (
+            F.one_hot(goal_blocks, num_classes=MinecraftBlocks.NUM_BLOCKS)
+            .permute(0, 4, 1, 2, 3)
+            .to(self.device)
+        )
+        predicted_logits = torch.empty_like(predicted_probs, dtype=torch.float).fill_(
+            -1e4
+        )
+        predicted_logits[predicted_probs == 1] = 0
+        return predicted_logits
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(120)
+def test_predicted_rewards_equal_rewards_in_alpha_zero(
+    default_config, default_alpha_zero_config
+):
+    ModelCatalog.register_custom_model(
+        "mbag_transformer_perfect_goal_predictor_model", PerfectGoalPredictorModel
+    )
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
+            "model": "transformer_perfect_goal_predictor",
+            "use_goal_predictor": True,
+            "num_training_iters": 1,
+            "num_simulations": 20,
+            "horizon": 100,
+            "rollout_fragment_length": 100,
+            "sample_batch_size": 1000,
+        }
+    ).result
+    assert result is not None
+    prediction_stats = result["info"]["learner"]["human"]["custom_metrics"][
+        "prediction_stats"
+    ]
+    assert abs(prediction_stats["reward_mse"]) < 1e-8
+    assert abs(prediction_stats["own_reward_mse"]) < 1e-8
 
 
 @pytest.mark.uses_rllib

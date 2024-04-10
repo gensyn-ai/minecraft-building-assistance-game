@@ -5,11 +5,13 @@ from typing import Any, Callable, Dict, Type, Union, cast
 import cloudpickle
 from ray.rllib.algorithms import Algorithm, AlgorithmConfig
 from ray.rllib.evaluation.worker_set import WorkerSet
-from ray.rllib.policy.policy import Policy
+from ray.rllib.policy.policy import Policy, PolicySpec
 from ray.rllib.utils.checkpoints import get_checkpoint_info
 from ray.rllib.utils.typing import PolicyID
 from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import get_trainable_cls
+
+from mbag.environment.mbag_env import MbagEnv
 
 
 def build_logger_creator(experiment_dir: str):
@@ -37,6 +39,9 @@ def load_trainer(
     checkpoint_path: str,
     run: Union[str, Type[Algorithm]],
     config_updates: dict = {},
+    config_update_fn: Callable[
+        [AlgorithmConfig], AlgorithmConfig
+    ] = lambda config: config,
 ) -> Algorithm:
     config_updates.setdefault("num_workers", 0)
 
@@ -44,6 +49,20 @@ def load_trainer(
     state = Algorithm._checkpoint_info_to_algorithm_state(checkpoint_info)
     config: AlgorithmConfig = state["config"]
     config.update_from_dict(config_updates)
+
+    env = MbagEnv(config["env_config"])
+    observation_space = env.observation_space
+    for policy_id in config.policies.keys():
+        maybe_policy_spec = config.policies[policy_id]
+        if isinstance(maybe_policy_spec, PolicySpec):
+            policy_spec = maybe_policy_spec
+        else:
+            policy_spec = PolicySpec(*maybe_policy_spec)
+        policy_spec.observation_space = observation_space
+        policy_spec.config["num_gpus"] = config["num_gpus"]
+        config.policies[policy_id] = policy_spec
+
+    config = config_update_fn(config)
 
     # Create the Trainer from config.
     if isinstance(run, str):

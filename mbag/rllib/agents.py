@@ -45,30 +45,42 @@ class RllibMbagAgent(MbagAgent):
         self.last_action_time = None
 
     def get_action(self, obs: MbagObs, *, compute_actions_kwargs={}) -> MbagActionTuple:
+        force_noop = False
         if self.last_action_time is not None:
             time_since_last_action = time.time() - self.last_action_time
             if time_since_last_action < self.min_action_interval:
-                return (MbagAction.NOOP, 0, 0)
+                force_noop = True
 
-        self.last_action_time = time.time()
+        if not force_noop:
+            self.last_action_time = time.time()
 
         obs_batch = tuple(obs_piece[None] for obs_piece in obs)
         state_batch = [state_piece[None] for state_piece in self.state]
         state_out_batch: List[TensorType]
         action_batch: Iterable[np.ndarray]
         action_batch, state_out_batch, info = self.policy.compute_actions(
-            obs_batch, state_batch, explore=self.explore, **compute_actions_kwargs
+            obs_batch,
+            state_batch,
+            explore=self.explore,
+            force_noop=force_noop,
+            **compute_actions_kwargs,
         )
         self.state = [state_piece[0] for state_piece in state_out_batch]
 
         if isinstance(action_batch, tuple):
-            return cast(
+            action = cast(
                 MbagActionTuple,
                 tuple(int(action_piece[0]) for action_piece in action_batch),
             )
         else:
             # Flat actions.
-            return cast(MbagActionTuple, tuple(self.action_mapping[action_batch[0]]))
+            action = cast(MbagActionTuple, tuple(self.action_mapping[action_batch[0]]))
+
+        action_type, _, _ = action
+        if force_noop:
+            assert action_type == MbagAction.NOOP
+
+        return action
 
     def get_state(self) -> List[np.ndarray]:
         return [np.array(state_part) for state_part in self.state]
@@ -98,5 +110,4 @@ class RllibAlphaZeroAgent(RllibMbagAgent):
     def get_action_with_info_and_env_state(
         self, obs: MbagObs, info: Optional[MbagInfoDict], env_state: MbagStateDict
     ) -> MbagActionTuple:
-        episode = FakeEpisode(user_data={"state": env_state})
-        return super().get_action(obs, compute_actions_kwargs={"episodes": [episode]})
+        return super().get_action(obs)

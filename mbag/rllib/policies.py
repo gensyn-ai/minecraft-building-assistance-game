@@ -269,7 +269,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
             goal_block_ids[..., None]
             == MbagAutoregressiveActionDistribution.PLACEABLE_BLOCK_MASK[
                 None, None, None, None, :
-            ],
+            ].to(self.device),
             dim=4,
         ).flatten()
 

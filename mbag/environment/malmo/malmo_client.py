@@ -304,7 +304,7 @@ class MalmoClient(object):
                         {self._draw_wall(env_config, "barrier", (-1, 2, -1), (-1, height, depth))}
                         {self._draw_wall(env_config, "barrier", (-1, 2, -1), (width, height, -1))}
                         {self._draw_wall(env_config, "barrier", (-1, 2, depth), (width, height, depth))}
-                        {self._draw_wall(env_config, "barrier", (-1, height, -1), (width, height, depth))}
+                        {self._draw_wall(env_config, "barrier", (-1, height + 1, -1), (width, height + 1, depth))}
                         {self._blocks_to_drawing_decorator_xml(goal_blocks, (width+1, 0, 0))}
                         {self._blocks_to_drawing_decorator_xml(current_blocks)}
                     </DrawingDecorator>

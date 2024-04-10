@@ -254,7 +254,7 @@ class MalmoInterface:
     _human_action_queue: List[Tuple[int, MbagActionTuple]]
     """Queue of human actions that have been detected in the Malmo observations."""
 
-    _human_action_lock: threading.Lock
+    _malmo_state_and_human_actions_lock: threading.Lock
 
     _ai_action_queue: List[Tuple[int, MalmoAIAction]]
     """Queue of AI actions that need to be executed in Malmo."""
@@ -270,21 +270,18 @@ class MalmoInterface:
         self._running_ai_actions_lock = threading.Lock()
 
         self._human_action_queue = []
-        self._human_action_lock = threading.Lock()
+        self._malmo_state_and_human_actions_lock = threading.Lock()
         self._malmo_client = MalmoClient()
         self._malmo_lock = threading.Lock()
 
-        self._malmo_state_lock = threading.Lock()
         self._expected_state_diffs_lock = threading.Lock()
+
+        self.episode_running = False
 
         if self._env_config["abilities"]["inf_blocks"]:
             self._palette_x = None
         else:
             self._palette_x = self._env_config["world_size"][0] - 1
-
-    def get_malmo_state(self):
-        with self._malmo_state_lock:
-            return self._malmo_state
 
     def _setup_malmo_mission(
         self,
@@ -356,6 +353,9 @@ class MalmoInterface:
                     player_index, "chat /gamerule sendCommandFeedback false"
                 )
 
+            # Wait for everything to run.
+            time.sleep(1)
+
     def reset(
         self,
         current_blocks: MinecraftBlocks,
@@ -403,7 +403,12 @@ class MalmoInterface:
         # TODO: Do the palette here
         time.sleep(self._env_config["malmo"]["action_delay"])
 
+        self.episode_running = True
+
     def end_episode(self):
+        if not self.episode_running:
+            return
+
         # Wait for a second for the final block to place and then end mission.
         logger.info("ending episode")
 
@@ -423,6 +428,7 @@ class MalmoInterface:
             time.sleep(1)
             self._malmo_client.end_mission()
 
+        self.episode_running = False
         logger.info("successfully ended episode")
 
     def _get_malmo_observations(self) -> List[Tuple[int, MalmoObservationDict]]:
@@ -477,7 +483,7 @@ class MalmoInterface:
             malmo_observations = self._get_malmo_observations()
 
             for player_index, malmo_observation in malmo_observations:
-                with self._malmo_state_lock:
+                with self._malmo_state_and_human_actions_lock:
                     malmo_state = self._malmo_state
 
                 new_state, state_diffs = update_malmo_state(
@@ -487,6 +493,7 @@ class MalmoInterface:
                     self._env_config,
                 )
 
+                new_human_actions: List[Tuple[int, MbagActionTuple]] = []
                 for state_diff in state_diffs:
                     with self._expected_state_diffs_lock:
                         if state_diff in self._expected_state_diffs:
@@ -500,6 +507,8 @@ class MalmoInterface:
                         self._env_config,
                         self._palette_x,
                     )
+                    if human_actions:
+                        print("new human actions:", human_actions)
                     player_blocks_on_ground = ReadOnlyList(
                         [
                             ReadOnlyDict(blocks_on_ground)
@@ -507,8 +516,7 @@ class MalmoInterface:
                         ]
                     )
 
-                    with self._human_action_lock:
-                        self._human_action_queue.extend(human_actions)
+                    new_human_actions.extend(human_actions)
 
                     if self._env_config["abilities"]["inf_blocks"]:
                         # If inf_blocks is True and the player has just placed a block,
@@ -525,21 +533,33 @@ class MalmoInterface:
                                         f"chat /give @p {MinecraftBlocks.ID2NAME[human_action_block_id]} 1",
                                     )
 
-                with self._malmo_state_lock:
+                with self._malmo_state_and_human_actions_lock:
                     self._malmo_state = new_state
+                    self._human_action_queue.extend(new_human_actions)
 
             time.sleep(0.03)
 
-    def get_human_actions(self) -> List[Tuple[int, MbagActionTuple]]:
+    def get_human_actions_and_malmo_state(
+        self,
+    ) -> Tuple[List[Tuple[int, MbagActionTuple]], MalmoState]:
         """
         Get the human actions that have been detected in the Malmo observations since
-        the last time this method was called.
+        the last time this method was called. Also returns the latest Malmo state.
+
+        IMPORTANT: the reason these are returned together are to avoid race conditions
+        if the human actions and Malmo state are queried separately. For instance,
+        consider this sequence of events:
+          * Get human actions returns nothing.
+          * A human action is detected and the Malmo state is updated.
+          * Get Malmo state returns the updated state, which is used to sync the
+            environment since it seems no human actions are pending.
+        However, in this case human actions are pending!
         """
 
-        with self._human_action_lock:
+        with self._malmo_state_and_human_actions_lock:
             human_actions = list(self._human_action_queue)
             self._human_action_queue.clear()
-            return human_actions
+            return human_actions, self._malmo_state
 
     def queue_ai_action(self, player_index: int, action: MalmoAIAction):
         with self._ai_action_lock:
@@ -613,7 +633,7 @@ class MalmoInterface:
                     )
                     hotbar_slot = 0
                 else:
-                    with self._malmo_state_lock:
+                    with self._malmo_state_and_human_actions_lock:
                         player_inventory = self._malmo_state.player_inventories[
                             player_index
                         ]
@@ -655,7 +675,7 @@ class MalmoInterface:
                         f"chat /clear @p {MinecraftBlocks.ID2NAME[ai_action.action.block_id]} 0 1",
                     )
             else:
-                # with self._malmo_state_lock:
+                # with self._malmo_state_and_human_actions_lock:
                 #     block_id = self._malmo_state.blocks.blocks[
                 #         ai_action.action.block_location
                 #     ]
@@ -685,10 +705,6 @@ class MalmoInterface:
         with self._running_ai_actions_lock:
             return self._running_ai_actions
 
-    def get_current_malmo_state(self):
-        with self._malmo_state_lock:
-            return self._malmo_state
-
     def _run_ai_actions(self):
         while not self._episode_done.is_set():
             with self._ai_action_lock:
@@ -703,7 +719,7 @@ class MalmoInterface:
             assert not self._env_config["players"][player_index]["is_human"]
             logger.info(f"running AI action {ai_action}")
 
-            with self._malmo_state_lock:
+            with self._malmo_state_and_human_actions_lock:
                 malmo_state = self._malmo_state
             expected_state_diffs = get_state_diffs_for_ai_action(
                 malmo_state, player_index, ai_action, self._env_config
@@ -735,7 +751,7 @@ class MalmoInterface:
                 self._expected_state_diffs.clear()
 
     def _ensure_inventory_is_correctly_organized(self, player_index: int):
-        with self._malmo_state_lock:
+        with self._malmo_state_and_human_actions_lock:
             malmo_inventory = self._malmo_state.player_inventories[player_index]
         if self._env_config["abilities"]["inf_blocks"]:
             for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
@@ -759,7 +775,7 @@ class MalmoInterface:
                                 f"chat /give @p {MinecraftBlocks.ID2NAME[block_id]} 1",
                             )
                         time.sleep(0.1)
-                        with self._malmo_state_lock:
+                        with self._malmo_state_and_human_actions_lock:
                             malmo_inventory = self._malmo_state.player_inventories[
                                 player_index
                             ]
@@ -810,7 +826,7 @@ class MalmoInterface:
             )
             self._malmo_client.send_command(
                 player_index,
-                f"chat /fill -1 {height} -1 {width} {height} {depth} barrier",
+                f"chat /fill -1 {height + 1} -1 {width} {height + 1} {depth} barrier",
             )
 
     def copy_palette_from_goal(self):
@@ -889,11 +905,12 @@ class MalmoInterface:
 
             # Don't think we need to lock here because no other threads interact with
             # the spectator AgentHost.
-            self._malmo_client.send_command(
-                agent_index, f"chat /teleport @p {x} {y - 1.6} {z}"
-            )
-            self._malmo_client.send_command(agent_index, f"setPitch {pitch}")
-            self._malmo_client.send_command(agent_index, f"setYaw {yaw}")
+            with self._malmo_lock:
+                self._malmo_client.send_command(
+                    agent_index, f"chat /teleport @p {x} {y - 1.6} {z}"
+                )
+                self._malmo_client.send_command(agent_index, f"setPitch {pitch}")
+                self._malmo_client.send_command(agent_index, f"setYaw {yaw}")
 
             if rad_per_second == 0:
                 # No point in continuing to loop if we're not rotating the spectator.

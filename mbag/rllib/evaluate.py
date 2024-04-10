@@ -11,14 +11,15 @@ import numpy as np
 import ray
 import torch
 import tqdm
-from ray.rllib.algorithms import Algorithm
+from ray.rllib.algorithms import Algorithm, AlgorithmConfig
+from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
 import mbag
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS, merge_configs
-from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.evaluation.evaluator import (
     EpisodeInfo,
     EpisodeInfoJSONEncoder,
@@ -128,6 +129,8 @@ def main(  # noqa: C901
 
     env_config = merge_configs(env_config, env_config_updates)
 
+    observation_space = MbagEnv(env_config).observation_space
+
     algorithm_config_updates["env_config"] = copy.deepcopy(env_config)
 
     agent_configs: List[MbagAgentConfig] = []
@@ -140,8 +143,26 @@ def main(  # noqa: C901
         else:
             assert checkpoint is not None and policy_id is not None
             _log.info(f"loading policy {policy_id} from {checkpoint}...")
-            trainer = load_trainer(checkpoint, run, algorithm_config_updates)
+
+            def override_observation_space(config: AlgorithmConfig):
+                for policy_id in config.policies.keys():
+                    maybe_policy_spec = config.policies[policy_id]
+                    if isinstance(maybe_policy_spec, PolicySpec):
+                        policy_spec = maybe_policy_spec
+                    else:
+                        policy_spec = PolicySpec(*maybe_policy_spec)
+                    policy_spec.observation_space = observation_space
+                    config.policies[policy_id] = policy_spec
+                return config
+
+            trainer = load_trainer(
+                checkpoint,
+                run,
+                algorithm_config_updates,
+                config_update_fn=override_observation_space,
+            )
             policy = trainer.get_policy(policy_id)
+            policy.observation_space = observation_space
 
             mbag_agent_class: Type[RllibMbagAgent] = RllibMbagAgent
             agent_config = {
