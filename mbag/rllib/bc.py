@@ -139,9 +139,6 @@ class BCTorchPolicy(TorchPolicy):
             - self.config["entropy_coeff"] * losses_and_stats.entropy
         )
 
-        if loss.item() > 10:
-            breakpoint()
-
         return loss
 
     def extra_grad_process(self, optimizer, loss):
