@@ -40,6 +40,7 @@ from ray.rllib.utils.typing import (
 from ray.tune.registry import register_trainable
 
 from .human_data import PARTICIPANT_ID
+from .torch_models import MbagTorchModel
 
 logger = logging.getLogger(__name__)
 
@@ -76,26 +77,22 @@ class BCTorchPolicy(TorchPolicy):
         actions = train_batch[SampleBatch.ACTIONS]
         logprobs = action_dist.logp(actions)
 
-        # RNN case: Mask away 0-padded chunks at end of time axis.
+        mask = torch.ones(
+            model_out.size()[0], dtype=torch.bool, device=model_out.device
+        )
         if state:
             B = len(train_batch[SampleBatch.SEQ_LENS])  # noqa: N806
             max_seq_len = model_out.shape[0] // B
-            mask = sequence_mask(
+            mask &= sequence_mask(
                 train_batch[SampleBatch.SEQ_LENS],
                 max_seq_len,
                 time_major=model.is_time_major(),
-            )
+            ).reshape(-1)
             assert isinstance(mask, torch.Tensor)
-            mask = torch.reshape(mask, [-1])
-            num_valid = torch.sum(mask)
+        mask &= logprobs > MbagTorchModel.MASK_LOGIT
 
-            def reduce_mean_valid(t):
-                return torch.sum(t[mask]) / num_valid
-
-        # non-RNN case: No masking.
-        else:
-            mask = None
-            reduce_mean_valid = torch.mean
+        def reduce_mean_valid(tensor):
+            return torch.mean(tensor[mask])
 
         bc_loss = reduce_mean_valid(-logprobs)
         accuracy = reduce_mean_valid(
@@ -110,7 +107,7 @@ class BCTorchPolicy(TorchPolicy):
             explained_variance(train_batch[Postprocessing.VALUE_TARGETS], values),
         )
 
-        entropy = action_dist.entropy().mean()
+        entropy = reduce_mean_valid(action_dist.entropy())
 
         return BCTorchLossesAndStats(
             bc_loss=bc_loss,
@@ -141,6 +138,9 @@ class BCTorchPolicy(TorchPolicy):
             + self.config["vf_loss_coeff"] * losses_and_stats.value_loss
             - self.config["entropy_coeff"] * losses_and_stats.entropy
         )
+
+        if loss.item() > 10:
+            breakpoint()
 
         return loss
 
