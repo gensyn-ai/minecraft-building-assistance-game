@@ -282,6 +282,7 @@ def sacred_config(_log):  # noqa
     reward_scale = 1.0
     pretrain = False
     strict_mode = False
+    validation_participant_ids: List[int] = []
 
     # MCTS
     puct_coefficient = 1.0
@@ -499,7 +500,7 @@ def sacred_config(_log):  # noqa
     # Evaluation
     evaluation_num_workers = num_workers
     evaluation_interval = 5
-    evaluation_duration = max(evaluation_num_workers, 1)
+    evaluation_duration = max(evaluation_num_workers, 1) * num_envs_per_worker
     evaluation_duration_unit = "episodes"
     evaluation_explore = False
     evaluation_config = {
@@ -517,6 +518,10 @@ def sacred_config(_log):  # noqa
         experiment_name_parts.append(heuristic)
     if experiment_tag is not None:
         experiment_name_parts.append(experiment_tag)
+    if validation_participant_ids:
+        experiment_name_parts.append(
+            "validation_" + "_".join(map(str, validation_participant_ids))
+        )
     experiment_name_parts.append(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     experiment_dir = os.path.join(log_dir, *experiment_name_parts)
 
@@ -644,7 +649,6 @@ def sacred_config(_log):  # noqa
         )
     elif run == "BC":
         assert isinstance(config, BCConfig)
-        validation_participant_ids: List[int] = []
         config.training(
             lr=lr,
             gamma=gamma,
