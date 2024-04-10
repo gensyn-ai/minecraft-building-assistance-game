@@ -1,4 +1,5 @@
 import random
+import zipfile
 from datetime import datetime, timedelta
 from typing import Optional, Union
 
@@ -7,12 +8,28 @@ from ray.rllib.evaluation import SampleBatchBuilder
 from ray.rllib.policy.sample_batch import SampleBatch
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.compatibility_utils import OldHumanDataUnpickler
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.config import DEFAULT_CONFIG, MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
 
 PARTICIPANT_ID = "participant_id"
 EPISODE_DIR = "episode_dir"
+
+
+def load_episode_info(episode_fname: str) -> EpisodeInfo:
+    if episode_fname.endswith(".zip"):
+        with zipfile.ZipFile(episode_fname, "r") as zip_file:
+            with zip_file.open("episode.pkl", "r") as episode_file:
+                episode_info = OldHumanDataUnpickler(episode_file).load()
+    else:
+        with open(episode_fname, "rb") as episode_file:
+            episode_info = OldHumanDataUnpickler(episode_file).load()
+    if not isinstance(episode_info, EpisodeInfo):
+        raise ValueError(
+            f"Invalid episode info in {episode_fname} ({type(episode_info)})"
+        )
+    return episode_info
 
 
 def convert_episode_info_to_sample_batch(
@@ -42,17 +59,20 @@ def convert_episode_info_to_sample_batch(
         reward = episode_info.reward_history[i]
         if offset_rewards:
             reward = episode_info.reward_history[i + 1]
-        assert reward == info["goal_dependent_reward"] + info["goal_independent_reward"]
+        assert reward == sum(
+            info["goal_dependent_reward"] + info["goal_independent_reward"]
+            for info in episode_info.info_history[i]
+        )
         action = info["action"]
+        actions = [info["action"] for info in episode_info.info_history[i]]
+        not_noop = any(action.action_type != MbagAction.NOOP for action in actions)
 
         if info["malmo_observations"]:
             if prev_action_time is None:
                 prev_action_time = info["malmo_observations"][0][0]
             current_time = info["malmo_observations"][-1][0]
 
-        if (
-            include_noops and action_delay == 0
-        ) or action.action_type != MbagAction.NOOP:
+        if (include_noops and action_delay == 0) or not_noop:
             action_id: Union[int, MbagActionTuple]
             if flat_actions:
                 action_id = MbagActionDistribution.get_flat_action(

@@ -1,22 +1,18 @@
 import glob
 import logging
 import os
-import zipfile
-from typing import List
+from typing import List, Optional
 
 from ray.rllib.offline.json_writer import JsonWriter
 from ray.rllib.policy.sample_batch import SampleBatch
 from sacred import Experiment
 
-from mbag.compatibility_utils import (
-    OldHumanDataUnpickler,
-    convert_old_rewards_config_to_new,
-)
+from mbag.compatibility_utils import convert_old_rewards_config_to_new
 from mbag.environment.config import DEFAULT_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
 
-from .human_data import convert_episode_info_to_sample_batch
+from .human_data import convert_episode_info_to_sample_batch, load_episode_info
 
 ex = Experiment()
 
@@ -24,6 +20,8 @@ ex = Experiment()
 @ex.config
 def sacred_config():
     data_dir = ""
+    # Episode info file to load the MBAG config from.
+    load_mbag_config_from: Optional[str] = None  # noqa: F841
 
     mbag_config: MbagConfigDict = {  # noqa: F841
         "world_size": (11, 10, 10),
@@ -47,6 +45,7 @@ def sacred_config():
 @ex.automain
 def main(  # noqa: C901
     data_dir: str,
+    load_mbag_config_from: Optional[str],
     out_dir: str,
     mbag_config: MbagConfigDict,
     include_noops: bool,
@@ -58,6 +57,11 @@ def main(  # noqa: C901
     _log: logging.Logger,
 ):
     episode_info: EpisodeInfo
+
+    if load_mbag_config_from is not None:
+        _log.info(f"loading environment config from {load_mbag_config_from}...")
+        episode_info = load_episode_info(load_mbag_config_from)
+        mbag_config = episode_info.env_config
 
     episode_fnames = glob.glob(
         os.path.join(data_dir, "**", "episode.pkl"), recursive=True
@@ -72,15 +76,8 @@ def main(  # noqa: C901
 
     for episode_fname in sorted(episode_fnames):
         try:
-            if episode_fname.endswith(".zip"):
-                _log.info(f"reading {episode_fname}...")
-                with zipfile.ZipFile(episode_fname, "r") as zip_file:
-                    with zip_file.open("episode.pkl", "r") as episode_file:
-                        episode_info = OldHumanDataUnpickler(episode_file).load()
-            else:
-                _log.info(f"reading {episode_fname}...")
-                with open(episode_fname, "rb") as episode_file:
-                    episode_info = OldHumanDataUnpickler(episode_file).load()
+            _log.info(f"reading {episode_fname}...")
+            episode_info = load_episode_info(episode_fname)
         except Exception:
             _log.exception(f"failed to read {episode_fname}")
             continue
@@ -133,6 +130,13 @@ def main(  # noqa: C901
                 len(sample_batch),
                 total_reward,
             )
+            if total_reward != episode_info.cumulative_reward:
+                _log.error(
+                    "total reward mismatch: %.1f != %.1f",
+                    total_reward,
+                    episode_info.cumulative_reward,
+                )
+                breakpoint()
             assert total_reward == episode_info.cumulative_reward
             _log.info("saving trajectory...")
             json_writer.write(sample_batch)
