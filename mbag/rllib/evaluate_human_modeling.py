@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from logging import Logger
-from typing import Iterable, List, TypedDict, cast
+from typing import Iterable, List, Optional, TypedDict, cast
 
 import numpy as np
 import ray
@@ -19,7 +19,9 @@ from sacred import SETTINGS, Experiment
 from sacred.observers import FileStorageObserver
 
 import mbag
+from mbag.rllib.alpha_zero.alpha_zero_policy import FULL_SUPPORT_ACTION_DIST_INPUTS
 
+from .alpha_zero import MbagAlphaZeroPolicy
 from .human_data import EPISODE_DIR, PARTICIPANT_ID
 from .os_utils import available_cpu_count
 from .torch_models import MbagTorchModel
@@ -46,15 +48,20 @@ def sacred_config():
     extra_config_updates = {}  # noqa: F841
 
     human_data_dir = ""  # noqa: F841
+    participant_ids = None
 
     minibatch_size = 128  # noqa: F841
 
     experiment_tag = ""
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    out_dir = os.path.join(  # noqa: F841
-        checkpoint,
-        f"evaluate_human_modeling_{experiment_tag + '_' if experiment_tag else ''}{time_str}",
-    )
+    out_dir_name = "evaluate_human_modeling_"
+    if experiment_tag:
+        out_dir_name += f"{experiment_tag}_"
+    if participant_ids is not None:
+        participant_ids_str = "_".join(map(str, participant_ids))
+        out_dir_name += f"participants_{participant_ids_str}_"
+    out_dir_name += time_str
+    out_dir = os.path.join(checkpoint, out_dir_name)
 
     observer = FileStorageObserver(out_dir)
     ex.observers.append(observer)
@@ -84,6 +91,7 @@ def main(  # noqa: C901
     config_updates: dict,
     extra_config_updates: dict,
     human_data_dir: str,
+    participant_ids: Optional[List[int]],
     minibatch_size: int,
     observer,
     _log: Logger,
@@ -113,7 +121,11 @@ def main(  # noqa: C901
         del episode[SampleBatch.INFOS]  # Avoid errors when slicing the episode.
         episode_id = int(episode[SampleBatch.EPS_ID][0])
         assert np.all(episode[SampleBatch.EPS_ID] == episode_id)
-        episode_dir = episode[EPISODE_DIR][0]
+        episode_dir = str(episode[EPISODE_DIR][0])
+        participant_id = int(episode[PARTICIPANT_ID][0])
+
+        if participant_ids is not None and participant_id not in participant_ids:
+            continue
 
         state_in = policy.get_initial_state()
 
@@ -132,15 +144,27 @@ def main(  # noqa: C901
                 minibatch[f"state_in_{state_piece_index}"] = state_piece[None]
             minibatch[SampleBatch.SEQ_LENS] = np.array([len(minibatch)])
             minibatch.set_training(False)
-            policy._lazy_tensor_dict(minibatch, device=policy.devices[0])
+            if not isinstance(policy, MbagAlphaZeroPolicy):
+                # AlphaZero takes in numpy inputs.
+                policy._lazy_tensor_dict(minibatch, device=policy.devices[0])
+
+            compute_actions_kwargs = {}
+            if isinstance(policy, MbagAlphaZeroPolicy):
+                compute_actions_kwargs["compute_full_support_action_dist"] = True
+
             _, state_out, extra_fetches = policy.compute_actions_from_input_dict(
-                minibatch
+                minibatch, **compute_actions_kwargs
             )
 
-            assert SampleBatch.ACTION_DIST_INPUTS in extra_fetches
-            action_dist_inputs = torch.tensor(
-                extra_fetches[SampleBatch.ACTION_DIST_INPUTS]
-            )
+            if FULL_SUPPORT_ACTION_DIST_INPUTS in extra_fetches:
+                action_dist_inputs = torch.tensor(
+                    extra_fetches[FULL_SUPPORT_ACTION_DIST_INPUTS]
+                )
+            else:
+                assert SampleBatch.ACTION_DIST_INPUTS in extra_fetches
+                action_dist_inputs = torch.tensor(
+                    extra_fetches[SampleBatch.ACTION_DIST_INPUTS]
+                )
             assert policy.dist_class is not None
             assert issubclass(policy.dist_class, TorchDistributionWrapper)
             assert isinstance(policy.model, TorchModelV2)
@@ -148,7 +172,7 @@ def main(  # noqa: C901
                 action_dist_inputs,  # type: ignore[arg-type]
                 policy.model,
             )
-            actions = cast(torch.Tensor, minibatch[SampleBatch.ACTIONS]).to(
+            actions = torch.tensor(minibatch[SampleBatch.ACTIONS]).to(
                 action_dist_inputs.device
             )
             correct_batches.append(
@@ -169,8 +193,8 @@ def main(  # noqa: C901
         episode_results.append(
             {
                 "episode_id": episode_id,
-                "episode_dir": str(episode[EPISODE_DIR][0]),
-                "participant_id": int(episode[PARTICIPANT_ID][0]),
+                "episode_dir": episode_dir,
+                "participant_id": participant_id,
                 "length": int(np.sum(mask)),
                 "cross_entropy": float(cross_entropy),
                 "accuracy": float(accuracy),

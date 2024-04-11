@@ -35,6 +35,8 @@ from .mcts import MbagMCTS, MbagMCTSNode, MbagRootParentNode
 from .planning import MbagEnvModel
 
 MCTS_POLICIES = "mcts_policies"
+FULL_SUPPORT_MCTS_POLICIES = "full_support_mcts_policies"
+FULL_SUPPORT_ACTION_DIST_INPUTS = "full_support_action_dist_inputs"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
 OWN_REWARDS = "own_rewards"
 EXPECTED_REWARDS = "expected_rewards"
@@ -163,10 +165,9 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         timestep: Optional[int] = None,
         *,
         force_noop=False,
+        compute_full_support_action_dist=False,
         **kwargs,
     ):
-        super().compute_actions
-
         input_dict = {"obs": obs_batch}
         if prev_action_batch is not None:
             input_dict["prev_actions"] = prev_action_batch
@@ -180,6 +181,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             episodes=episodes,
             state_batches=state_batches,
             force_noop=force_noop,
+            compute_full_support_action_dist=compute_full_support_action_dist,
         )
 
     def _run_model_on_input_dict(self, input_dict):
@@ -199,6 +201,172 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         assert self.model is not None
         return self.model(input_dict, state_batches, cast(torch.Tensor, seq_lens))
 
+    def _ensure_enough_envs(self, num_envs: int):
+        while len(self.envs) < num_envs:
+            env = self.env_creator()
+            env.reset()
+            self.envs.append(env)
+
+    def _compute_actions_with_mcts(
+        self,
+        input_dict,
+        obs,
+        *,
+        compute_full_support_action_dist=False,
+    ) -> Tuple[np.ndarray, List[np.ndarray], Dict[str, np.ndarray]]:
+        num_envs = obs[0].shape[0]
+        model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
+
+        if self.config.get("player_index") is not None:
+            for env in self.envs:
+                env.set_player_index(self.config["player_index"])
+        else:
+            for env_index, player_index in enumerate(
+                input_dict[SampleBatch.AGENT_INDEX]
+            ):
+                self.envs[env_index].set_player_index(player_index)
+
+        nodes: List[MbagMCTSNode] = []
+        for env_index in range(num_envs):
+            env_obs = tuple(obs_piece[env_index] for obs_piece in obs)
+            env_state = self.envs[env_index].set_state_from_obs(env_obs)
+            model_state = [
+                input_dict[f"state_in_{state_index}"][env_index]
+                for state_index in range(model_state_len)
+            ]
+            nodes.append(
+                MbagMCTSNode(
+                    state=env_state,
+                    obs=env_obs,
+                    reward=0,
+                    done=False,
+                    info=None,
+                    action=None,
+                    parent=MbagRootParentNode(env=self.envs[env_index]),
+                    model_state_in=model_state,
+                    mcts=self.mcts,
+                )
+            )
+
+        mcts_policies, actions = self.mcts.compute_actions(nodes)
+
+        expected_rewards_list: List[float] = []
+        expected_own_rewards_list: List[float] = []
+        for node, action in zip(nodes, actions):
+            if self.mcts.num_sims > 1:
+                expected_reward, expected_own_reward = node.get_expected_rewards(action)
+            else:
+                expected_reward, expected_own_reward = 0, 0
+            expected_rewards_list.append(expected_reward)
+            expected_own_rewards_list.append(expected_own_reward)
+        expected_rewards = np.array(expected_rewards_list)
+        expected_own_rewards = np.array(expected_own_rewards_list)
+
+        state_out = []
+        for state_index in range(model_state_len):
+            state_out.append(
+                np.stack(
+                    [node.model_state_out[state_index].cpu().numpy() for node in nodes],
+                    axis=0,
+                )
+            )
+
+        action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
+
+        value_estimates = np.array([node.value_estimate for node in nodes])
+
+        extra_out = {
+            ACTION_MASK: action_mask,
+            MCTS_POLICIES: mcts_policies,
+            EXPECTED_REWARDS: expected_rewards,
+            EXPECTED_OWN_REWARDS: expected_own_rewards,
+            VALUE_ESTIMATES: value_estimates,
+        }
+
+        if compute_full_support_action_dist:
+            extra_out[FULL_SUPPORT_MCTS_POLICIES] = np.stack(
+                [node.get_full_support_policy() for node in nodes], axis=0
+            )
+
+        return actions, state_out, extra_out
+
+    def _compute_actions_noop(
+        self,
+        input_dict,
+        obs,
+    ) -> Tuple[np.ndarray, List[np.ndarray], Dict[str, np.ndarray]]:
+        assert isinstance(self.action_space, spaces.Discrete)
+        num_envs = obs[0].shape[0]
+
+        actions = np.zeros(num_envs, dtype=int)
+        expected_rewards = np.zeros(num_envs)
+        expected_own_rewards = np.zeros(num_envs)
+        mcts_policies = np.zeros((num_envs, self.action_space.n))
+        mcts_policies[:, 0] = 1
+
+        # Get action mask.
+        assert isinstance(self.model, MbagTorchModel)
+        action_mask = self.envs[0].get_valid_actions(obs, is_batch=True)
+        input_dict[ACTION_MASK] = action_mask
+
+        # Run inputs through the model to get state_out and value function.
+        _, state_out_torch = self._run_model_on_input_dict(input_dict)
+        state_out = convert_to_numpy(state_out_torch)
+        value_estimates = convert_to_numpy(self.model.value_function())
+
+        return (
+            actions,
+            state_out,
+            {
+                ACTION_MASK: action_mask,
+                MCTS_POLICIES: mcts_policies,
+                EXPECTED_REWARDS: expected_rewards,
+                EXPECTED_OWN_REWARDS: expected_own_rewards,
+                VALUE_ESTIMATES: value_estimates,
+            },
+        )
+
+    def _check_expected_rewards_and_store_in_episodes(
+        self,
+        episodes: List[Episode],
+        compute_actions_extra_out: Dict[str, np.ndarray],
+        prev_rewards: np.ndarray,
+    ):
+        expected_rewards = compute_actions_extra_out[EXPECTED_REWARDS]
+        expected_own_rewards = compute_actions_extra_out[EXPECTED_OWN_REWARDS]
+
+        for env_index, episode in enumerate(episodes):
+            player_index = self.envs[env_index].player_index
+
+            if (
+                self.config.get("_strict_mode", False)
+                and self._training
+                and not (
+                    self.config["use_goal_predictor"]
+                    or self.envs[env_index].config["num_players"] > 1
+                )
+            ):
+                # If there was an expected reward, make sure it matches the actual
+                # reward given by the environment so we're not out of sync.
+                episode_expected_rewards: Dict[int, float] = episode.user_data.get(
+                    EXPECTED_REWARDS, {}
+                )
+                prev_expected_reward = episode_expected_rewards.get(player_index)
+                if prev_expected_reward is not None:
+                    assert np.isclose(
+                        prev_rewards[env_index],
+                        prev_expected_reward,
+                    )
+
+            episode_expected_rewards = episode.user_data.setdefault(
+                EXPECTED_REWARDS, {}
+            )
+            episode_expected_rewards[player_index] = expected_rewards[env_index]
+            episode_expected_own_rewards = episode.user_data.setdefault(
+                EXPECTED_OWN_REWARDS, {}
+            )
+            episode_expected_own_rewards[player_index] = expected_own_rewards[env_index]
+
     def compute_actions_from_input_dict(
         self,
         input_dict,
@@ -206,6 +374,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         timestep=None,
         episodes=None,
         force_noop=False,
+        compute_full_support_action_dist=False,
         **kwargs,
     ):
         if logger.isEnabledFor(logging.DEBUG):
@@ -220,156 +389,62 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         assert self.mcts.model == self.model
         cast(nn.Module, self.model).eval()
 
-        model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
-        state_out: List[np.ndarray]
-
         obs = input_dict[SampleBatch.OBS]
         obs = restore_original_dimensions(obs, self.obs_space, "numpy")
 
         num_envs = obs[0].shape[0]
-        while len(self.envs) < num_envs:
-            env = self.env_creator()
-            env.reset()
-            self.envs.append(env)
-
-        if self.config.get("player_index") is not None:
-            for env in self.envs:
-                env.set_player_index(self.config["player_index"])
-        else:
-            for env_index, player_index in enumerate(
-                input_dict[SampleBatch.AGENT_INDEX]
-            ):
-                self.envs[env_index].set_player_index(player_index)
-
-        assert isinstance(self.action_space, spaces.Discrete)
+        self._ensure_enough_envs(num_envs)
 
         with torch.no_grad():
             if self.config["pretrain"] or force_noop:
-                actions = np.zeros(num_envs, dtype=int)
-                expected_rewards = np.zeros(num_envs)
-                expected_own_rewards = np.zeros(num_envs)
-                mcts_policies = np.zeros((num_envs, self.action_space.n))
-                mcts_policies[:, 0] = 1
-
-                # Get action mask.
-                assert isinstance(self.model, MbagTorchModel)
-                action_mask = self.envs[0].get_valid_actions(obs, is_batch=True)
-                input_dict[ACTION_MASK] = action_mask
-
-                # Run inputs through the model to get state_out and value function.
-                _, state_out_torch = self._run_model_on_input_dict(input_dict)
-                state_out = convert_to_numpy(state_out_torch)
-                value_estimates = convert_to_numpy(self.model.value_function())
+                actions, state_out, compute_actions_extra_out = (
+                    self._compute_actions_noop(input_dict, obs)
+                )
             else:
-                nodes: List[MbagMCTSNode] = []
-                for env_index in range(num_envs):
-                    env_obs = tuple(obs_piece[env_index] for obs_piece in obs)
-                    env_state = self.envs[env_index].set_state_from_obs(env_obs)
-                    model_state = [
-                        input_dict[f"state_in_{state_index}"][env_index]
-                        for state_index in range(model_state_len)
-                    ]
-                    nodes.append(
-                        MbagMCTSNode(
-                            state=env_state,
-                            obs=env_obs,
-                            reward=0,
-                            done=False,
-                            info=None,
-                            action=None,
-                            parent=MbagRootParentNode(env=self.envs[env_index]),
-                            model_state_in=model_state,
-                            mcts=self.mcts,
-                        )
+                actions, state_out, compute_actions_extra_out = (
+                    self._compute_actions_with_mcts(
+                        input_dict,
+                        obs,
+                        compute_full_support_action_dist=compute_full_support_action_dist,
                     )
+                )
 
-                mcts_policies, actions = self.mcts.compute_actions(nodes)
+        if episodes is not None:
+            self._check_expected_rewards_and_store_in_episodes(
+                episodes, compute_actions_extra_out, input_dict[SampleBatch.REWARDS]
+            )
 
-                expected_rewards_list: List[float] = []
-                expected_own_rewards_list: List[float] = []
-                for node, action in zip(nodes, actions):
-                    expected_reward, expected_own_reward = node.get_expected_rewards(
-                        action
-                    )
-                    expected_rewards_list.append(expected_reward)
-                    expected_own_rewards_list.append(expected_own_reward)
-                expected_rewards = np.array(expected_rewards_list)
-                expected_own_rewards = np.array(expected_own_rewards_list)
-
-                state_out = []
-                for state_index in range(model_state_len):
-                    state_out.append(
-                        np.stack(
-                            [
-                                node.model_state_out[state_index].cpu().numpy()
-                                for node in nodes
-                            ],
-                            axis=0,
-                        )
-                    )
-
-                action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
-
-                value_estimates = np.array([node.value_estimate for node in nodes])
-
-            if episodes is not None:
-                for env_index, episode in enumerate(episodes):
-                    player_index = self.envs[env_index].player_index
-
-                    if (
-                        self.config.get("_strict_mode", False)
-                        and self._training
-                        and not (
-                            self.config["use_goal_predictor"]
-                            or self.envs[env_index].config["num_players"] > 1
-                        )
-                    ):
-                        # If there was an expected reward, make sure it matches the actual
-                        # reward given by the environment so we're not out of sync.
-                        episode_expected_rewards: Dict[int, float] = (
-                            episode.user_data.get(EXPECTED_REWARDS, {})
-                        )
-                        prev_expected_reward = episode_expected_rewards.get(
-                            player_index
-                        )
-                        if prev_expected_reward is not None:
-                            assert np.isclose(
-                                input_dict[SampleBatch.REWARDS][env_index],
-                                prev_expected_reward,
-                            )
-
-                    episode_expected_rewards = episode.user_data.setdefault(
-                        EXPECTED_REWARDS, {}
-                    )
-                    episode_expected_rewards[player_index] = expected_rewards[env_index]
-                    episode_expected_own_rewards = episode.user_data.setdefault(
-                        EXPECTED_OWN_REWARDS, {}
-                    )
-                    episode_expected_own_rewards[player_index] = expected_own_rewards[
-                        env_index
-                    ]
-
+        action_mask = compute_actions_extra_out[ACTION_MASK]
+        mcts_policies = compute_actions_extra_out[MCTS_POLICIES]
         action_dist_inputs = np.log(mcts_policies)
-        action_dist_inputs[mcts_policies == 0] = -1e4
+        action_dist_inputs[mcts_policies == 0] = MbagTorchModel.MASK_LOGIT
+        extra_out = {
+            **self.extra_action_out(
+                input_dict,
+                kwargs.get("state_batches", []),
+                self.model,
+                cast(Any, None),
+            ),
+            ACTION_MASK: action_mask,
+            MCTS_POLICIES: mcts_policies,
+            SampleBatch.ACTION_DIST_INPUTS: action_dist_inputs,
+            EXPECTED_REWARDS: compute_actions_extra_out[EXPECTED_REWARDS],
+            EXPECTED_OWN_REWARDS: compute_actions_extra_out[EXPECTED_OWN_REWARDS],
+            VALUE_ESTIMATES: compute_actions_extra_out[VALUE_ESTIMATES],
+        }
 
-        return (
-            np.array(actions),
-            state_out,
-            {
-                **self.extra_action_out(
-                    input_dict,
-                    kwargs.get("state_batches", []),
-                    self.model,
-                    cast(Any, None),
-                ),
-                ACTION_MASK: action_mask,
-                MCTS_POLICIES: mcts_policies,
-                SampleBatch.ACTION_DIST_INPUTS: action_dist_inputs,
-                EXPECTED_REWARDS: expected_rewards,
-                EXPECTED_OWN_REWARDS: expected_own_rewards,
-                VALUE_ESTIMATES: value_estimates,
-            },
-        )
+        if FULL_SUPPORT_MCTS_POLICIES in compute_actions_extra_out:
+            full_support_mcts_policies = compute_actions_extra_out[
+                FULL_SUPPORT_MCTS_POLICIES
+            ]
+            full_support_action_dist_inputs = np.log(full_support_mcts_policies)
+            full_support_action_dist_inputs[full_support_mcts_policies == 0] = (
+                MbagTorchModel.MASK_LOGIT
+            )
+            extra_out[FULL_SUPPORT_MCTS_POLICIES] = full_support_mcts_policies
+            extra_out[FULL_SUPPORT_ACTION_DIST_INPUTS] = full_support_action_dist_inputs
+
+        return np.array(actions), state_out, extra_out
 
     def postprocess_trajectory(
         self,

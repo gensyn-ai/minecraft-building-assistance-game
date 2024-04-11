@@ -527,6 +527,44 @@ class MbagMCTSNode:
             self.env.config["world_size"],
         )
 
+    def get_full_support_policy(self) -> np.ndarray:
+        policy = np.zeros(len(self.valid_actions))
+        if self.mcts.use_bilevel_action_selection:
+            dist = calculate_limiting_mcts_distribution(
+                self.child_priors[None, self.valid_actions],
+                self.child_Q()[None, self.valid_actions],
+                self.mcts.c_puct,
+                self.mcts.num_sims,
+            )[0]
+            policy[self.valid_actions] = dist
+        else:
+            action_type_dist = np.zeros(len(self.valid_action_types))
+            action_type_dist[self.valid_action_types] = (
+                calculate_limiting_mcts_distribution(
+                    self.action_type_priors[None, self.valid_action_types],
+                    self.action_type_Q()[None, self.valid_action_types],
+                    self.mcts.c_puct,
+                    self.mcts.num_sims,
+                )[0]
+            )
+            for action_type in range(MbagAction.NUM_ACTION_TYPES):
+                if self.valid_action_types[action_type]:
+                    action_type_slice = self.action_type_slices[action_type]
+                    priors = self.child_priors[action_type_slice]
+                    valid_actions = self.valid_actions[action_type_slice]
+                    q = self.child_Q(action_type_slice)
+                    policy[action_type_slice][valid_actions] = (
+                        calculate_limiting_mcts_distribution(
+                            priors[None, valid_actions],
+                            q[None, valid_actions],
+                            self.mcts.c_puct,
+                            self.mcts.num_sims,
+                        )[0]
+                        * action_type_dist[action_type]
+                    )
+        assert np.abs(np.sum(policy) - 1) < 1e-4
+        return policy
+
 
 class MbagMCTS(MCTS):
     _temperature_schedule: Optional[Schedule]
@@ -641,14 +679,18 @@ class MbagMCTS(MCTS):
                 leaf.backup(value)
 
         # Tree policy target (TPT)
-        tree_policies = np.stack(
-            [node.action_number_visits / node.number_visits for node in nodes], axis=0
-        )
-        tree_policies = tree_policies / np.max(
-            tree_policies, axis=1, keepdims=True
-        )  # to avoid overflows with temperature scaling
-        tree_policies = np.power(tree_policies, self.temperature)
-        tree_policies = tree_policies / np.sum(tree_policies, axis=1, keepdims=True)
+        if self.num_sims == 1:
+            tree_policies = np.stack([node.child_priors for node in nodes], axis=0)
+        else:
+            tree_policies = np.stack(
+                [node.action_number_visits / node.number_visits for node in nodes],
+                axis=0,
+            )
+            tree_policies = tree_policies / np.max(
+                tree_policies, axis=1, keepdims=True
+            )  # to avoid overflows with temperature scaling
+            tree_policies = np.power(tree_policies, self.temperature)
+            tree_policies = tree_policies / np.sum(tree_policies, axis=1, keepdims=True)
 
         if self.exploit:
             # if exploit then choose action that has the maximum
@@ -737,3 +779,36 @@ class MbagMCTS(MCTS):
             tree_policies,
             actions,
         )
+
+
+def calculate_limiting_mcts_distribution(
+    priors: np.ndarray,
+    q: np.ndarray,
+    c_puct: float,
+    num_simulations: int,
+    *,
+    tolerance: float = 1e-8,
+):
+    """
+    Given arrays priors and q of shape (batch_size, num_actions), calculate the
+    approximate limiting distribution of MCTS given in the paper "Monte-Carlo tree
+    search as regularized policy optimization" by Grill et al.
+    """
+
+    batch_size, num_actions = priors.shape
+    multiplier = c_puct * np.sqrt(num_simulations) / (num_actions + num_simulations)
+
+    alpha_min = (q + multiplier * priors).max(axis=1)
+    alpha_max = (q + multiplier).max(axis=1)
+
+    while np.any(alpha_max - alpha_min > tolerance):
+        alpha = (alpha_min + alpha_max) / 2
+        mcts_policy = multiplier * priors / (alpha[:, None] - q)
+        total_prob = mcts_policy.sum(axis=1)
+        alpha_min[total_prob >= 1] = alpha[total_prob >= 1]
+        alpha_max[total_prob < 1] = alpha[total_prob < 1]
+
+    alpha = (alpha_min + alpha_max) / 2
+    mcts_policy = multiplier * priors / (alpha[:, None] - q)
+
+    return mcts_policy

@@ -11,12 +11,14 @@ import mbag.rllib  # noqa: F401
 from mbag.environment.actions import MbagAction
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.rllib.convert_human_data_to_rllib import ex as convert_human_data_to_rllib_ex
-from mbag.rllib.evaluate_human_modeling import HumanModelingEvaluationResults
-from mbag.rllib.evaluate_human_modeling import ex as evaluate_human_modeling_ex
 from mbag.rllib.human_data import (
     PARTICIPANT_ID,
     convert_episode_info_to_sample_batch,
     load_episode_info,
+)
+
+TUTORIAL_BC_CHECKPOINT = (
+    "data/logs/BC/sample_human_models/tutorial/2024-04-10_16-35-41/1/checkpoint_000100"
 )
 
 
@@ -180,23 +182,3 @@ def test_convert_human_data_to_rllib_participant_id(tmp_path):
 
         expected_participant_id = episode_index + 1
         assert np.all(episode[PARTICIPANT_ID] == expected_participant_id)
-
-
-@pytest.mark.uses_rllib
-@pytest.mark.timeout(30)
-def test_evaluate_human_modeling(tmp_path):
-    out_dir = str(tmp_path)
-    result = cast(
-        HumanModelingEvaluationResults,
-        evaluate_human_modeling_ex.run(
-            config_updates={
-                "checkpoint": "data/logs/BC/sample_human_models/tutorial/2024-04-10_16-35-41/1/checkpoint_000100",
-                "policy_id": "human",
-                "human_data_dir": "data/human_data/sample_tutorial_rllib",
-                "out_dir": out_dir,
-            }
-        ).result,
-    )
-
-    assert result["cross_entropy"] < 0.1
-    assert result["accuracy"] > 0.95
