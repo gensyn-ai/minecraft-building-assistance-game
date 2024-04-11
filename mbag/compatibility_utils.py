@@ -1,7 +1,8 @@
+import copy
 import pickle
 from typing import Union
 
-from mbag.environment.config import RewardsConfigDict
+from mbag.environment.config import MbagConfigDict, RewardsConfigDict
 
 
 class OldHumanDataUnpickler(pickle.Unpickler):
@@ -39,3 +40,19 @@ def convert_old_rewards_config_to_new(
         own_reward_prop=own_reward_prop,
         get_resources=rewards_config.get("get_resources", 0.0),
     )
+
+
+def convert_old_config_to_new(
+    old_config: MbagConfigDict,
+) -> MbagConfigDict:
+    mbag_config = copy.deepcopy(old_config)
+    if "rewards" in mbag_config:
+        mbag_config["rewards"] = convert_old_rewards_config_to_new(
+            mbag_config["rewards"]
+        )
+    for player_config in mbag_config.get("players", []):
+        if "rewards" in player_config:
+            player_config["rewards"] = convert_old_rewards_config_to_new(
+                player_config["rewards"]
+            )
+    return mbag_config

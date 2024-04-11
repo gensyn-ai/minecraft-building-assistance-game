@@ -7,7 +7,7 @@ from ray.rllib.offline.json_writer import JsonWriter
 from ray.rllib.policy.sample_batch import SampleBatch
 from sacred import Experiment
 
-from mbag.compatibility_utils import convert_old_rewards_config_to_new
+from mbag.compatibility_utils import convert_old_config_to_new
 from mbag.environment.config import DEFAULT_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
@@ -96,15 +96,7 @@ def main(  # noqa: C901
             _log.info("using env config from EpisodeInfo")
             mbag_config = episode_info.env_config
 
-        if "rewards" in mbag_config:
-            mbag_config["rewards"] = convert_old_rewards_config_to_new(
-                mbag_config["rewards"]
-            )
-        for player_config in mbag_config.get("players", []):
-            if "rewards" in player_config:
-                player_config["rewards"] = convert_old_rewards_config_to_new(
-                    player_config["rewards"]
-                )
+        mbag_config = convert_old_config_to_new(mbag_config)
 
         for player_index in player_indices:
             _log.info(f"converting to RLlib format for player {player_index}...")

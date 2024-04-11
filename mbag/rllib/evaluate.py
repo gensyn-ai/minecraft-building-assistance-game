@@ -11,8 +11,7 @@ import numpy as np
 import ray
 import torch
 import tqdm
-from ray.rllib.algorithms import Algorithm, AlgorithmConfig
-from ray.rllib.policy.policy import PolicySpec
+from ray.rllib.algorithms import Algorithm
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
@@ -144,22 +143,10 @@ def main(  # noqa: C901
             assert checkpoint is not None and policy_id is not None
             _log.info(f"loading policy {policy_id} from {checkpoint}...")
 
-            def override_observation_space(config: AlgorithmConfig):
-                for policy_id in config.policies.keys():
-                    maybe_policy_spec = config.policies[policy_id]
-                    if isinstance(maybe_policy_spec, PolicySpec):
-                        policy_spec = maybe_policy_spec
-                    else:
-                        policy_spec = PolicySpec(*maybe_policy_spec)
-                    policy_spec.observation_space = observation_space
-                    config.policies[policy_id] = policy_spec
-                return config
-
             trainer = load_trainer(
                 checkpoint,
                 run,
                 algorithm_config_updates,
-                config_update_fn=override_observation_space,
             )
             policy = trainer.get_policy(policy_id)
             policy.observation_space = observation_space

@@ -1,0 +1,1 @@
+{"type": "Algorithm", "checkpoint_version": "1.1", "format": "cloudpickle", "state_file": "data/logs/BC/self_play/6x6x6/tutorial/2024-04-10_16-35-41/1/checkpoint_000100/algorithm_state.pkl", "policy_ids": ["human"], "ray_version": "2.7.1", "ray_commit": "9f07c12615958c3af3760604f6dcacc4b3758a47"}

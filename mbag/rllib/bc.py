@@ -196,7 +196,7 @@ class BCTorchPolicy(TorchPolicy):
                 view_requirements=self.view_requirements,
             )
 
-        validation_batch.set_training(True)
+        validation_batch.set_training(False)
         self._lazy_tensor_dict(validation_batch, device=self.devices[0])
         with torch.no_grad():
             losses_and_stats = self._get_losses_and_stats(

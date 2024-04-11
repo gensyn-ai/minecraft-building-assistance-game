@@ -11,6 +11,7 @@ from ray.rllib.utils.typing import PolicyID
 from ray.tune.logger import UnifiedLogger
 from ray.tune.registry import get_trainable_cls
 
+from mbag.compatibility_utils import convert_old_config_to_new
 from mbag.environment.mbag_env import MbagEnv
 
 
@@ -49,6 +50,8 @@ def load_trainer(
     state = Algorithm._checkpoint_info_to_algorithm_state(checkpoint_info)
     config: AlgorithmConfig = state["config"]
     config.update_from_dict(config_updates)
+
+    config["env_config"] = convert_old_config_to_new(config["env_config"])
 
     env = MbagEnv(config["env_config"])
     observation_space = env.observation_space
