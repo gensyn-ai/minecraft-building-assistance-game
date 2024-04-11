@@ -3,6 +3,7 @@ black
 mypy
 pytest
 pytest-timeout 
+memray<1.12
 pytest-memray
 pep8-naming
 isort
