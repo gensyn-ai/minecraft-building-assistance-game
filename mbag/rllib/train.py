@@ -94,14 +94,14 @@ def sacred_config(_log):  # noqa
     horizon = 1000
     randomize_first_episode_length = False
     num_players = 1
-    height = 12
-    width = 12
-    depth = 12
+    width = 11
+    height = 10
+    depth = 10
     random_start_locations = False
-    noop_reward = 0
-    get_resources_reward = 0
-    action_reward = 0
-    place_wrong_reward = -1
+    noop_reward: Union[float, List[float]] = 0
+    get_resources_reward: Union[float, List[float]] = 0
+    action_reward: Union[float, List[float]] = 0
+    place_wrong_reward: Union[float, List[float]] = -1
     teleportation = True
     flying = True
     inf_blocks = True
@@ -203,7 +203,18 @@ def sacred_config(_log):  # noqa
             "goal_visible": goal_visibility[player_index],
             "timestep_skip": timestep_skip[player_index],
             "is_human": is_human[player_index],
+            "rewards": {},
         }
+        if isinstance(noop_reward, list):
+            player_config["rewards"]["noop"] = noop_reward[player_index]
+        if isinstance(get_resources_reward, list):
+            player_config["rewards"]["get_resources"] = get_resources_reward[
+                player_index
+            ]
+        if isinstance(action_reward, list):
+            player_config["rewards"]["action"] = action_reward[player_index]
+        if isinstance(place_wrong_reward, list):
+            player_config["rewards"]["place_wrong"] = place_wrong_reward[player_index]
         player_configs.append(player_config)
 
     environment_params: MbagConfigDict = {
@@ -219,11 +230,15 @@ def sacred_config(_log):  # noqa
         },
         "players": player_configs,
         "rewards": {
-            "noop": noop_reward,
-            "action": action_reward,
-            "place_wrong": place_wrong_reward,
+            "noop": noop_reward if isinstance(noop_reward, float) else 0,
+            "action": action_reward if isinstance(action_reward, float) else 0,
+            "place_wrong": (
+                place_wrong_reward if isinstance(place_wrong_reward, float) else 0
+            ),
+            "get_resources": (
+                get_resources_reward if isinstance(get_resources_reward, float) else 0
+            ),
             "own_reward_prop": own_reward_prop,
-            "get_resources": get_resources_reward,
         },
         "abilities": {
             "teleportation": teleportation,
