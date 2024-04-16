@@ -28,12 +28,7 @@ from typing_extensions import Literal
 
 import mbag
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
-from mbag.environment.config import (
-    MbagConfigDict,
-    MbagPlayerConfigDict,
-    RewardsConfigDict,
-    RewardsConfigDictKey,
-)
+from mbag.environment.config import MbagConfigDict, MbagPlayerConfigDict, RewardSchedule
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
@@ -82,6 +77,13 @@ torch.backends.cudnn.allow_tf32 = True
 faulthandler.register(signal.SIGUSR1)
 
 
+class NoTypeAnnotationsFileStorageObserver(FileStorageObserver):
+    def save_json(self, obj, filename):
+        if isinstance(obj, dict) and "__annotations__" in obj:
+            del obj["__annotations__"]
+        return super().save_json(obj, filename)
+
+
 @ex.config
 def sacred_config(_log):  # noqa
     run = "MbagPPO"
@@ -98,18 +100,24 @@ def sacred_config(_log):  # noqa
     height = 10
     depth = 10
     random_start_locations = False
-    noop_reward: Union[float, List[float]] = 0
-    get_resources_reward: Union[float, List[float]] = 0
-    action_reward: Union[float, List[float]] = 0
-    place_wrong_reward: Union[float, List[float]] = -1
     teleportation = True
     flying = True
     inf_blocks = True
     goal_visibility = [True] * num_players
     timestep_skip = [1] * num_players
     is_human = [False] * num_players
-    own_reward_prop = 0
     goal_generator_config = {"subset": goal_subset}
+
+    noop_reward: RewardSchedule = 0
+    per_player_noop_reward: Optional[List[RewardSchedule]] = None
+    get_resources_reward: RewardSchedule = 0
+    per_player_get_resources_reward: Optional[List[RewardSchedule]] = None
+    action_reward: RewardSchedule = 0
+    per_player_action_reward: Optional[List[RewardSchedule]] = None
+    place_wrong_reward: RewardSchedule = -1
+    per_player_place_wrong_reward: Optional[List[RewardSchedule]] = None
+    own_reward_prop: RewardSchedule = 0
+    per_player_own_reward_prop: Optional[List[RewardSchedule]] = None
 
     goal_transforms: List[GoalTransformSpec] = []
     uniform_block_type = False
@@ -205,16 +213,22 @@ def sacred_config(_log):  # noqa
             "is_human": is_human[player_index],
             "rewards": {},
         }
-        if isinstance(noop_reward, list):
-            player_config["rewards"]["noop"] = noop_reward[player_index]
-        if isinstance(get_resources_reward, list):
-            player_config["rewards"]["get_resources"] = get_resources_reward[
+        if per_player_noop_reward is not None:
+            player_config["rewards"]["noop"] = per_player_noop_reward[player_index]
+        if per_player_action_reward is not None:
+            player_config["rewards"]["action"] = per_player_action_reward[player_index]
+        if per_player_place_wrong_reward is not None:
+            player_config["rewards"]["place_wrong"] = per_player_place_wrong_reward[
                 player_index
             ]
-        if isinstance(action_reward, list):
-            player_config["rewards"]["action"] = action_reward[player_index]
-        if isinstance(place_wrong_reward, list):
-            player_config["rewards"]["place_wrong"] = place_wrong_reward[player_index]
+        if per_player_get_resources_reward is not None:
+            player_config["rewards"]["get_resources"] = per_player_get_resources_reward[
+                player_index
+            ]
+        if per_player_own_reward_prop is not None:
+            player_config["rewards"]["own_reward_prop"] = per_player_own_reward_prop[
+                player_index
+            ]
         player_configs.append(player_config)
 
     environment_params: MbagConfigDict = {
@@ -230,14 +244,10 @@ def sacred_config(_log):  # noqa
         },
         "players": player_configs,
         "rewards": {
-            "noop": 0 if isinstance(noop_reward, list) else noop_reward,
-            "action": 0 if isinstance(action_reward, list) else action_reward,
-            "place_wrong": (
-                0 if isinstance(place_wrong_reward, list) else place_wrong_reward
-            ),
-            "get_resources": (
-                0 if isinstance(get_resources_reward, list) else get_resources_reward
-            ),
+            "noop": noop_reward,
+            "action": action_reward,
+            "place_wrong": place_wrong_reward,
+            "get_resources": get_resources_reward,
             "own_reward_prop": own_reward_prop,
         },
         "abilities": {
@@ -248,7 +258,6 @@ def sacred_config(_log):  # noqa
     }
     # Convert Sacred DogmaticDicts and DogmaticLists to standard Python dicts and lists.
     environment_params = convert_dogmatics_to_standard(environment_params)
-    environment_params["rewards"] = _format_reward_config(environment_params["rewards"])
 
     env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, environment_name)(
         environment_params
@@ -683,38 +692,8 @@ def sacred_config(_log):  # noqa
     del env
     del loaded_policy_dict
 
-    observer = FileStorageObserver(experiment_dir)
+    observer = NoTypeAnnotationsFileStorageObserver(experiment_dir)
     ex.observers.append(observer)
-
-
-def _format_reward_config(reward_config: RewardsConfigDict) -> RewardsConfigDict:
-    formatted_reward_config: RewardsConfigDict = {}
-    for key, value in reward_config.items():
-        key = cast(RewardsConfigDictKey, key)
-        if isinstance(value, (list, tuple)):
-            for points in value:
-                if (
-                    not isinstance(points, (list, tuple))
-                    or len(points) != 2
-                    or int(points[0]) != points[0]
-                ):
-                    raise ValueError(
-                        f"Reward config for {key} must be a number or a "
-                        "list/tuple of (timestep: int, value: float) tuples. "
-                        f"Got {value}"
-                    )
-
-            formatted_reward_config[key] = [
-                (int(points[0]), float(points[1])) for points in value
-            ]
-        elif isinstance(value, (float, int)):
-            formatted_reward_config[key] = float(value)
-        else:
-            raise ValueError(
-                f"Reward config for {key} must be a number or a "
-                f"list/tuple of (timestep, value) tuples. Got {value}"
-            )
-    return formatted_reward_config
 
 
 @ex.automain
@@ -762,6 +741,7 @@ def main(
                     num_gpus_per_worker
                 )
             )
+        torch.cuda.set_per_process_memory_fraction(config["num_gpus"])
 
     if checkpoint_to_load_policies is not None:
         _log.info(f"Initializing policies from {checkpoint_to_load_policies}")
