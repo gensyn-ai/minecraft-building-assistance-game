@@ -69,7 +69,11 @@ def test_evaluate_human_modeling(tmp_path):
 def test_evaluate_human_modeling_pikl(
     tmp_path, default_config, default_bc_config  # noqa: F811
 ):
-    for num_simulations in [1, 10]:
+    for num_simulations, explore_noops in [
+        (1, True),
+        (1, False),
+        (10, False),
+    ]:
         alpha_zero_result = train_ex.run(
             config_updates={
                 **default_config,
@@ -90,12 +94,14 @@ def test_evaluate_human_modeling_pikl(
                 "checkpoint_to_load_policies": TUTORIAL_BC_CHECKPOINT,
                 "overwrite_loaded_policy_type": True,
                 "num_training_iters": 0,
+                "add_dirichlet_noise": False,
                 "evaluation_explore": True,
                 "line_of_sight_masking": True,
                 "use_goal_predictor": False,
                 "num_simulations": num_simulations,
                 "argmax_tree_policy": False,
                 "sample_from_full_support_policy": True,
+                "explore_noops": explore_noops,
                 "temperature": 1,
                 "dirichlet_epsilon": 0,
             }
@@ -103,7 +109,9 @@ def test_evaluate_human_modeling_pikl(
         assert alpha_zero_result is not None
         alpha_zero_checkpoint = alpha_zero_result["final_checkpoint"]
 
-        out_dir = str(tmp_path / f"eval_num_sims_{num_simulations}")
+        out_dir = str(
+            tmp_path / f"eval_num_sims_{num_simulations}_explore_noops_{explore_noops}"
+        )
         result = cast(
             HumanModelingEvaluationResults,
             evaluate_human_modeling_ex.run(

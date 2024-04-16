@@ -388,7 +388,6 @@ class MbagMCTSNode:
                 self.goal_logits,
             )
 
-
         self.child_priors[~self.valid_actions] = 0
         self.child_priors /= self.child_priors.sum()
         self.noop_probability = float(self.child_priors[0])
