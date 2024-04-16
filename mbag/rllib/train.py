@@ -230,13 +230,13 @@ def sacred_config(_log):  # noqa
         },
         "players": player_configs,
         "rewards": {
-            "noop": noop_reward if isinstance(noop_reward, float) else 0,
-            "action": action_reward if isinstance(action_reward, float) else 0,
+            "noop": 0 if isinstance(noop_reward, list) else noop_reward,
+            "action": 0 if isinstance(action_reward, list) else action_reward,
             "place_wrong": (
-                place_wrong_reward if isinstance(place_wrong_reward, float) else 0
+                0 if isinstance(place_wrong_reward, list) else place_wrong_reward
             ),
             "get_resources": (
-                get_resources_reward if isinstance(get_resources_reward, float) else 0
+                0 if isinstance(get_resources_reward, list) else get_resources_reward
             ),
             "own_reward_prop": own_reward_prop,
         },
@@ -319,6 +319,8 @@ def sacred_config(_log):  # noqa
     init_q_with_max = False
     use_bilevel_action_selection = True
     fix_bilevel_action_selection = False
+    sample_from_full_support_policy = False
+    explore_noops = True
     goal_loss_coeff, place_block_loss_coeff = 0.5, 1
 
     # Model
@@ -625,6 +627,8 @@ def sacred_config(_log):  # noqa
             "init_q_with_max": init_q_with_max,
             "use_bilevel_action_selection": use_bilevel_action_selection,
             "fix_bilevel_action_selection": fix_bilevel_action_selection,
+            "sample_from_full_support_policy": sample_from_full_support_policy,
+            "explore_noops": explore_noops,
         }
         config.training(
             lr=lr,

@@ -17,29 +17,41 @@ class OldHumanDataUnpickler(pickle.Unpickler):
 
 
 def convert_old_rewards_config_to_new(
-    rewards_config: Union[RewardsConfigDict, dict]
+    old_rewards_config: Union[RewardsConfigDict, dict]
 ) -> RewardsConfigDict:
-    own_reward_prop_start = rewards_config.get("own_reward_prop", 0.0)
-    own_reward_prop_horizon = rewards_config.get("own_reward_prop_horizon", None)
-    if own_reward_prop_horizon is None:
-        own_reward_prop = own_reward_prop_start
-    else:
-        if (
-            not isinstance(own_reward_prop_horizon, (int, float))
-            or int(own_reward_prop_horizon) != own_reward_prop_horizon
-        ):
-            raise ValueError(
-                f"own_reward_prop_horizon must be an integer, got {own_reward_prop_horizon}"
-            )
-        own_reward_prop = [(0, own_reward_prop_start), (own_reward_prop_horizon, 0.0)]
+    new_rewards_config: RewardsConfigDict = {}
 
-    return RewardsConfigDict(
-        noop=rewards_config.get("noop", 0.0),
-        action=rewards_config.get("action", 0.0),
-        place_wrong=rewards_config.get("place_wrong", 0.0),
-        own_reward_prop=own_reward_prop,
-        get_resources=rewards_config.get("get_resources", 0.0),
-    )
+    if "own_reward_prop" in old_rewards_config:
+        own_reward_prop_start = old_rewards_config["own_reward_prop"]
+        assert isinstance(own_reward_prop_start, (int, float))
+        own_reward_prop_horizon = old_rewards_config.get(
+            "own_reward_prop_horizon", None
+        )
+        if own_reward_prop_horizon is None:
+            new_rewards_config["own_reward_prop"] = own_reward_prop_start
+        else:
+            if (
+                not isinstance(own_reward_prop_horizon, (int, float))
+                or int(own_reward_prop_horizon) != own_reward_prop_horizon
+            ):
+                raise ValueError(
+                    f"own_reward_prop_horizon must be an integer, got {own_reward_prop_horizon}"
+                )
+            new_rewards_config["own_reward_prop"] = [
+                (0, own_reward_prop_start),
+                (int(own_reward_prop_horizon), 0.0),
+            ]
+
+    if "noop" in old_rewards_config:
+        new_rewards_config["noop"] = old_rewards_config["noop"]
+    if "action" in old_rewards_config:
+        new_rewards_config["action"] = old_rewards_config["action"]
+    if "place_wrong" in old_rewards_config:
+        new_rewards_config["place_wrong"] = old_rewards_config["place_wrong"]
+    if "get_resources" in old_rewards_config:
+        new_rewards_config["get_resources"] = old_rewards_config["get_resources"]
+
+    return new_rewards_config
 
 
 def convert_old_config_to_new(

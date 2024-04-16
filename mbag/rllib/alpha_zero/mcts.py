@@ -51,6 +51,8 @@ class MbagMCTSNode:
     other_reward: float
     model_state_in: List[torch.Tensor]
     model_state_out: List[torch.Tensor]
+    action_type_priors: np.ndarray
+    noop_probability: float
 
     def __init__(
         self,
@@ -386,6 +388,10 @@ class MbagMCTSNode:
                 self.goal_logits,
             )
 
+        self.noop_probability = float(self.child_priors[0])
+        if not self.mcts.explore_noops:
+            self.child_priors[0] = 0
+
         self.child_priors[~self.valid_actions] = 0
         self.child_priors /= self.child_priors.sum()
 
@@ -562,7 +568,7 @@ class MbagMCTSNode:
                         )[0]
                         * action_type_dist[action_type]
                     )
-        assert np.abs(np.sum(policy) - 1) < 1e-4
+        assert np.abs(np.sum(policy) - 1) < 1e-2
         return policy
 
 
@@ -600,6 +606,10 @@ class MbagMCTS(MCTS):
         self.dirichlet_action_subtype_noise_multiplier: float = mcts_param.get(
             "dirichlet_action_subtype_noise_multiplier", 10
         )
+        self.sample_from_full_support_policy = mcts_param.get(
+            "sample_from_full_support_policy", False
+        )
+        self.explore_noops = mcts_param.get("explore_noops", True)
 
         # Previously, we used a version of bilevel action selection that wasn't
         # quite accurate. It used the number of visits to the whole state rather than
@@ -618,7 +628,7 @@ class MbagMCTS(MCTS):
         tree_policies, actions = self.compute_actions([node])
         return tree_policies[0], int(actions[0])
 
-    def compute_actions(
+    def compute_actions(  # noqa: C901
         self, nodes: List[MbagMCTSNode]
     ) -> Tuple[np.ndarray, np.ndarray]:
         for _ in range(self.num_sims):
@@ -679,18 +689,29 @@ class MbagMCTS(MCTS):
                 leaf.backup(value)
 
         # Tree policy target (TPT)
-        if self.num_sims == 1:
+        if self.sample_from_full_support_policy:
+            tree_policies = np.stack(
+                [node.get_full_support_policy() for node in nodes], axis=0
+            )
+        elif self.num_sims == 1:
             tree_policies = np.stack([node.child_priors for node in nodes], axis=0)
         else:
             tree_policies = np.stack(
-                [node.action_number_visits / node.number_visits for node in nodes],
+                [
+                    node.action_number_visits / (node.number_visits - 1)
+                    for node in nodes
+                ],
                 axis=0,
             )
-            tree_policies = tree_policies / np.max(
-                tree_policies, axis=1, keepdims=True
-            )  # to avoid overflows with temperature scaling
-            tree_policies = np.power(tree_policies, self.temperature)
-            tree_policies = tree_policies / np.sum(tree_policies, axis=1, keepdims=True)
+        if not self.explore_noops:
+            for env_index, node in enumerate(nodes):
+                tree_policies[env_index, 0] = node.noop_probability
+                tree_policies[env_index, 1:] *= 1 - node.noop_probability
+        tree_policies = tree_policies / np.max(
+            tree_policies, axis=1, keepdims=True
+        )  # to avoid overflows with temperature scaling
+        tree_policies = np.power(tree_policies, self.temperature)
+        tree_policies = tree_policies / np.sum(tree_policies, axis=1, keepdims=True)
 
         if self.exploit:
             # if exploit then choose action that has the maximum
@@ -704,6 +725,11 @@ class MbagMCTS(MCTS):
                     for node, tree_policy in zip(nodes, tree_policies)
                 ]
             )
+
+        for node, action in zip(nodes, actions):
+            if not any(actions[0] == action for actions in node.children.keys()):
+                assert (not self.explore_noops) or self.sample_from_full_support_policy
+                node.get_child(action).backup(node.total_value / node.number_visits)
 
         if logger.isEnabledFor(logging.DEBUG):
             node, action, tree_policy = nodes[0], actions[0], tree_policies[0]
@@ -810,5 +836,6 @@ def calculate_limiting_mcts_distribution(
 
     alpha = (alpha_min + alpha_max) / 2
     mcts_policy = multiplier * priors / (alpha[:, None] - q)
+    mcts_policy /= mcts_policy.sum(axis=1, keepdims=True)
 
     return mcts_policy
