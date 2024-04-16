@@ -95,6 +95,7 @@ def test_evaluate_human_modeling_pikl(
                 "use_goal_predictor": False,
                 "num_simulations": num_simulations,
                 "argmax_tree_policy": False,
+                "sample_from_full_support_policy": True,
                 "temperature": 1,
                 "dirichlet_epsilon": 0,
             }

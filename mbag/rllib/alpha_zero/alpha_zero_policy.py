@@ -35,8 +35,6 @@ from .mcts import MbagMCTS, MbagMCTSNode, MbagRootParentNode
 from .planning import MbagEnvModel
 
 MCTS_POLICIES = "mcts_policies"
-FULL_SUPPORT_MCTS_POLICIES = "full_support_mcts_policies"
-FULL_SUPPORT_ACTION_DIST_INPUTS = "full_support_action_dist_inputs"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
 OWN_REWARDS = "own_rewards"
 EXPECTED_REWARDS = "expected_rewards"
@@ -165,7 +163,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         timestep: Optional[int] = None,
         *,
         force_noop=False,
-        compute_full_support_action_dist=False,
         **kwargs,
     ):
         input_dict = {"obs": obs_batch}
@@ -181,7 +178,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             episodes=episodes,
             state_batches=state_batches,
             force_noop=force_noop,
-            compute_full_support_action_dist=compute_full_support_action_dist,
         )
 
     def _run_model_on_input_dict(self, input_dict):
@@ -211,8 +207,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         self,
         input_dict,
         obs,
-        *,
-        compute_full_support_action_dist=False,
     ) -> Tuple[np.ndarray, List[np.ndarray], Dict[str, np.ndarray]]:
         num_envs = obs[0].shape[0]
         model_state_len = sum(k.startswith("state_in") for k in input_dict.keys())
@@ -282,11 +276,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_OWN_REWARDS: expected_own_rewards,
             VALUE_ESTIMATES: value_estimates,
         }
-
-        if compute_full_support_action_dist:
-            extra_out[FULL_SUPPORT_MCTS_POLICIES] = np.stack(
-                [node.get_full_support_policy() for node in nodes], axis=0
-            )
 
         return actions, state_out, extra_out
 
@@ -374,7 +363,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         timestep=None,
         episodes=None,
         force_noop=False,
-        compute_full_support_action_dist=False,
         **kwargs,
     ):
         if logger.isEnabledFor(logging.DEBUG):
@@ -405,7 +393,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                     self._compute_actions_with_mcts(
                         input_dict,
                         obs,
-                        compute_full_support_action_dist=compute_full_support_action_dist,
                     )
                 )
 
@@ -432,17 +419,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_OWN_REWARDS: compute_actions_extra_out[EXPECTED_OWN_REWARDS],
             VALUE_ESTIMATES: compute_actions_extra_out[VALUE_ESTIMATES],
         }
-
-        if FULL_SUPPORT_MCTS_POLICIES in compute_actions_extra_out:
-            full_support_mcts_policies = compute_actions_extra_out[
-                FULL_SUPPORT_MCTS_POLICIES
-            ]
-            full_support_action_dist_inputs = np.log(full_support_mcts_policies)
-            full_support_action_dist_inputs[full_support_mcts_policies == 0] = (
-                MbagTorchModel.MASK_LOGIT
-            )
-            extra_out[FULL_SUPPORT_MCTS_POLICIES] = full_support_mcts_policies
-            extra_out[FULL_SUPPORT_ACTION_DIST_INPUTS] = full_support_action_dist_inputs
 
         return np.array(actions), state_out, extra_out
 

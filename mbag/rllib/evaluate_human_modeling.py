@@ -19,7 +19,6 @@ from sacred import SETTINGS, Experiment
 from sacred.observers import FileStorageObserver
 
 import mbag
-from mbag.rllib.alpha_zero.alpha_zero_policy import FULL_SUPPORT_ACTION_DIST_INPUTS
 
 from .alpha_zero import MbagAlphaZeroPolicy
 from .human_data import EPISODE_DIR, PARTICIPANT_ID
@@ -156,15 +155,10 @@ def main(  # noqa: C901
                 minibatch, **compute_actions_kwargs
             )
 
-            if FULL_SUPPORT_ACTION_DIST_INPUTS in extra_fetches:
-                action_dist_inputs = torch.tensor(
-                    extra_fetches[FULL_SUPPORT_ACTION_DIST_INPUTS]
-                )
-            else:
-                assert SampleBatch.ACTION_DIST_INPUTS in extra_fetches
-                action_dist_inputs = torch.tensor(
-                    extra_fetches[SampleBatch.ACTION_DIST_INPUTS]
-                )
+            assert SampleBatch.ACTION_DIST_INPUTS in extra_fetches
+            action_dist_inputs = torch.tensor(
+                extra_fetches[SampleBatch.ACTION_DIST_INPUTS]
+            )
             assert policy.dist_class is not None
             assert issubclass(policy.dist_class, TorchDistributionWrapper)
             assert isinstance(policy.model, TorchModelV2)
