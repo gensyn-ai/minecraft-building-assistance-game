@@ -60,6 +60,7 @@ def main(  # noqa: C901
     offset_rewards: bool,
     place_wrong_reward: float,
     player_indices: List[int],
+    inventory_player_indices: List[int],
     _log: logging.Logger,
 ):
     episode_info: EpisodeInfo
@@ -115,6 +116,7 @@ def main(  # noqa: C901
             sample_batch = convert_episode_info_to_sample_batch(
                 episode_info,
                 player_index=player_index,
+                inventory_player_indices=inventory_player_indices,
                 participant_id=participant_id,
                 episode_dir=episode_dir,
                 mbag_config=mbag_config,
