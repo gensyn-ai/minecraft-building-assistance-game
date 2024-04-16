@@ -748,6 +748,21 @@ def main(
         logger_creator=build_logger_creator(observer.dir),
     )
 
+    if torch.cuda.is_available():
+        num_gpus_per_worker: float = config["num_gpus_per_worker"]
+        if trainer.workers is not None:
+            trainer.workers.foreach_worker(
+                lambda worker: torch.cuda.set_per_process_memory_fraction(
+                    num_gpus_per_worker
+                )
+            )
+        if trainer.evaluation_workers is not None:
+            trainer.evaluation_workers.foreach_worker(
+                lambda worker: torch.cuda.set_per_process_memory_fraction(
+                    num_gpus_per_worker
+                )
+            )
+
     if checkpoint_to_load_policies is not None:
         _log.info(f"Initializing policies from {checkpoint_to_load_policies}")
         load_policies_from_checkpoint(
