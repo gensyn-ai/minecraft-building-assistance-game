@@ -279,7 +279,7 @@ def sacred_config(_log):  # noqa
     sample_batch_size = 5000
     train_batch_size = 5000
     sgd_minibatch_size = 512
-    rollout_fragment_length = horizon
+    rollout_fragment_length = 1 if run == "BC" else horizon
     batch_mode = "truncate_episodes"
     simple_optimizer = True
     num_training_iters = 500  # noqa: F841
