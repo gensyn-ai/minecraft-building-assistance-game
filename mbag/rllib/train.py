@@ -273,8 +273,8 @@ def sacred_config(_log):  # noqa
     num_envs_per_worker = num_envs // max(num_workers, 1)
     input = "sampler"
     seed = 0
-    num_gpus = 1 if torch.cuda.is_available() else 0
-    num_gpus_per_worker = 0
+    num_gpus = 1.0 if torch.cuda.is_available() else 0.0
+    num_gpus_per_worker = 0.0
     ray_init_options = {}  # noqa: F841
     sample_batch_size = 5000
     train_batch_size = 5000
