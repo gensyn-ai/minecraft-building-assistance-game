@@ -388,12 +388,14 @@ class MbagMCTSNode:
                 self.goal_logits,
             )
 
-        self.noop_probability = float(self.child_priors[0])
-        if not self.mcts.explore_noops:
-            self.child_priors[0] = 0
 
         self.child_priors[~self.valid_actions] = 0
         self.child_priors /= self.child_priors.sum()
+        self.noop_probability = float(self.child_priors[0])
+
+        if not self.mcts.explore_noops:
+            self.child_priors[0] = 0
+            self.child_priors /= self.child_priors.sum()
 
         if add_dirichlet_noise:
             num_action_types = self.action_mapping[-1, 0] + 1
