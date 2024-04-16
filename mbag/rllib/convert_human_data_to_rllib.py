@@ -32,12 +32,17 @@ def sacred_config():
     flat_actions = True  # noqa: F841
     flat_observations = True  # noqa: F841
     offset_rewards = False  # noqa: F841
+    place_wrong_reward = 0  # noqa: F841
     player_indices = [0]  # noqa: F841
+    inventory_player_indices = player_indices  # noqa: F841
 
     experiment_name = "rllib"
     experiment_name += "_with_noops" if include_noops else "_no_noops"
     experiment_name += "_flat_actions" if flat_actions else "_tuple_actions"
     experiment_name += "_flat_observations" if flat_observations else ""
+    experiment_name += (
+        f"_place_wrong_reward_{place_wrong_reward}" if place_wrong_reward != 0 else ""
+    )
     experiment_name += f"_player_{'_'.join(map(str, player_indices))}"
     out_dir = os.path.join(data_dir, experiment_name)  # noqa: F841
 
@@ -53,6 +58,7 @@ def main(  # noqa: C901
     flat_actions: bool,
     flat_observations: bool,
     offset_rewards: bool,
+    place_wrong_reward: float,
     player_indices: List[int],
     _log: logging.Logger,
 ):
@@ -98,6 +104,12 @@ def main(  # noqa: C901
 
         mbag_config = convert_old_config_to_new(mbag_config)
 
+        if place_wrong_reward != 0:
+            mbag_config["rewards"]["place_wrong"] = place_wrong_reward
+            for player_config in mbag_config["players"]:
+                if "place_wrong" in player_config["rewards"]:
+                    player_config["rewards"]["place_wrong"] = place_wrong_reward
+
         for player_index in player_indices:
             _log.info(f"converting to RLlib format for player {player_index}...")
             sample_batch = convert_episode_info_to_sample_batch(
@@ -107,6 +119,7 @@ def main(  # noqa: C901
                 episode_dir=episode_dir,
                 mbag_config=mbag_config,
                 offset_rewards=offset_rewards,
+                place_wrong_reward=place_wrong_reward,
                 include_noops=include_noops,
                 flat_actions=flat_actions,
                 flat_observations=flat_observations,
@@ -122,14 +135,14 @@ def main(  # noqa: C901
                 len(sample_batch),
                 total_reward,
             )
-            if total_reward != episode_info.cumulative_reward:
-                _log.error(
-                    "total reward mismatch: %.1f != %.1f",
-                    total_reward,
-                    episode_info.cumulative_reward,
-                )
-                breakpoint()
-            assert total_reward == episode_info.cumulative_reward
+            if place_wrong_reward == 0:
+                if total_reward != episode_info.cumulative_reward:
+                    _log.error(
+                        "total reward mismatch: %.1f != %.1f",
+                        total_reward,
+                        episode_info.cumulative_reward,
+                    )
+                assert total_reward == episode_info.cumulative_reward
             _log.info("saving trajectory...")
             json_writer.write(sample_batch)
 

@@ -117,52 +117,60 @@ def test_convert_episode_info_to_sample_batch():
     )
 
 
+@pytest.mark.timeout(30)
 def test_convert_human_data_consistency_with_rllib_env(tmp_path):
     for flat_actions, env_id in [
         (False, "MBAG-v1"),
         (True, "MBAGFlatActions-v1"),
     ]:
         for include_noops in [False, True]:
-            out_dir = str(tmp_path / f"rllib_flat_{flat_actions}")
-            if include_noops:
-                out_dir += "_with_noops"
-            result = convert_human_data_to_rllib_ex.run(
-                config_updates={
-                    "data_dir": "data/human_data/sample_tutorial/participant_1",
-                    "flat_actions": flat_actions,
-                    "flat_observations": False,
-                    "out_dir": str(out_dir),
-                    "offset_rewards": True,
-                }
-            ).result
-            reader = JsonReader(out_dir)
-            episode = reader.next()
+            for place_wrong_reward in [0, -1]:
+                out_dir = str(tmp_path / f"rllib_flat_{flat_actions}")
+                if include_noops:
+                    out_dir += "_with_noops"
+                if place_wrong_reward != 0:
+                    out_dir += f"_place_wrong_{place_wrong_reward}"
+                result = convert_human_data_to_rllib_ex.run(
+                    config_updates={
+                        "data_dir": "data/human_data/sample_tutorial/participant_1",
+                        "flat_actions": flat_actions,
+                        "flat_observations": False,
+                        "out_dir": str(out_dir),
+                        "offset_rewards": True,
+                        "place_wrong_reward": place_wrong_reward,
+                    }
+                ).result
+                reader = JsonReader(out_dir)
+                episode = reader.next()
 
-            assert result is not None
-            mbag_config = cast(MbagConfigDict, dict(result["mbag_config"]))
-            mbag_config["malmo"]["use_malmo"] = False
-            mbag_config["goal_generator"] = "tutorial"
-            mbag_config["world_size"] = (6, 6, 6)
-            mbag_config["random_start_locations"] = False
-            env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, env_id)(mbag_config)
+                assert result is not None
+                mbag_config = cast(MbagConfigDict, dict(result["mbag_config"]))
+                mbag_config["malmo"]["use_malmo"] = False
+                mbag_config["goal_generator"] = "tutorial"
+                mbag_config["world_size"] = (6, 6, 6)
+                mbag_config["random_start_locations"] = False
+                assert mbag_config["rewards"]["place_wrong"] == place_wrong_reward
+                env: MultiAgentEnv = _global_registry.get(ENV_CREATOR, env_id)(
+                    mbag_config
+                )
 
-            obs_dict, info_dict = env.reset()
-            for t in range(len(episode)):
-                for obs_piece, expected_obs_piece in zip(
-                    obs_dict["player_0"][:2], episode[SampleBatch.OBS][t][:2]
-                ):
-                    np.testing.assert_array_equal(obs_piece, expected_obs_piece)
-                (
-                    obs_dict,
-                    reward_dict,
-                    terminated_dict,
-                    truncated_dict,
-                    info_dict,
-                ) = env.step({"player_0": episode[SampleBatch.ACTIONS][t]})
-                assert reward_dict["player_0"] == episode[SampleBatch.REWARDS][t]
+                obs_dict, info_dict = env.reset()
+                for t in range(len(episode)):
+                    for obs_piece, expected_obs_piece in zip(
+                        obs_dict["player_0"][:2], episode[SampleBatch.OBS][t][:2]
+                    ):
+                        np.testing.assert_array_equal(obs_piece, expected_obs_piece)
+                    (
+                        obs_dict,
+                        reward_dict,
+                        terminated_dict,
+                        truncated_dict,
+                        info_dict,
+                    ) = env.step({"player_0": episode[SampleBatch.ACTIONS][t]})
+                    assert reward_dict["player_0"] == episode[SampleBatch.REWARDS][t]
 
-            assert terminated_dict["player_0"]
-            assert info_dict["player_0"]["goal_similarity"] == 216
+                assert terminated_dict["player_0"]
+                assert info_dict["player_0"]["goal_similarity"] == 216
 
 
 @pytest.mark.timeout(30)

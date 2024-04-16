@@ -483,6 +483,11 @@ class MbagMCTSNode:
         (expected_reward, expected_own_reward).
         """
 
+        if not self.mcts.use_goal_predictor and self.other_agent_action_dist is None:
+            child = self.get_child(action)
+            assert child.info is not None
+            return child.reward, child.info["own_reward"]
+
         action_children = [
             child for actions, child in self.children.items() if actions[0] == action
         ]
@@ -728,8 +733,11 @@ class MbagMCTS(MCTS):
 
         for node, action in zip(nodes, actions):
             if not any(actions[0] == action for actions in node.children.keys()):
-                assert (not self.explore_noops) or self.sample_from_full_support_policy
-                node.get_child(action).backup(node.total_value / node.number_visits)
+                assert (
+                    (not self.explore_noops)
+                    or self.sample_from_full_support_policy
+                    or self.num_sims == 1
+                )
 
         if logger.isEnabledFor(logging.DEBUG):
             node, action, tree_policy = nodes[0], actions[0], tree_policies[0]

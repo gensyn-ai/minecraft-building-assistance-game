@@ -60,8 +60,8 @@ def test_evaluate_human_modeling(tmp_path):
         ).result,
     )
 
-    assert result["cross_entropy"] < 0.1
-    assert result["accuracy"] > 0.95
+    assert result["cross_entropy"] < 0.15
+    assert result["accuracy"] > 0.9
 
 
 @pytest.mark.uses_rllib

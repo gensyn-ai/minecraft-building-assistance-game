@@ -1,7 +1,7 @@
 import random
 import zipfile
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Optional, Sequence, Union
 
 import numpy as np
 from ray.rllib.evaluation import SampleBatchBuilder
@@ -10,7 +10,9 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.compatibility_utils import OldHumanDataUnpickler
 from mbag.environment.actions import MbagAction, MbagActionTuple
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import DEFAULT_CONFIG, MbagConfigDict
+from mbag.environment.types import GOAL_BLOCKS
 from mbag.evaluation.evaluator import EpisodeInfo
 
 PARTICIPANT_ID = "participant_id"
@@ -36,10 +38,13 @@ def convert_episode_info_to_sample_batch(
     episode_info: EpisodeInfo,
     *,
     player_index: int,
+    # Players to include in the inventory observations.
+    inventory_player_indices: Optional[Sequence[int]] = None,
     participant_id: int = -1,
     episode_dir: str = "",
     mbag_config: Optional[MbagConfigDict] = None,
     offset_rewards=False,
+    place_wrong_reward: float = 0,
     include_noops=True,
     flat_actions=False,
     flat_observations=False,
@@ -47,6 +52,9 @@ def convert_episode_info_to_sample_batch(
 ) -> SampleBatch:
     if mbag_config is None:
         mbag_config = episode_info.env_config
+
+    if inventory_player_indices is None:
+        inventory_player_indices = range(mbag_config["num_players"])
 
     sample_batch_builder = SampleBatchBuilder()
     episode_id = random.randrange(int(1e18))
@@ -66,6 +74,20 @@ def convert_episode_info_to_sample_batch(
         action = info["action"]
         actions = [info["action"] for info in episode_info.info_history[i]]
         not_noop = any(action.action_type != MbagAction.NOOP for action in actions)
+        world_obs = obs[0]
+
+        if (
+            action.action_type == MbagAction.PLACE_BLOCK
+            and not info["action_correct"]
+            and world_obs[(GOAL_BLOCKS,) + action.block_location] != MinecraftBlocks.AIR
+        ):
+            reward += place_wrong_reward
+        if (
+            action.action_type == MbagAction.BREAK_BLOCK
+            and info["action_correct"]
+            and world_obs[(GOAL_BLOCKS,) + action.block_location] != MinecraftBlocks.AIR
+        ):
+            reward -= place_wrong_reward
 
         if info["malmo_observations"]:
             if prev_action_time is None:
@@ -88,7 +110,7 @@ def convert_episode_info_to_sample_batch(
                 # all players. We need to add the block counts for all players
                 # in this case.
                 inventory_obs_pieces = [inventory_obs]
-                for other_player_index in range(mbag_config["num_players"]):
+                for other_player_index in inventory_player_indices:
                     if other_player_index != player_index:
                         other_inventory = episode_info.obs_history[i][
                             other_player_index
