@@ -1,6 +1,6 @@
 import glob
 import os
-from typing import Any, Callable, Dict, Type, Union, cast
+from typing import Any, Callable, Dict, Optional, Type, Union, cast
 
 import cloudpickle
 from ray.rllib.algorithms import Algorithm, AlgorithmConfig
@@ -82,7 +82,7 @@ def load_trainer(
 def load_policies_from_checkpoint(
     checkpoint_dir: str,
     trainer: Algorithm,
-    policy_map: Callable[[PolicyID], PolicyID] = lambda policy_id: policy_id,
+    policy_map: Callable[[PolicyID], Optional[PolicyID]] = lambda policy_id: policy_id,
 ):
     """
     Load policy model weights from a checkpoint and copy them into the given
@@ -98,10 +98,22 @@ def load_policies_from_checkpoint(
         ) as policy_state_file:
             policy_states[policy_id] = cloudpickle.load(policy_state_file)
 
-    policy_weights = {
-        policy_map(policy_id): policy_state["weights"]
-        for policy_id, policy_state in policy_states.items()
-    }
+    assert trainer.workers is not None
+    policy_ids = set(
+        trainer.workers.local_worker().foreach_policy(
+            lambda policy, policy_id, **kwargs: policy_id
+        )
+    )
+
+    policy_weights: Dict[PolicyID, Any] = {}
+    for policy_id in policy_ids:
+        loaded_policy_id = policy_map(policy_id)
+        if loaded_policy_id is None:
+            continue
+        if loaded_policy_id not in policy_states:
+            raise ValueError(f"Policy {loaded_policy_id} not found in checkpoint")
+
+        policy_weights[policy_id] = policy_states[loaded_policy_id]["weights"]
 
     def copy_policy_weights(policy: Policy, policy_id: PolicyID):
         if policy_id in policy_weights:

@@ -46,7 +46,8 @@ from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
 
 from .callbacks import MbagCallbacks
 from .os_utils import available_cpu_count
-from .policies import MbagAgentPolicy, MbagPPOConfig, MbagPPOTorchPolicy
+from .policies import MbagAgentPolicy
+from .ppo import MbagPPOConfig, MbagPPOTorchPolicy
 from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
     MbagTransformerModelConfig,
@@ -297,6 +298,7 @@ def sacred_config(_log):  # noqa
     kl_target = 0.01
     clip_param = 0.05
     num_sgd_iter = 6
+    anchor_policy_kl_coeff = 0.0
     compress_observations = True
     use_replay_buffer = True
     replay_buffer_size = 10
@@ -421,7 +423,8 @@ def sacred_config(_log):  # noqa
 
     # Maps policy IDs in checkpoint_to_load_policies to policy IDs here
     load_policies_mapping: Dict[str, str] = {}
-    overwrite_loaded_policy_type = False
+    use_anchor_policy = False
+    overwrite_loaded_policy_type = use_anchor_policy
     load_config_from_checkpoint = not overwrite_loaded_policy_type
     if isinstance(load_policies_mapping, DogmaticDict):
         # Weird shim for sacred
@@ -466,10 +469,8 @@ def sacred_config(_log):  # noqa
         unmapped_loaded_policy_dict = checkpoint_to_load_policies_config["multiagent"][
             "policies"
         ]
-        for old_policy_id, new_policy_id in load_policies_mapping.items():
-            loaded_policy_dict[new_policy_id] = unmapped_loaded_policy_dict[
-                old_policy_id
-            ]
+        for policy_id, old_policy_id in load_policies_mapping.items():
+            loaded_policy_dict[policy_id] = unmapped_loaded_policy_dict[old_policy_id]
 
     policies_to_train = []
     for policy_id in policy_ids:
@@ -522,6 +523,15 @@ def sacred_config(_log):  # noqa
                 action_space,
                 {"mbag_agent": mbag_agent},
             )
+
+    # Anchor policies for KL regularization
+    anchor_policy_mapping = {}
+    if use_anchor_policy:
+        for policy_id in list(load_policies_mapping.keys()):
+            anchor_policy_id = f"{policy_id}_anchor"
+            policies[anchor_policy_id] = policies[policy_id]
+            load_policies_mapping[anchor_policy_id] = load_policies_mapping[policy_id]
+            anchor_policy_mapping[policy_id] = anchor_policy_id
 
     # Evaluation
     evaluation_num_workers = num_workers
@@ -615,6 +625,8 @@ def sacred_config(_log):  # noqa
                 goal_loss_coeff=goal_loss_coeff,
                 place_block_loss_coeff=place_block_loss_coeff,
                 reward_scale=reward_scale,
+                anchor_policy_mapping=anchor_policy_mapping,
+                anchor_policy_kl_coeff=anchor_policy_kl_coeff,
             )
     elif "AlphaZero" in run:
         assert isinstance(config, MbagAlphaZeroConfig)
@@ -729,26 +741,26 @@ def main(
 
     if torch.cuda.is_available():
         num_gpus_per_worker: float = config["num_gpus_per_worker"]
-        if trainer.workers is not None:
+        if trainer.workers is not None and num_gpus_per_worker > 0:
             trainer.workers.foreach_worker(
                 lambda worker: torch.cuda.set_per_process_memory_fraction(
-                    num_gpus_per_worker
+                    float(num_gpus_per_worker)
                 )
             )
-        if trainer.evaluation_workers is not None:
+        if trainer.evaluation_workers is not None and num_gpus_per_worker > 0:
             trainer.evaluation_workers.foreach_worker(
                 lambda worker: torch.cuda.set_per_process_memory_fraction(
-                    num_gpus_per_worker
+                    float(num_gpus_per_worker)
                 )
             )
-        torch.cuda.set_per_process_memory_fraction(config["num_gpus"])
+        torch.cuda.set_per_process_memory_fraction(float(config["num_gpus"]))
 
     if checkpoint_to_load_policies is not None:
         _log.info(f"Initializing policies from {checkpoint_to_load_policies}")
         load_policies_from_checkpoint(
             checkpoint_to_load_policies,
             trainer,
-            lambda policy_id: load_policies_mapping[policy_id],
+            lambda policy_id: load_policies_mapping.get(policy_id),
         )
 
     if checkpoint_path is not None:
