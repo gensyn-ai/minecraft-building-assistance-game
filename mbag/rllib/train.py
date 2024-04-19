@@ -332,7 +332,9 @@ def sacred_config(_log):  # noqa
     fix_bilevel_action_selection = False
     sample_from_full_support_policy = False
     explore_noops = True
-    goal_loss_coeff, place_block_loss_coeff = 0.5, 1
+    policy_loss_coeff = 1
+    goal_loss_coeff = 0.5
+    place_block_loss_coeff = 1
 
     # Model
     model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
@@ -658,6 +660,7 @@ def sacred_config(_log):  # noqa
             train_batch_size=train_batch_size,
             sgd_minibatch_size=sgd_minibatch_size,
             num_sgd_iter=num_sgd_iter,
+            policy_loss_coeff=policy_loss_coeff,
             vf_loss_coeff=vf_loss_coeff,
             entropy_coeff_schedule=[
                 (0, entropy_coeff_start),
@@ -677,6 +680,8 @@ def sacred_config(_log):  # noqa
                 "storage_unit": StorageUnit.FRAGMENTS,
             },
             pretrain=pretrain,
+            anchor_policy_mapping=anchor_policy_mapping,
+            anchor_policy_kl_coeff=anchor_policy_kl_coeff,
             _strict_mode=strict_mode,
         )
         evaluation_mcts_config = dict(mcts_config)

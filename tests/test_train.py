@@ -266,6 +266,36 @@ def test_alpha_zero(default_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(120)
+def test_kl_regularized_alpha_zero(
+    default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
+):
+    anchor_policy_kls: Dict[float, float] = {}
+
+    for anchor_policy_kl_coeff in [0, 10]:
+        result = ex.run(
+            config_updates={
+                **default_config,
+                **default_alpha_zero_config,
+                "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
+                "load_policies_mapping": {"human": "human"},
+                "use_anchor_policy": True,
+                "anchor_policy_kl_coeff": anchor_policy_kl_coeff,
+                "policies_to_train": ["human"],
+            }
+        ).result
+
+        assert result is not None
+        anchor_policy_kl = result["info"]["learner"]["human"]["learner_stats"][
+            "anchor_policy_kl"
+        ]
+        anchor_policy_kls[anchor_policy_kl_coeff] = anchor_policy_kl
+
+    assert anchor_policy_kls[10] < anchor_policy_kls[0]
+    assert anchor_policy_kls[0] < 1
+
+
+@pytest.mark.uses_rllib
 @pytest.mark.timeout(60)
 def test_alpha_zero_strict_mode(default_config, default_alpha_zero_config):
     result = ex.run(

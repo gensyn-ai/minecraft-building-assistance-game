@@ -29,6 +29,7 @@ from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import MbagConfigDict
 from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict
 
+from ..kl_regularization import ANCHOR_POLICY_ACTION_DIST_INPUTS
 from ..rllib_env import unwrap_mbag_env
 from ..torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictorMixin
 from .mcts import MbagMCTS, MbagMCTSNode, MbagRootParentNode
@@ -590,6 +591,22 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 * other_agent_action_predictor_loss
             )
 
+        # KL regularization.
+        if ANCHOR_POLICY_ACTION_DIST_INPUTS in train_batch:
+            action_dist = dist_class(logits, model)
+            anchor_policy_action_dist_inputs = train_batch[
+                ANCHOR_POLICY_ACTION_DIST_INPUTS
+            ]
+            anchor_policy_action_dist = dist_class(
+                cast(Any, anchor_policy_action_dist_inputs), model
+            )
+
+            anchor_policy_kl = action_dist.kl(anchor_policy_action_dist).mean()
+            model.tower_stats["anchor_policy_kl"] = anchor_policy_kl
+            total_loss = (
+                total_loss + self.config["anchor_policy_kl_coeff"] * anchor_policy_kl
+            )
+
         model.tower_stats["total_loss"] = total_loss
         model.tower_stats["policy_loss"] = policy_loss
         model.tower_stats["vf_loss"] = value_loss
@@ -620,6 +637,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             "unplaced_blocks_goal_loss",
             "entropy",
             "other_agent_action_predictor_loss",
+            "anchor_policy_kl",
         ]:
             try:
                 grad_info[metric] = torch.mean(

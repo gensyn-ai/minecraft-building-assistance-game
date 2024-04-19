@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 
 import numpy as np
 from ray.rllib.algorithms.algorithm_config import NotProvided
@@ -20,6 +20,7 @@ from ray.rllib.utils.replay_buffers import ReplayBuffer
 from ray.rllib.utils.typing import PolicyID, ResultDict
 from ray.tune.registry import register_trainable
 
+from ..kl_regularization import KLRegularizationMixin
 from .alpha_zero_policy import (
     EXPECTED_OWN_REWARDS,
     EXPECTED_REWARDS,
@@ -36,6 +37,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         super().__init__(algo_class)
 
         self.sample_batch_size = 1000
+        self.policy_loss_coeff = 1.0
         self.vf_loss_coeff = 1.0
         self.other_agent_action_predictor_loss_coeff = 1.0
         self.goal_loss_coeff = 1.0
@@ -45,6 +47,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.use_goal_predictor = True
         self.use_replay_buffer = True
         self.num_steps_sampled_before_learning_starts = 0
+        self.anchor_policy_mapping: Mapping[PolicyID, PolicyID] = {}
+        self.anchor_policy_kl_coeff = 0.0
         self.pretrain = False
         self.player_index: Optional[int] = None
         self.strict_mode = False
@@ -55,6 +59,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self,
         *args,
         sample_batch_size=NotProvided,
+        policy_loss_coeff=NotProvided,
         vf_loss_coeff=NotProvided,
         other_agent_action_predictor_loss_coeff=NotProvided,
         goal_loss_coeff=NotProvided,
@@ -64,6 +69,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         use_goal_predictor=NotProvided,
         use_replay_buffer=NotProvided,
         num_steps_sampled_before_learning_starts=NotProvided,
+        anchor_policy_mapping=NotProvided,
+        anchor_policy_kl_coeff=NotProvided,
         pretrain=NotProvided,
         player_index=NotProvided,
         _strict_mode=NotProvided,
@@ -74,6 +81,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         Args:
             sample_batch_size (int): Number of samples to include in each
                 training batch.
+            policy_loss_coeff (float): Coefficient of the policy loss.
             vf_loss_coeff (float): Coefficient of the value function loss.
             other_agent_action_predictor_loss_coeff (float): Coefficient of the
                 other agent action predictor loss.
@@ -86,6 +94,10 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             use_replay_buffer (bool): Whether to use a replay buffer.
             num_steps_sampled_before_learning_starts (int): Number of steps
                 collected before learning starts.
+            anchor_policy_mapping (dict): Mapping from policy IDs to anchor
+                policies for KL regularization.
+            anchor_policy_kl_coeff (float): Coefficient of the KL regularization
+                loss to the anchor policy.
             pretrain (bool): If True, then this will just pretrain the AlphaZero
                 predictors for goal, other agent action, etc. and take only NOOP
                 actions.
@@ -99,6 +111,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
 
         if sample_batch_size is not NotProvided:
             self.sample_batch_size = sample_batch_size
+        if policy_loss_coeff is not NotProvided:
+            self.policy_loss_coeff = policy_loss_coeff
         if vf_loss_coeff is not NotProvided:
             self.vf_loss_coeff = vf_loss_coeff
         if other_agent_action_predictor_loss_coeff is not NotProvided:
@@ -121,6 +135,10 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             self.num_steps_sampled_before_learning_starts = (
                 num_steps_sampled_before_learning_starts
             )
+        if anchor_policy_mapping is not NotProvided:
+            self.anchor_policy_mapping = anchor_policy_mapping
+        if anchor_policy_kl_coeff is not NotProvided:
+            self.anchor_policy_kl_coeff = anchor_policy_kl_coeff
         if pretrain is not NotProvided:
             self.pretrain = pretrain
         if player_index is not NotProvided:
@@ -136,7 +154,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         return super().update_from_dict(config_dict)
 
 
-class MbagAlphaZero(AlphaZero):
+class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
     local_replay_buffer: Optional[ReplayBuffer]  # type: ignore[assignment]
 
     def __init__(self, config: MbagAlphaZeroConfig, *args, **kwargs):
@@ -243,6 +261,10 @@ class MbagAlphaZero(AlphaZero):
             new_sample_batch = concat_samples(new_sample_batches)
         else:
             new_sample_batch = new_sample_batches
+
+        new_sample_batch = self._add_anchor_policy_action_dist_inputs_to_sample_batch(
+            new_sample_batch
+        )
 
         assert isinstance(new_sample_batch, MultiAgentBatch)
         prediction_metrics_by_policy = self.get_reward_and_value_prediction_metrics(
