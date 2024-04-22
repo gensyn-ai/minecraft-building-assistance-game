@@ -45,7 +45,8 @@ def sacred_config():
     min_action_interval = 0  # noqa: F841
     explore = False  # noqa: F841
     episodes = 100  # noqa: F841
-    experiment_name = ""  # noqa: F841
+    experiment_name = ""
+    experiment_tag = experiment_name  # noqa: F841
     seed = 0  # noqa: F841
     record_video = False  # noqa: F841
     use_malmo = record_video  # noqa: F841
@@ -63,7 +64,7 @@ def main(  # noqa: C901
     min_action_interval: float,
     explore: bool,
     episodes: int,
-    experiment_name: str,
+    experiment_tag: str,
     env_config_updates: MbagConfigDict,
     algorithm_config_updates: dict,
     seed: int,
@@ -92,14 +93,14 @@ def main(  # noqa: C901
     algorithm_config_updates.setdefault("evaluation_num_workers", 0)
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    if not experiment_name.endswith("_") and experiment_name != "":
-        experiment_name += "_"
+    if not experiment_tag.endswith("_") and experiment_tag != "":
+        experiment_tag += "_"
     if out_dir is None:
         for checkpoint in checkpoints:
             if checkpoint is not None:
                 out_dir = os.path.join(
                     checkpoint,
-                    f"evaluate_{experiment_name}{time_str}",
+                    f"evaluate_{experiment_tag}{time_str}",
                 )
                 break
     if out_dir is None:
