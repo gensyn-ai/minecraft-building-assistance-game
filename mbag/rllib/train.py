@@ -437,6 +437,10 @@ def sacred_config(_log):  # noqa
         checkpoint_to_load_policies_config: AlgorithmConfig = load_trainer_config(
             checkpoint_to_load_policies
         )
+        # Make sure the loaded policies use GPU if specified.
+        checkpoint_to_load_policies_config.resources(
+            num_gpus_per_worker=num_gpus_per_worker
+        )
 
     # Multiagent
     heuristic: Optional[str] = None
