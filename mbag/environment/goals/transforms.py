@@ -302,7 +302,7 @@ class AreaSampleTransform(GoalTransform):
     default_config: AreaSampleTransformConfig = {
         "max_scaling_factor": 4.0,
         "interpolate": True,
-        "interpolation_order": 3,
+        "interpolation_order": 1,
         "scale_y_independently": True,
         "max_scaling_factor_ratio": 1.5,
         "preserve_paths": True,
