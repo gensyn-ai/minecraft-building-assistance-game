@@ -128,7 +128,7 @@ class CropLowDensityBottomLayersTransform(GoalTransform):
         goal = self.goal_generator.generate_goal(size)
         transformed_goal = goal
         width, height, depth = goal.size
-        for y in [0, 1]:
+        for y in range(height - 1):
             if y >= height - 1:
                 continue
             layers_below = goal.blocks[:, : y + 1, :]
@@ -564,26 +564,40 @@ class AreaSampleTransform(GoalTransform):
     def _recreate_paths(self, structure: MinecraftBlocks):
         width, height, depth = structure.size
         PATH = AreaSampleTransform.PATH  # noqa: N806
+        AIR = MinecraftBlocks.AIR  # noqa: N806
 
         path_locations: List[Tuple[int, int, int]] = list(
             zip(*np.nonzero(structure.blocks == PATH))
         )
+        for x, y, z in list(path_locations):
+            if y == 0:
+                structure.blocks[x, y, z] = MinecraftBlocks.AIR
+                structure.blocks[x, y + 1, z] = PATH
+                path_locations.remove((x, y, z))
+                if (x, y + 1, z) not in path_locations:
+                    path_locations.append((x, y + 1, z))
         path_locations.sort(key=lambda loc: loc[1])
+
+        prev_structure = structure.copy()
 
         for x, y, z in path_locations:
             if y >= 1:
                 if structure.blocks[x, y - 1, z] == MinecraftBlocks.AIR:
                     structure.blocks[x, y - 1, z] = MinecraftBlocks.AUTO
-            structure.blocks[x, y, z] = MinecraftBlocks.AIR
+            structure.blocks[x, y, z] = AIR
             if y + 1 < height:
-                structure.blocks[x, y + 1, z] = MinecraftBlocks.AIR
+                structure.blocks[x, y + 1, z] = AIR
                 if y + 2 < height and (
-                    (x >= 1 and structure.blocks[x - 1, y + 1, z] == PATH)
-                    or (x < width - 1 and structure.blocks[x + 1, y + 1, z] == PATH)
-                    or (z >= 1 and structure.blocks[x, y + 1, z - 1] == PATH)
-                    or (z < depth - 1 and structure.blocks[x, y + 1, z + 1] == PATH)
+                    (x >= 1 and prev_structure.blocks[x - 1, y + 1, z] == PATH)
+                    or (
+                        x < width - 1 and prev_structure.blocks[x + 1, y + 1, z] == PATH
+                    )
+                    or (z >= 1 and prev_structure.blocks[x, y + 1, z - 1] == PATH)
+                    or (
+                        z < depth - 1 and prev_structure.blocks[x, y + 1, z + 1] == PATH
+                    )
                 ):
-                    structure.blocks[x, y + 2, z] = MinecraftBlocks.AIR
+                    structure.blocks[x, y + 2, z] = AIR
 
         self._fill_auto_with_real_blocks(structure)
 

@@ -181,6 +181,27 @@ def test_area_sampling():
     assert np.all(goal.blocks[:, 1:, :] == MinecraftBlocks.AIR)
 
 
+def test_area_sampling_paths():
+    cobblestone = MinecraftBlocks.NAME2ID["cobblestone"]
+    big_goal = MinecraftBlocks((6, 6, 6))
+    big_goal.blocks[0, :, :] = cobblestone
+    big_goal.blocks[-1, :, :] = cobblestone
+    big_goal.blocks[:, :, 0] = cobblestone
+    big_goal.blocks[:, :, -1] = cobblestone
+    big_goal.blocks[:, -1, :] = cobblestone
+    big_goal.blocks[0, :3, 2:4] = MinecraftBlocks.AIR
+    big_goal.blocks[:2, 0, 1:5] = cobblestone
+
+    transform = AreaSampleTransform(
+        {"preserve_paths": True},
+        SetGoalGenerator({"goals": [big_goal]}),
+    )
+    goal = transform.generate_goal((5, 4, 5))
+    assert goal.size == (5, 4, 5)
+
+    assert np.all(goal.blocks[:4, 1:3, 2] == MinecraftBlocks.AIR)
+
+
 def test_uniform_block_type():
     block_type = random.choice(list(MinecraftBlocks.PLACEABLE_BLOCK_IDS))
     transform = UniformBlockTypeTransform(

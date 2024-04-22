@@ -504,7 +504,7 @@ class MinecraftBlocks(object):
         ).T
 
         frequencies = frequencies[np.argsort(frequencies[:, 1])]
-        frequencies = frequencies[frequencies[:, 0] != 0]
+        frequencies = frequencies[frequencies[:, 0] != MinecraftBlocks.AIR]
         frequencies = frequencies[frequencies[:, 0] != MinecraftBlocks.AUTO]
 
         if len(frequencies) == 0:
@@ -628,6 +628,7 @@ class MinecraftBlocks(object):
         face_lines: List[str] = []
 
         block_textures = {
+            MinecraftBlocks.NAME2ID["bedrock"]: "bedrock",
             MinecraftBlocks.NAME2ID["dirt"]: "dirt",
             MinecraftBlocks.NAME2ID["cobblestone"]: "cobblestone",
             MinecraftBlocks.NAME2ID["glass"]: "glass",
