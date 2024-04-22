@@ -464,6 +464,8 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                     sample_batch[OTHER_AGENT_ACTION_DIST_INPUTS] = other_agent_batch[
                         SampleBatch.ACTION_DIST_INPUTS
                     ]
+
+                    assert len(sample_batch) == len(other_agent_batch)
                 else:
                     logger.warn(
                         f"no action_dist_inputs in sample batch for {other_agent_id}"

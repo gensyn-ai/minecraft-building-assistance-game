@@ -17,6 +17,7 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.rnn_sequencing import pad_batch_to_sequences_of_same_size
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch, concat_samples
 from ray.rllib.policy.torch_policy import TorchPolicy
+from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.from_config import NotProvided
 from ray.rllib.utils.metrics import (
     NUM_AGENT_STEPS_SAMPLED,
@@ -64,6 +65,9 @@ class BCTorchPolicy(TorchPolicy):
         )
 
         self._initialize_loss_from_dummy_batch()
+
+        # Needed for training AlphaZero assistants with BC policy.
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
 
     def _get_losses_and_stats(
         self,
