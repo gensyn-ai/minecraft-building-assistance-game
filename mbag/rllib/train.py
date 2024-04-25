@@ -13,7 +13,7 @@ from gymnasium import spaces
 from ray.rllib.algorithms import Algorithm, AlgorithmConfig
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.env import MultiAgentEnv
-from ray.rllib.evaluation import Episode
+from ray.rllib.evaluation import Episode, SampleBatch
 from ray.rllib.policy import TorchPolicy
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
@@ -40,14 +40,15 @@ from mbag.environment.goals.transforms import (
     CropLowDensityBottomLayersTransformConfig,
     CropTransformConfig,
 )
-from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
-from mbag.rllib.bc import BCConfig, BCTorchPolicy
-from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
 
+from .alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
+from .bc import BCConfig, BCTorchPolicy
 from .callbacks import MbagCallbacks
+from .data_augmentation import randomly_permute_block_types
 from .os_utils import available_cpu_count
 from .policies import MbagAgentPolicy
 from .ppo import MbagPPOConfig, MbagPPOTorchPolicy
+from .sacred_utils import convert_dogmatics_to_standard
 from .torch_models import (
     MbagRecurrentConvolutionalModelConfig,
     MbagTransformerModelConfig,
@@ -310,6 +311,7 @@ def sacred_config(_log):  # noqa
     pretrain = False
     strict_mode = False
     validation_participant_ids: List[int] = []
+    permute_block_types: bool = False
 
     # MCTS
     puct_coefficient = 1.0
@@ -715,6 +717,22 @@ def sacred_config(_log):  # noqa
             vf_loss_coeff=vf_loss_coeff,
             validation_participant_ids=validation_participant_ids,
         )
+
+        if permute_block_types:
+
+            def data_augmentation(
+                batch: SampleBatch,
+                env_config=config.env_config,
+            ) -> SampleBatch:
+                batch.decompress_if_needed()
+                return randomly_permute_block_types(
+                    batch,
+                    flat_actions=True,
+                    flat_observations=True,
+                    env_config=env_config,
+                )
+
+            config.training(data_augmentation=data_augmentation)
 
     del env
     del loaded_policy_dict

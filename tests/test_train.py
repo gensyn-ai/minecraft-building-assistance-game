@@ -626,6 +626,20 @@ def test_bc_with_value_loss(default_config, default_bc_config):
 
 @pytest.mark.uses_rllib
 @pytest.mark.timeout(60)
+def test_bc_with_data_augmentation(default_config, default_bc_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            "validation_participant_ids": [4],
+            "permute_block_types": True,
+        }
+    ).result
+    assert result is not None
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
 def test_pikl(default_config, default_bc_config):
     env_configs = {
         "goal_generator": "tutorial",

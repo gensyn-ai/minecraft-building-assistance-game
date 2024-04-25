@@ -1,6 +1,16 @@
 import logging
 from collections import defaultdict
-from typing import Collection, Dict, List, NamedTuple, Optional, Tuple, Type, cast
+from typing import (
+    Callable,
+    Collection,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Type,
+    cast,
+)
 
 import numpy as np
 import torch
@@ -225,6 +235,7 @@ class BCConfig(AlgorithmConfig):
         self.validation_participant_ids: Collection[int] = []
         self.entropy_coeff: float = 0.0
         self.vf_loss_coeff: float = 0.0
+        self.data_augmentation: Callable[[SampleBatch], SampleBatch] = lambda x: x
 
         self.exploration_config = {
             "type": "StochasticSampling",
@@ -238,6 +249,7 @@ class BCConfig(AlgorithmConfig):
         entropy_coeff=NotProvided,
         vf_loss_coeff=NotProvided,
         validation_participant_ids=NotProvided,
+        data_augmentation=NotProvided,
         **kwargs,
     ):
         """
@@ -259,9 +271,13 @@ class BCConfig(AlgorithmConfig):
             self.vf_loss_coeff = vf_loss_coeff
         if validation_participant_ids is not NotProvided:
             self.validation_participant_ids = validation_participant_ids
+        if data_augmentation is not NotProvided:
+            self.data_augmentation = data_augmentation
 
 
 class BC(Algorithm):
+    config: BCConfig  # type: ignore[assignment]
+
     @classmethod
     def get_default_config(cls):
         return BCConfig()
@@ -376,6 +392,12 @@ class BC(Algorithm):
             )
 
         train_batch, val_batch = self._split_training_and_validation_data(train_batch)
+
+        with self._timers["data_augmentation"]:
+            for policy_id in train_batch.policy_batches:
+                train_batch.policy_batches[policy_id] = self.config.data_augmentation(
+                    train_batch.policy_batches[policy_id]
+                )
 
         # Train
         train_results: ResultDict

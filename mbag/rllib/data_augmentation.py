@@ -77,8 +77,13 @@ def randomly_permute_block_types(
 
     placeable_block_ids = np.array(list(MinecraftBlocks.PLACEABLE_BLOCK_IDS))
 
+    if SampleBatch.SEQ_LENS in batch:
+        seq_lens = batch[SampleBatch.SEQ_LENS]
+    else:
+        seq_lens = np.full(len(batch), 1)
+
     seq_begin = 0
-    for seq_len in batch[SampleBatch.SEQ_LENS]:
+    for seq_len in seq_lens:
         seq_end = seq_begin + seq_len
 
         block_map = np.arange(MinecraftBlocks.NUM_BLOCKS)
