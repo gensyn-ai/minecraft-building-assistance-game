@@ -25,6 +25,7 @@ from ray.rllib.utils.metrics import (
 )
 from ray.rllib.utils.metrics.learner_info import LEARNER_STATS_KEY
 from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.utils.schedules import PiecewiseSchedule
 from ray.rllib.utils.typing import PolicyID, ResultDict, TensorType
 from ray.tune.registry import register_trainable
 from ray.util.debug import log_once
@@ -55,6 +56,20 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         config,
         **kwargs,
     ):
+        self._place_block_loss_coeff_schedule = None
+        place_block_loss_coeff_schedule = config.get("place_block_loss_coeff_schedule")
+        if place_block_loss_coeff_schedule is None:
+            self.place_block_loss_coeff = config["place_block_loss_coeff"]
+        else:
+            # Allows for custom schedule similar to lr_schedule format
+            assert isinstance(place_block_loss_coeff_schedule, list)
+            self._place_block_loss_coeff_schedule = PiecewiseSchedule(
+                place_block_loss_coeff_schedule,
+                outside_value=place_block_loss_coeff_schedule[-1][-1],
+                framework=None,
+            )
+            self.place_block_loss_coeff = self._place_block_loss_coeff_schedule.value(0)
+
         self.action_mapping = torch.from_numpy(
             MbagActionDistribution.get_action_mapping(
                 config["model"]["custom_model_config"]["env_config"]
@@ -102,9 +117,10 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
         goal = world_obs[:, GOAL_BLOCKS].long()
 
-        loss += self.config.get("place_block_loss_coeff", 0) * self.place_block_loss(
+        loss += self.place_block_loss_coeff * self.place_block_loss(
             model, dist_class, goal, train_batch
         )
+
         loss += self.config.get("goal_loss_coeff", 0) * self.predict_goal_loss(
             model, goal, train_batch
         )
@@ -227,7 +243,7 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
 
         return anchor_policy_kl
 
-    def log_mean_loss(self, info: Dict[str, TensorType], loss_name: str):
+    def log_mean_stat(self, info: Dict[str, TensorType], loss_name: str):
         try:
             info[loss_name] = torch.mean(
                 torch.stack(cast(List[torch.Tensor], self.get_tower_stats(loss_name)))
@@ -238,10 +254,12 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
     def stats_fn(self, train_batch: SampleBatch) -> Dict[str, TensorType]:
         info = super().stats_fn(train_batch)
 
-        self.log_mean_loss(info, "place_block_loss")
-        self.log_mean_loss(info, "predict_goal_loss")
-        self.log_mean_loss(info, "anchor_policy_kl")
-        self.log_mean_loss(info, "action_type_entropy")
+        self.log_mean_stat(info, "place_block_loss")
+        self.log_mean_stat(info, "predict_goal_loss")
+        self.log_mean_stat(info, "anchor_policy_kl")
+        self.log_mean_stat(info, "action_type_entropy")
+
+        info["place_block_loss_coeff"] = self.place_block_loss_coeff
 
         return cast(
             Dict[str, TensorType],
@@ -253,6 +271,13 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         # Don't let the KL coefficient go below 0.001.
         self.kl_coeff = max(self.kl_coeff, 1e-3)
 
+    def on_global_var_update(self, global_vars):
+        super().on_global_var_update(global_vars)
+        if self._place_block_loss_coeff_schedule is not None:
+            self.place_block_loss_coeff = self._place_block_loss_coeff_schedule.value(
+                global_vars["timestep"]
+            )
+
 
 class MbagPPOConfig(PPOConfig):
     def __init__(self, algo_class=None):
@@ -260,6 +285,7 @@ class MbagPPOConfig(PPOConfig):
 
         self.goal_loss_coeff = 1.0
         self.place_block_loss_coeff = 1.0
+        self.place_block_loss_coeff_schedule = None
         self.reward_scale = 1.0
         self.anchor_policy_mapping: Mapping[PolicyID, PolicyID] = {}
         self.anchor_policy_kl_coeff = 0.0
@@ -270,6 +296,7 @@ class MbagPPOConfig(PPOConfig):
         *args,
         goal_loss_coeff=NotProvided,
         place_block_loss_coeff=NotProvided,
+        place_block_loss_coeff_schedule=NotProvided,
         reward_scale=NotProvided,
         anchor_policy_mapping=NotProvided,
         anchor_policy_kl_coeff=NotProvided,
@@ -282,6 +309,8 @@ class MbagPPOConfig(PPOConfig):
             self.goal_loss_coeff = goal_loss_coeff
         if place_block_loss_coeff is not NotProvided:
             self.place_block_loss_coeff = place_block_loss_coeff
+        if place_block_loss_coeff_schedule is not NotProvided:
+            self.place_block_loss_coeff_schedule = place_block_loss_coeff_schedule
         if reward_scale is not NotProvided:
             self.reward_scale = reward_scale
         if anchor_policy_mapping is not NotProvided:

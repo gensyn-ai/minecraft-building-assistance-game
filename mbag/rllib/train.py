@@ -336,6 +336,7 @@ def sacred_config(_log):  # noqa
     policy_loss_coeff = 1
     goal_loss_coeff = 0.5
     place_block_loss_coeff = 1
+    place_block_loss_coeff_schedule = None
 
     # Model
     model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
@@ -631,6 +632,9 @@ def sacred_config(_log):  # noqa
             config.training(
                 goal_loss_coeff=goal_loss_coeff,
                 place_block_loss_coeff=place_block_loss_coeff,
+                place_block_loss_coeff_schedule=convert_dogmatics_to_standard(
+                    place_block_loss_coeff_schedule
+                ),
                 reward_scale=reward_scale,
                 anchor_policy_mapping=anchor_policy_mapping,
                 anchor_policy_kl_coeff=anchor_policy_kl_coeff,
