@@ -299,6 +299,7 @@ def sacred_config(_log):  # noqa
     clip_param = 0.05
     num_sgd_iter = 6
     anchor_policy_kl_coeff = 0.0
+    anchor_policy_reverse_kl = False
     compress_observations = True
     use_replay_buffer = True
     replay_buffer_size = 10
@@ -633,6 +634,7 @@ def sacred_config(_log):  # noqa
                 reward_scale=reward_scale,
                 anchor_policy_mapping=anchor_policy_mapping,
                 anchor_policy_kl_coeff=anchor_policy_kl_coeff,
+                anchor_policy_reverse_kl=anchor_policy_reverse_kl,
             )
     elif "AlphaZero" in run:
         assert isinstance(config, MbagAlphaZeroConfig)

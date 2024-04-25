@@ -219,7 +219,10 @@ class MbagPPOTorchPolicy(PPOTorchPolicy):
         anchor_policy_action_dist_inputs = train_batch[ANCHOR_POLICY_ACTION_DIST_INPUTS]
         anchor_policy_action_dist = dist_class(anchor_policy_action_dist_inputs, model)
 
-        anchor_policy_kl = action_dist.kl(anchor_policy_action_dist).mean()
+        if self.config.get("anchor_policy_reverse_kl", False):
+            anchor_policy_kl = anchor_policy_action_dist.kl(action_dist).mean()
+        else:
+            anchor_policy_kl = action_dist.kl(anchor_policy_action_dist).mean()
         model.tower_stats["anchor_policy_kl"] = anchor_policy_kl
 
         return anchor_policy_kl
@@ -260,6 +263,7 @@ class MbagPPOConfig(PPOConfig):
         self.reward_scale = 1.0
         self.anchor_policy_mapping: Mapping[PolicyID, PolicyID] = {}
         self.anchor_policy_kl_coeff = 0.0
+        self.anchor_policy_reverse_kl = False
 
     def training(
         self,
@@ -269,6 +273,7 @@ class MbagPPOConfig(PPOConfig):
         reward_scale=NotProvided,
         anchor_policy_mapping=NotProvided,
         anchor_policy_kl_coeff=NotProvided,
+        anchor_policy_reverse_kl=NotProvided,
         **kwargs,
     ):
         super().training(*args, **kwargs)
@@ -283,6 +288,8 @@ class MbagPPOConfig(PPOConfig):
             self.anchor_policy_mapping = anchor_policy_mapping
         if anchor_policy_kl_coeff is not NotProvided:
             self.anchor_policy_kl_coeff = anchor_policy_kl_coeff
+        if anchor_policy_reverse_kl is not NotProvided:
+            self.anchor_policy_reverse_kl = anchor_policy_reverse_kl
 
 
 class MbagPPO(PPO, KLRegularizationMixin):
