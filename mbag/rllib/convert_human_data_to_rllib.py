@@ -12,7 +12,11 @@ from mbag.environment.config import DEFAULT_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
 
-from .human_data import convert_episode_info_to_sample_batch, load_episode_info
+from .human_data import (
+    convert_episode_info_to_sample_batch,
+    load_episode_info,
+    repair_missing_player_locations,
+)
 
 ex = Experiment()
 
@@ -43,7 +47,7 @@ def sacred_config():
     experiment_name += (
         f"_place_wrong_reward_{place_wrong_reward}" if place_wrong_reward != 0 else ""
     )
-    experiment_name += f"_player_{'_'.join(map(str, player_indices))}"
+    experiment_name += f"_repaired_player_{'_'.join(map(str, player_indices))}"
     out_dir = os.path.join(data_dir, experiment_name)  # noqa: F841
 
 
@@ -88,6 +92,11 @@ def main(  # noqa: C901
         except Exception:
             _log.exception(f"failed to read {episode_fname}")
             continue
+
+        _log.info(f"repairing missing player locations if necessary...")
+        episode_info = repair_missing_player_locations(
+            episode_info, mbag_config=mbag_config
+        )
 
         assert episode_fname[: len(data_dir)] == data_dir
         episode_dir = os.path.dirname(episode_fname)[len(data_dir) :].lstrip(

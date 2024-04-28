@@ -1,3 +1,5 @@
+import copy
+import random
 from typing import cast
 
 import numpy as np
@@ -10,11 +12,13 @@ from ray.tune.registry import ENV_CREATOR, _global_registry
 import mbag.rllib  # noqa: F401
 from mbag.environment.actions import MbagAction
 from mbag.environment.mbag_env import MbagConfigDict
+from mbag.environment.types import CURRENT_PLAYER, NO_ONE, PLAYER_LOCATIONS
 from mbag.rllib.convert_human_data_to_rllib import ex as convert_human_data_to_rllib_ex
 from mbag.rllib.human_data import (
     PARTICIPANT_ID,
     convert_episode_info_to_sample_batch,
     load_episode_info,
+    repair_missing_player_locations,
 )
 
 TUTORIAL_BC_CHECKPOINT = (
@@ -115,6 +119,28 @@ def test_convert_episode_info_to_sample_batch():
         sample_batch_with_noops[SampleBatch.ACTIONS][not_noop],
         sample_batch_no_noops[SampleBatch.ACTIONS],
     )
+
+
+@pytest.mark.timeout(30)
+def test_repair_missing_player_locations():
+    episode_info = load_episode_info(
+        "data/human_data/sample_tutorial/participant_1/2023-07-18_15-41-19/1/episode.zip"
+    )
+    timesteps_to_remove = random.sample(range(1, episode_info.length), 30)
+    episode_info_with_missing_player_locations = copy.deepcopy(episode_info)
+    for t in timesteps_to_remove:
+        player_locations = episode_info_with_missing_player_locations.obs_history[t][0][
+            0
+        ][PLAYER_LOCATIONS]
+        player_locations[player_locations == CURRENT_PLAYER] = NO_ONE
+
+    repaired_episode_info = repair_missing_player_locations(
+        episode_info_with_missing_player_locations
+    )
+    for t in timesteps_to_remove:
+        world_obs, _, _ = repaired_episode_info.obs_history[t][0]
+        expected_world_obs, _, _ = episode_info.obs_history[t][0]
+        np.testing.assert_array_equal(world_obs, expected_world_obs)
 
 
 @pytest.mark.timeout(30)

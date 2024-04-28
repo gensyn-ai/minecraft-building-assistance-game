@@ -1,3 +1,4 @@
+import copy
 import random
 import zipfile
 from datetime import datetime, timedelta
@@ -12,7 +13,7 @@ from mbag.compatibility_utils import OldHumanDataUnpickler
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import DEFAULT_CONFIG, MbagConfigDict
-from mbag.environment.types import GOAL_BLOCKS
+from mbag.environment.types import CURRENT_PLAYER, GOAL_BLOCKS, PLAYER_LOCATIONS
 from mbag.evaluation.evaluator import EpisodeInfo
 
 PARTICIPANT_ID = "participant_id"
@@ -163,3 +164,68 @@ def convert_episode_info_to_sample_batch(
             )
             t += 1
     return sample_batch_builder.build_and_reset()
+
+
+def repair_missing_player_locations(
+    episode_info: EpisodeInfo,
+    *,
+    mbag_config: Optional[MbagConfigDict] = None,
+) -> EpisodeInfo:
+    """
+    In some of the human data, the observations seem to be missing the current player's
+    location. This function tries to repair the missing locations by using the
+    previous locations combined with the actions taken by the player.
+    """
+
+    repaired_episode_info = copy.deepcopy(episode_info)
+
+    if mbag_config is None:
+        mbag_config = episode_info.env_config
+    width, height, depth = mbag_config["world_size"]
+    num_players = mbag_config.get("num_players", len(episode_info.obs_history[0]))
+
+    for player_index in range(num_players):
+        prev_world_obs, _, _ = repaired_episode_info.obs_history[0][player_index]
+        if not np.any(prev_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER):
+            raise ValueError(
+                f"Player {player_index} location is missing in the first observation"
+            )
+
+        for t in range(1, episode_info.length):
+            world_obs, _, _ = repaired_episode_info.obs_history[t][player_index]
+            prev_action = repaired_episode_info.info_history[t - 1][player_index][
+                "action"
+            ]
+
+            if np.any(world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER):
+                pass  # The player location is already present in the observation.
+            else:
+                prev_xs, prev_ys, prev_zs = np.where(
+                    prev_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER
+                )
+                (prev_x,) = set(prev_xs)
+                (prev_z,) = set(prev_zs)
+                prev_y = np.min(prev_ys)
+
+                x, y, z = prev_x, prev_y, prev_z
+                if prev_action.action_type == MbagAction.MOVE_POS_X:
+                    x += 1
+                elif prev_action.action_type == MbagAction.MOVE_NEG_X:
+                    x -= 1
+                elif prev_action.action_type == MbagAction.MOVE_POS_Y:
+                    y += 1
+                elif prev_action.action_type == MbagAction.MOVE_NEG_Y:
+                    y -= 1
+                elif prev_action.action_type == MbagAction.MOVE_POS_Z:
+                    z += 1
+                elif prev_action.action_type == MbagAction.MOVE_NEG_Z:
+                    z -= 1
+
+                assert 0 <= x < width and 0 <= y < height and 0 <= z < depth
+                world_obs[PLAYER_LOCATIONS, x, y, z] = CURRENT_PLAYER
+                if y + 1 < height:
+                    world_obs[PLAYER_LOCATIONS, x, y + 1, z] = CURRENT_PLAYER
+
+            prev_world_obs = world_obs
+
+    return repaired_episode_info
