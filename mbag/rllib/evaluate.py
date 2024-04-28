@@ -180,6 +180,7 @@ def main(  # noqa: C901
     evaluator = MbagEvaluator(
         env_config,
         agent_configs,
+        return_on_exception=True,
     )
 
     episode_infos: List[EpisodeInfo] = []
