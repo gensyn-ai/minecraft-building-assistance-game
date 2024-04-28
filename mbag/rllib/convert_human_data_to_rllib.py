@@ -93,7 +93,7 @@ def main(  # noqa: C901
             _log.exception(f"failed to read {episode_fname}")
             continue
 
-        _log.info(f"repairing missing player locations if necessary...")
+        _log.info("repairing missing player locations if necessary...")
         episode_info = repair_missing_player_locations(
             episode_info, mbag_config=mbag_config
         )
