@@ -14,6 +14,7 @@ from typing import (
 
 import numpy as np
 import torch
+from gymnasium import spaces
 from ray.rllib.algorithms.algorithm import Algorithm, AlgorithmConfig
 from ray.rllib.evaluation import Episode
 from ray.rllib.evaluation.postprocessing import Postprocessing, discount_cumsum
@@ -26,6 +27,7 @@ from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.rnn_sequencing import pad_batch_to_sequences_of_same_size
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch, concat_samples
+from ray.rllib.policy.torch_mixins import LearningRateSchedule
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.from_config import NotProvided
@@ -64,7 +66,7 @@ class BCTorchLossesAndStats(NamedTuple):
     vf_explained_var: torch.Tensor
 
 
-class BCTorchPolicy(TorchPolicy):
+class BCTorchPolicy(LearningRateSchedule, TorchPolicy):
     def __init__(self, observation_space, action_space, config):
         TorchPolicy.__init__(
             self,
@@ -73,11 +75,14 @@ class BCTorchPolicy(TorchPolicy):
             config,
             max_seq_len=config["model"]["max_seq_len"],
         )
+        LearningRateSchedule.__init__(self, config["lr"], config.get("lr_schedule"))
 
         self._initialize_loss_from_dummy_batch()
 
         # Needed for training AlphaZero assistants with BC policy.
-        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
+        self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement(
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=(action_space.n,))
+        )
 
     def _get_losses_and_stats(
         self,
@@ -174,6 +179,7 @@ class BCTorchPolicy(TorchPolicy):
                         cast(List[torch.Tensor], self.get_tower_stats(stat_key))
                     )
                 )
+        stats["lr"] = self.cur_lr
         return cast(Dict[str, TensorType], convert_to_numpy(stats))
 
     def postprocess_trajectory(
@@ -230,6 +236,7 @@ class BCConfig(AlgorithmConfig):
     def __init__(self, algo_class=None):
         super().__init__(algo_class)
 
+        self.lr_schedule = None
         self.sgd_minibatch_size = 128
         self.num_sgd_iter = 30
         self.validation_participant_ids: Collection[int] = []
@@ -244,6 +251,7 @@ class BCConfig(AlgorithmConfig):
     def training(
         self,
         *args,
+        lr_schedule=NotProvided,
         sgd_minibatch_size=NotProvided,
         num_sgd_iter=NotProvided,
         entropy_coeff=NotProvided,
@@ -261,6 +269,8 @@ class BCConfig(AlgorithmConfig):
 
         super().training(*args, **kwargs)
 
+        if lr_schedule is not NotProvided:
+            self.lr_schedule = lr_schedule
         if sgd_minibatch_size is not NotProvided:
             self.sgd_minibatch_size = sgd_minibatch_size
         if num_sgd_iter is not NotProvided:

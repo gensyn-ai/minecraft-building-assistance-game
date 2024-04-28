@@ -708,6 +708,7 @@ def sacred_config(_log):  # noqa
         assert isinstance(config, BCConfig)
         config.training(
             lr=lr,
+            lr_schedule=convert_dogmatics_to_standard(lr_schedule),
             gamma=gamma,
             train_batch_size=train_batch_size,
             sgd_minibatch_size=sgd_minibatch_size,
