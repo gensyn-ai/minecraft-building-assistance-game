@@ -62,6 +62,7 @@ class MinecraftBlocks(object):
     NAME2ID: Dict[str, int] = {
         **{block_name: block_id for block_id, block_name in enumerate(ID2NAME)},
         # Alias names:
+        "barrier": 1,
         "grass": 2,
         "auto": 255,
     }
