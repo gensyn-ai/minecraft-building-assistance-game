@@ -716,7 +716,9 @@ def sacred_config(_log):  # noqa
             grad_clip=grad_clip,
             entropy_coeff=entropy_coeff_start,
             vf_loss_coeff=vf_loss_coeff,
-            validation_participant_ids=validation_participant_ids,
+            validation_participant_ids=convert_dogmatics_to_standard(
+                validation_participant_ids
+            ),
         )
 
         if permute_block_types:

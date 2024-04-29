@@ -51,6 +51,7 @@ from ray.rllib.utils.typing import (
     TensorType,
 )
 from ray.tune.registry import register_trainable
+from torch import nn
 
 from .human_data import PARTICIPANT_ID
 from .torch_models import MbagTorchModel
@@ -215,6 +216,9 @@ class BCTorchPolicy(LearningRateSchedule, TorchPolicy):
                 batch_divisibility_req=self.batch_divisibility_req,
                 view_requirements=self.view_requirements,
             )
+
+        assert isinstance(self.model, nn.Module)
+        self.model.eval()
 
         validation_batch.set_training(False)
         self._lazy_tensor_dict(validation_batch, device=self.devices[0])
