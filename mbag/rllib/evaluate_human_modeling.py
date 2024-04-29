@@ -139,6 +139,10 @@ def main(  # noqa: C901
             ).copy()
             assert len(minibatch) <= minibatch_size
             minibatch.decompress_if_needed()
+
+            actions = torch.tensor(minibatch[SampleBatch.ACTIONS])
+            del minibatch[SampleBatch.ACTIONS]
+
             for state_piece_index, state_piece in enumerate(state_in):
                 minibatch[f"state_in_{state_piece_index}"] = state_piece[None]
             minibatch[SampleBatch.SEQ_LENS] = np.array([len(minibatch)])
@@ -159,6 +163,7 @@ def main(  # noqa: C901
             action_dist_inputs = torch.tensor(
                 extra_fetches[SampleBatch.ACTION_DIST_INPUTS]
             )
+
             assert policy.dist_class is not None
             assert issubclass(policy.dist_class, TorchDistributionWrapper)
             assert isinstance(policy.model, TorchModelV2)
@@ -166,9 +171,7 @@ def main(  # noqa: C901
                 action_dist_inputs,  # type: ignore[arg-type]
                 policy.model,
             )
-            actions = torch.tensor(minibatch[SampleBatch.ACTIONS]).to(
-                action_dist_inputs.device
-            )
+            actions = actions.to(action_dist_inputs.device)
             correct_batches.append(
                 (actions == action_dist.deterministic_sample()).detach().cpu().numpy()
             )
