@@ -21,6 +21,7 @@ def test_env_model_termination():
         env = create_mbag_env_model(config)
         obs, info = env.reset()
         agent = LowestBlockAgent({}, config)
+        agent.reset()
 
         for timestep in range(100):
             action = agent.get_action(obs)

@@ -49,7 +49,8 @@ class LayerBuilderAgent(MbagAgent):
 
     current_layer: int
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.current_layer = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
@@ -109,7 +110,8 @@ class PriorityQueueAgent(MbagAgent):
     seeding: bool  # Whether blocks have been placed yet
     block_frontier: list  # PQ to store blocks and their layers
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.block_frontier = []
         self.seeding = False
 
@@ -301,7 +303,8 @@ class MirrorBuildingAgent(MbagAgent):
 
     prev_blocks = None
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.prev_blocks = None
 
     def _mirror_placed_blocks(self, blocks: np.ndarray) -> np.ndarray:

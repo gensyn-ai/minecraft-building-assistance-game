@@ -20,7 +20,7 @@ ex = Experiment()
 @ex.config
 def sacred_config():
     evaluate_dir = ""
-    out_fname = os.path.join(evaluate_dir, "metrics.json")  # noqa: F401
+    out_fname = os.path.join(evaluate_dir, "metrics.json")  # noqa: F841
 
 
 @ex.automain

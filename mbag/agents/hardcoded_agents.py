@@ -15,7 +15,8 @@ class HardcodedBuilderAgent(MbagAgent):
 
     current_command: int
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
@@ -143,7 +144,8 @@ class HardcodedResourceAgent(MbagAgent):
 
     current_command: int
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
@@ -303,7 +305,8 @@ class HardcodedInventoryDonator(MbagAgent):
 
     current_command: int
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
@@ -402,7 +405,8 @@ class HardcodedInventoryReceiver(MbagAgent):
 
     current_command: int
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
@@ -544,7 +548,8 @@ class HardcodedHumanAgent(MbagAgent):
 
     current_command: int
 
-    def reset(self):
+    def reset(self, **kwargs):
+        super().reset(**kwargs)
         self.current_command = 0
 
     def get_action(self, obs: MbagObs) -> MbagActionTuple:
