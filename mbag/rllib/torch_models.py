@@ -29,6 +29,7 @@ from mbag.environment.types import (
     CURRENT_PLAYER,
     GOAL_BLOCKS,
     LAST_INTERACTED,
+    NO_ONE,
     PLAYER_LOCATIONS,
 )
 
@@ -311,9 +312,9 @@ class MbagTorchModel(ActorCriticModel):
             embedded_goal_blocks = self.block_id_embedding(world_obs[:, GOAL_BLOCKS])
             embedded_obs_pieces.append(embedded_goal_blocks)
 
-        player_locations = world_obs[:, PLAYER_LOCATIONS]
+        player_locations = world_obs[:, PLAYER_LOCATIONS].clone()
         if self.mask_other_players:
-            player_locations = player_locations.clamp(max=CURRENT_PLAYER)
+            player_locations[player_locations != CURRENT_PLAYER] = NO_ONE
 
         embedded_player_locations = self.player_id_embedding(player_locations)
         embedded_obs_pieces.append(embedded_player_locations)
@@ -340,8 +341,13 @@ class MbagTorchModel(ActorCriticModel):
             embedded_obs_pieces.append(
                 (world_obs[:, 0] == world_obs[:, 2]).float()[..., None]
             )
-        last_interacted = self.player_id_embedding(world_obs[:, LAST_INTERACTED])
-        embedded_obs_pieces.append(last_interacted)
+
+        last_interacted = world_obs[:, LAST_INTERACTED].clone()
+        if self.mask_other_players:
+            last_interacted[last_interacted > CURRENT_PLAYER] = CURRENT_PLAYER
+        embedded_last_interacted = self.player_id_embedding(last_interacted)
+
+        embedded_obs_pieces.append(embedded_last_interacted)
         embedded_obs = torch.cat(embedded_obs_pieces, dim=-1)
 
         return embedded_obs.permute(0, 4, 1, 2, 3)
