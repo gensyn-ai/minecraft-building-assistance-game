@@ -644,7 +644,7 @@ def test_distill(default_config, default_bc_config, dummy_ppo_checkpoint_fname):
     rollout_result = rollout_ex.run(
         config_updates={
             "run": "MbagPPO",
-            "episodes": 10,
+            "num_episodes": 10,
             "num_workers": 1,
             "checkpoint": dummy_ppo_checkpoint_fname,
             "policy_ids": ["human"],
@@ -713,7 +713,7 @@ def test_pikl(default_config, default_bc_config):
     pikl_result = rollout_ex.run(
         config_updates={
             "run": "MbagAlphaZero",
-            "episodes": 1,
+            "num_episodes": 1,
             "num_workers": 1,
             "checkpoint": alpha_zero_checkpoint,
             "extra_config_updates": {

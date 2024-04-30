@@ -1,16 +1,12 @@
 import copy
-import json
 import logging
 import traceback
-from dataclasses import dataclass
-from typing import Any, List, Tuple, Type
-
-import numpy as np
+from typing import Any, List, Optional, Tuple, Type
 
 from mbag.agents.mbag_agent import MbagAgent
-from mbag.environment.actions import MbagAction, MbagActionTuple
+from mbag.environment.actions import MbagActionTuple
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.environment.types import MbagInfoDict, MbagObs
+from mbag.environment.types import MbagInfoDict
 
 from .episode import MbagEpisode
 
@@ -52,13 +48,13 @@ class MbagEvaluator(object):
         self.force_get_set_state = force_get_set_state
         self.return_on_exception = return_on_exception
 
-    def rollout(self) -> MbagEpisode:
+    def rollout(self, *, agent_seed: Optional[int] = None) -> MbagEpisode:
         """
         Run a single episode.
         """
 
         for agent in self.agents:
-            agent.reset()
+            agent.reset(seed=agent_seed)
         all_obs, all_infos = self.env.reset()
         previous_infos = all_infos
         done = False

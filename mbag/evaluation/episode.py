@@ -4,9 +4,9 @@ from typing import List
 
 import numpy as np
 
+from mbag.environment.actions import MbagAction
 from mbag.environment.config import MbagConfigDict
 from mbag.environment.types import MbagInfoDict, MbagObs
-from mbag.environment.actions import MbagAction
 
 
 @dataclass

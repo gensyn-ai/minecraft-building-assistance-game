@@ -23,13 +23,13 @@ class MbagAgent(ABC):
         self.env_config = MbagEnv.get_config(env_config)
         self.action_mapping = MbagActionDistribution.get_action_mapping(self.env_config)
 
-    def reset(self) -> None:
+    def reset(self, *, seed: Optional[int] = None) -> None:
         """
         This method is called whenever a new episode starts; it can be used to clear
         internal state or otherwise prepare for a new episode.
         """
 
-        pass
+        self.rng = np.random.default_rng(seed=seed)
 
     def get_action_distribution(self, obs: MbagObs) -> np.ndarray:
         """
@@ -51,7 +51,7 @@ class MbagAgent(ABC):
         flat_action_distribution = MbagActionDistribution.to_flat(
             self.env_config, action_distribution[None]
         )[0]
-        flat_action = np.argmax(np.random.multinomial(1, flat_action_distribution))
+        flat_action = np.argmax(self.rng.multinomial(1, flat_action_distribution))
         action_tuple: MbagActionTuple = cast(
             MbagActionTuple, tuple(self.action_mapping[flat_action])
         )

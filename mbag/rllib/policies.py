@@ -34,13 +34,14 @@ class MbagAgentPolicy(Policy):
     ):
         super().__init__(observation_space, action_space, config)
         self.agent = config["mbag_agent"]
+        self.force_seed: Optional[int] = config.get("force_seed", None)
         self.exploration = self._create_exploration()
         self.flat_actions = isinstance(self.action_space, spaces.Discrete)
 
         self.view_requirements[SampleBatch.ACTION_DIST_INPUTS] = ViewRequirement()
 
     def get_initial_state(self):
-        self.agent.reset()
+        self.agent.reset(seed=self.force_seed)
         return self.agent.get_state()
 
     def compute_actions(

@@ -67,7 +67,11 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         )
 
     def _initialize_episode_metrics_if_necessary(
-        self, episode: Union[Episode, EpisodeV2], policy_id: PolicyID
+        self,
+        episode: Union[Episode, EpisodeV2],
+        base_env: BaseEnv,
+        env_index: Optional[int],
+        policy_id: PolicyID,
     ) -> None:
         for valid_action_type in episode.user_data["valid_actions"]:
             action_type_name = MbagAction.ACTION_TYPE_NAMES[valid_action_type]
@@ -86,9 +90,13 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         episode.custom_metrics.setdefault(f"{policy_id}/own_reward", 0)
         episode.custom_metrics.setdefault(f"{policy_id}/goal_dependent_reward", 0)
         episode.custom_metrics.setdefault(f"{policy_id}/goal_independent_reward", 0)
-        episode.custom_metrics.setdefault(
-            f"{policy_id}/num_{MBAG_ACTION_BREAK_PALETTE_NAME}", 0
-        )
+
+        env = unwrap_mbag_env(base_env.get_sub_environments()[env_index or 0])
+        width, height, depth = env.config["world_size"]
+        if not env.config["abilities"]["inf_blocks"]:
+            episode.custom_metrics.setdefault(
+                f"{policy_id}/num_{MBAG_ACTION_BREAK_PALETTE_NAME}", 0
+            )
 
     def on_episode_step(
         self,
@@ -108,7 +116,9 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         for player_index, agent_id in enumerate(episode.get_agents()):
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
-            self._initialize_episode_metrics_if_necessary(episode, policy_id)
+            self._initialize_episode_metrics_if_necessary(
+                episode, base_env, env_index, policy_id
+            )
 
             info_dict = cast(MbagInfoDict, self._get_last_info(episode, agent_id))
             episode.custom_metrics[f"{policy_id}/own_reward"] += info_dict["own_reward"]
@@ -191,7 +201,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 "own_reward_prop"
             ]
 
-            action_type_names = [MBAG_ACTION_BREAK_PALETTE_NAME] + [
+            action_type_names = [
                 MbagAction.ACTION_TYPE_NAMES[action_type]
                 for action_type in [
                     MbagAction.BREAK_BLOCK,

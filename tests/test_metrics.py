@@ -1,0 +1,128 @@
+import logging
+import re
+from itertools import product
+from typing import Any, Dict, cast
+
+import numpy as np
+import pytest
+from ray.rllib.policy.policy import PolicySpec
+from ray.rllib.utils.typing import MultiAgentPolicyConfigDict
+from ray.tune.registry import ENV_CREATOR, _global_registry
+
+from mbag.agents.heuristic_agents import RandomAgent
+from mbag.environment.goals.simple import BasicGoalGenerator
+from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
+from mbag.evaluation.evaluator import MbagEvaluator
+from mbag.evaluation.metrics import calculate_metrics
+from mbag.rllib.callbacks import MbagCallbacks
+
+logger = logging.getLogger(__name__)
+
+
+@pytest.mark.timeout(30)
+def test_rllib_heuristic_agents():
+    from ray.rllib.algorithms.pg import PGConfig
+
+    from mbag.rllib.policies import MbagAgentPolicy
+
+    for num_players, teleportation, inf_blocks in product(
+        [1, 2], [True, False], [True, False]
+    ):
+        logger.info(
+            f"testing {num_players} player(s) with "
+            f"teleportation={teleportation}, inf_blocks={inf_blocks}"
+        )
+
+        env_config: MbagConfigDict = MbagEnv.get_config(
+            {
+                "world_size": (8, 8, 8),
+                "num_players": num_players,
+                "players": [{} for _ in range(num_players)],
+                "horizon": 1000,
+                "goal_generator": BasicGoalGenerator,
+                "goal_generator_config": {},
+                "abilities": {
+                    "teleportation": teleportation,
+                    "inf_blocks": inf_blocks,
+                    "flying": True,
+                },
+                "malmo": {
+                    "use_malmo": False,
+                    "use_spectator": False,
+                    "video_dir": None,
+                },
+            }
+        )
+
+        agents = [RandomAgent({}, env_config) for _ in range(num_players)]
+        env_id = "MBAGFlatActions-v1"
+        env = _global_registry.get(ENV_CREATOR, env_id)(env_config)
+
+        policies_config: MultiAgentPolicyConfigDict = {}
+        for player_index in range(num_players):
+            policy_id = f"player_{player_index}"
+            agent_id = policy_id
+            policies_config[policy_id] = PolicySpec(
+                policy_class=MbagAgentPolicy,
+                observation_space=env.observation_space.spaces[agent_id],
+                action_space=env.action_space.spaces[agent_id],
+                config={"mbag_agent": agents[player_index], "force_seed": 0},
+            )
+
+        trainer = (
+            PGConfig()
+            .environment(
+                env_id,
+                env_config=cast(Dict[Any, Any], env_config),
+            )
+            .callbacks(
+                MbagCallbacks,
+            )
+            .rollouts(batch_mode="complete_episodes")
+            .multi_agent(
+                policies=policies_config,
+                policy_mapping_fn=lambda agent_id, *args, **kwargs: agent_id,
+                policies_to_train=[],
+            )
+            .evaluation(
+                evaluation_duration=1,
+                evaluation_duration_unit="episodes",
+            )
+            .framework("torch")
+            .build()
+        )
+
+        evaluation_results = trainer.evaluate()["evaluation"]
+
+        evaluator = MbagEvaluator(
+            env_config,
+            [(RandomAgent, {}) for _ in range(num_players)],
+        )
+        episode = evaluator.rollout(agent_seed=0)
+        metrics = calculate_metrics(episode)
+
+        assert evaluation_results["custom_metrics"]
+
+        for custom_metric_name, metric_value in evaluation_results[
+            "custom_metrics"
+        ].items():
+            if not custom_metric_name.endswith("_mean"):
+                continue
+            metric_name = custom_metric_name[: -len("_mean")]
+
+            if player_metric_match := re.fullmatch(r"player_(\d+)/(.*)", metric_name):
+                player_index_str, player_metric_name = player_metric_match.groups()
+                player_index = int(player_index_str)
+                player_metrics = metrics["player_metrics"][player_index]
+                assert (
+                    np.isnan(player_metrics[player_metric_name])  # type: ignore[literal-required]
+                    and np.isnan(metric_value)
+                ) or player_metrics[
+                    player_metric_name  # type: ignore[literal-required]
+                ] == metric_value
+            else:
+                assert (
+                    np.isnan(metrics[metric_name]) and np.isnan(metric_value)  # type: ignore[literal-required]
+                ) or metrics[
+                    metric_name  # type: ignore[literal-required]
+                ] == metric_value

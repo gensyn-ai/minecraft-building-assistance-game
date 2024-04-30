@@ -40,7 +40,9 @@ class RllibMbagAgent(MbagAgent):
         self.min_action_interval = self.agent_config["min_action_interval"]
         self.action_mapping = MbagActionDistribution.get_action_mapping(self.env_config)
 
-    def reset(self) -> None:
+    def reset(self, **kwargs) -> None:
+        super().reset(**kwargs)
+
         self.state = self.policy.get_initial_state()
         self.last_action_time = None
 

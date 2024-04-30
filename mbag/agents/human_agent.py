@@ -15,11 +15,14 @@ class HumanAgent(MbagAgent):
 
     last_action: Optional[MbagAction]
 
-    def reset(self) -> None:
+    def reset(self, **kwargs) -> None:
         """
         This method is called whenever a new episode starts; it can be used to clear
         internal state or otherwise prepare for a new episode.
         """
+
+        super().reset(**kwargs)
+
         self.last_action = None
 
     def get_action_with_info(
