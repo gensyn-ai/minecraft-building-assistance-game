@@ -5,9 +5,9 @@ import pytest
 
 import mbag.rllib  # noqa: F401
 from mbag.rllib.alpha_zero.mcts import calculate_limiting_mcts_distribution
-from mbag.rllib.evaluate_human_modeling import HumanModelingEvaluationResults
-from mbag.rllib.evaluate_human_modeling import ex as evaluate_human_modeling_ex
-from mbag.rllib.train import ex as train_ex
+from mbag.scripts.evaluate_human_modeling import HumanModelingEvaluationResults
+from mbag.scripts.evaluate_human_modeling import ex as evaluate_human_modeling_ex
+from mbag.scripts.train import ex as train_ex
 
 from .test_train import default_bc_config, default_config  # noqa: F401
 

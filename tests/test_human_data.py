@@ -13,12 +13,14 @@ import mbag.rllib  # noqa: F401
 from mbag.environment.actions import MbagAction
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.environment.types import CURRENT_PLAYER, NO_ONE, PLAYER_LOCATIONS
-from mbag.rllib.convert_human_data_to_rllib import ex as convert_human_data_to_rllib_ex
 from mbag.rllib.human_data import (
     PARTICIPANT_ID,
     convert_episode_info_to_sample_batch,
     load_episode_info,
     repair_missing_player_locations,
+)
+from mbag.scripts.convert_human_data_to_rllib import (
+    ex as convert_human_data_to_rllib_ex,
 )
 
 TUTORIAL_BC_CHECKPOINT = (

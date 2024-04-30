@@ -10,9 +10,9 @@ from ray.rllib.models.catalog import ModelCatalog
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS
-from mbag.rllib.rollout import ex as rollout_ex
 from mbag.rllib.torch_models import MbagTransformerModel
-from mbag.rllib.train import ex
+from mbag.scripts.rollout import ex as rollout_ex
+from mbag.scripts.train import ex
 
 
 @pytest.fixture(scope="session")

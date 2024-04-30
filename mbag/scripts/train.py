@@ -40,20 +40,19 @@ from mbag.environment.goals.transforms import (
     CropLowDensityBottomLayersTransformConfig,
     CropTransformConfig,
 )
-
-from .alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
-from .bc import BCConfig, BCTorchPolicy
-from .callbacks import MbagCallbacks
-from .data_augmentation import randomly_permute_block_types
-from .os_utils import available_cpu_count
-from .policies import MbagAgentPolicy
-from .ppo import MbagPPOConfig, MbagPPOTorchPolicy
-from .sacred_utils import convert_dogmatics_to_standard
-from .torch_models import (
+from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
+from mbag.rllib.bc import BCConfig, BCTorchPolicy
+from mbag.rllib.callbacks import MbagCallbacks
+from mbag.rllib.data_augmentation import randomly_permute_block_types
+from mbag.rllib.os_utils import available_cpu_count
+from mbag.rllib.policies import MbagAgentPolicy
+from mbag.rllib.ppo import MbagPPOConfig, MbagPPOTorchPolicy
+from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
+from mbag.rllib.torch_models import (
     MbagRecurrentConvolutionalModelConfig,
     MbagTransformerModelConfig,
 )
-from .training_utils import (
+from mbag.rllib.training_utils import (
     build_logger_creator,
     load_policies_from_checkpoint,
     load_trainer_config,

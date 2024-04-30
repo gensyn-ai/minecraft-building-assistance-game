@@ -19,9 +19,8 @@ from ray.tune.utils.util import SafeFallbackEncoder
 from sacred import SETTINGS, Experiment
 
 import mbag
-
-from .os_utils import available_cpu_count
-from .training_utils import load_trainer
+from mbag.rllib.os_utils import available_cpu_count
+from mbag.rllib.training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 

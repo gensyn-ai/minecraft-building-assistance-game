@@ -11,8 +11,7 @@ from mbag.compatibility_utils import convert_old_config_to_new
 from mbag.environment.config import DEFAULT_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
 from mbag.evaluation.evaluator import EpisodeInfo
-
-from .human_data import (
+from mbag.rllib.human_data import (
     convert_episode_info_to_sample_batch,
     load_episode_info,
     repair_missing_player_locations,

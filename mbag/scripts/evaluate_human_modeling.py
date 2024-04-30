@@ -19,12 +19,11 @@ from sacred import SETTINGS, Experiment
 from sacred.observers import FileStorageObserver
 
 import mbag
-
-from .alpha_zero import MbagAlphaZeroPolicy
-from .human_data import EPISODE_DIR, PARTICIPANT_ID
-from .os_utils import available_cpu_count
-from .torch_models import MbagTorchModel
-from .training_utils import load_trainer
+from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
+from mbag.rllib.human_data import EPISODE_DIR, PARTICIPANT_ID
+from mbag.rllib.os_utils import available_cpu_count
+from mbag.rllib.torch_models import MbagTorchModel
+from mbag.rllib.training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 SETTINGS.CONFIG
