@@ -405,6 +405,19 @@ class BC(Algorithm):
                 episode_vf_targets
             )
 
+            # If the policy is recurrent, add initial state.
+            policy = self.get_policy(policy_id)
+            for state_index, initial_state in enumerate(policy.get_initial_state()):
+                assert SampleBatch.SEQ_LENS in policy_batch
+                num_seqs = len(policy_batch[SampleBatch.SEQ_LENS])
+                policy_batch[f"state_in_{state_index}"] = np.repeat(
+                    initial_state[None], num_seqs, axis=0
+                )
+
+            # If the policy isn't recurrent, remove seq_lens.
+            if not policy.get_initial_state() and SampleBatch.SEQ_LENS in policy_batch:
+                del policy_batch[SampleBatch.SEQ_LENS]
+
         train_batch, val_batch = self._split_training_and_validation_data(train_batch)
 
         with self._timers["data_augmentation"]:

@@ -639,6 +639,40 @@ def test_bc_with_data_augmentation(default_config, default_bc_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(120)
+def test_distill(default_config, default_bc_config, dummy_ppo_checkpoint_fname):
+    rollout_result = rollout_ex.run(
+        config_updates={
+            "run": "MbagPPO",
+            "episodes": 10,
+            "num_workers": 1,
+            "checkpoint": dummy_ppo_checkpoint_fname,
+            "policy_ids": ["human"],
+            "save_samples": True,
+            "save_as_sequences": True,
+            "max_seq_len": 5,
+        }
+    ).result
+    assert rollout_result is not None
+    rollout_dir = rollout_result["out_dir"]
+
+    for use_lstm in [False, True]:
+        bc_result = ex.run(
+            config_updates={
+                **default_config,
+                **default_bc_config,
+                "input": rollout_dir,
+                "mask_goal": True,
+                "use_extra_features": False,
+                "use_per_location_lstm": use_lstm,
+                "max_seq_len": 5,
+                "sgd_minibatch_size": 10,
+            }
+        ).result
+        assert bc_result is not None
+
+
+@pytest.mark.uses_rllib
 @pytest.mark.timeout(60)
 def test_pikl(default_config, default_bc_config):
     env_configs = {

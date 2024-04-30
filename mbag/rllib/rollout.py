@@ -1,5 +1,7 @@
+import faulthandler
 import json
 import os
+import signal
 from datetime import datetime
 from logging import Logger
 from typing import List, Optional
@@ -23,6 +25,9 @@ from .training_utils import load_trainer
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
+# Useful for debugging.
+faulthandler.register(signal.SIGUSR1)
+
 
 ex = Experiment("rollout")
 
@@ -37,6 +42,9 @@ def sacred_config():
     player_names = policy_ids  # noqa: F841
     seed = 0
     save_samples = False  # noqa: F841
+
+    save_as_sequences = False  # noqa: F841
+    max_seq_len = 20  # noqa: F841
 
     experiment_tag = None
     if experiment_tag is not None:
@@ -64,11 +72,11 @@ def sacred_config():
     record_video = False  # noqa: F841
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    out_dir_name = "rollouts_"
     if experiment_name:
-        experiment_name += "_"
-    out_dir = os.path.join(  # noqa: F841
-        checkpoint, f"rollouts_{experiment_name}{time_str}"
-    )
+        out_dir_name += f"{experiment_name}_"
+    out_dir_name += time_str
+    out_dir = os.path.join(checkpoint, out_dir_name)  # noqa: F841
 
 
 @ex.automain
@@ -83,6 +91,8 @@ def main(
     record_video: bool,
     out_dir: str,
     save_samples: bool,
+    save_as_sequences: bool,
+    max_seq_len: int,
     _log: Logger,
 ):
     ray.init(
@@ -141,7 +151,6 @@ def main(
     evaluation_workers: Optional[WorkerSet] = trainer.evaluation_workers
 
     if evaluation_workers is not None:
-        # Remove the action_dist_inputs view requirement since it results in massive
         # (multi-gigabyte) JSON rollout files.
         def remove_action_dist_inputs_view_requirement(
             policy: Policy, policy_id: PolicyID
@@ -150,6 +159,18 @@ def main(
                 del policy.view_requirements[SampleBatch.ACTION_DIST_INPUTS]
 
         evaluation_workers.foreach_policy(remove_action_dist_inputs_view_requirement)
+
+    if save_as_sequences and evaluation_workers is not None:
+
+        def set_is_recurrent(
+            policy: Policy,
+            policy_id: PolicyID,
+            **kwargs,
+        ):
+            policy.is_recurrent = lambda: True  # type: ignore[method-assign]
+            policy.config.setdefault("model", {})["max_seq_len"] = max_seq_len
+
+        evaluation_workers.foreach_policy(set_is_recurrent)
 
     gym.logger.set_level(gym.logger.INFO)
 
@@ -165,4 +186,5 @@ def main(
     with open(result_fname, "w") as result_file:
         json.dump(eval_result, result_file, cls=SafeFallbackEncoder)
 
+    eval_result["out_dir"] = out_dir
     return eval_result
