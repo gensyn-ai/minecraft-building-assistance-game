@@ -12,6 +12,8 @@ from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.environment.types import MbagInfoDict, MbagObs
 
+from .episode import MbagEpisode
+
 logger = logging.getLogger(__name__)
 
 MbagAgentConfig = Tuple[Type[MbagAgent], Any]
@@ -20,38 +22,7 @@ An MbagAgent subclass together with the agent config for that agent.
 """
 
 
-@dataclass
-class EpisodeInfo:
-    env_config: MbagConfigDict
-    reward_history: List[float]
-    cumulative_reward: float
-    length: int
-    obs_history: List[List[MbagObs]]
-    last_obs: List[MbagObs]
-    info_history: List[List[MbagInfoDict]]
-    last_infos: List[MbagInfoDict]
-
-    def to_json(self) -> dict:
-        return {
-            "cumulative_reward": self.cumulative_reward,
-            "length": self.length,
-            "last_infos": self.last_infos,
-        }
-
-
-class EpisodeInfoJSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        if isinstance(obj, MbagAction):
-            return obj.to_tuple()
-        return super().default(obj)
+EpisodeInfo = MbagEpisode  # For backwards compatibility.
 
 
 class MbagEvaluator(object):
@@ -81,10 +52,11 @@ class MbagEvaluator(object):
         self.force_get_set_state = force_get_set_state
         self.return_on_exception = return_on_exception
 
-    def rollout(self) -> EpisodeInfo:
+    def rollout(self) -> MbagEpisode:
         """
-        Run a single episode, returning the cumulative reward.
+        Run a single episode.
         """
+
         for agent in self.agents:
             agent.reset()
         all_obs, all_infos = self.env.reset()
@@ -136,7 +108,7 @@ class MbagEvaluator(object):
         if self.env.config["malmo"]["use_malmo"]:
             self.env.malmo_interface.end_episode()
 
-        episode_info = EpisodeInfo(
+        episode_info = MbagEpisode(
             env_config=copy.deepcopy(self.env.config),
             reward_history=reward_history,
             cumulative_reward=sum(reward_history),

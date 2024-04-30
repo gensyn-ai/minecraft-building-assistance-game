@@ -10,10 +10,10 @@ from sacred import Experiment
 from mbag.compatibility_utils import convert_old_config_to_new
 from mbag.environment.config import DEFAULT_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
-from mbag.evaluation.evaluator import EpisodeInfo
+from mbag.evaluation.episode import MbagEpisode
 from mbag.rllib.human_data import (
-    convert_episode_info_to_sample_batch,
-    load_episode_info,
+    convert_episode_to_sample_batch,
+    load_episode,
     repair_missing_player_locations,
 )
 
@@ -73,12 +73,12 @@ def main(  # noqa: C901
     inventory_player_indices: List[int],
     _log: logging.Logger,
 ):
-    episode_info: EpisodeInfo
+    episode: MbagEpisode
 
     if load_mbag_config_from is not None:
         _log.info(f"loading environment config from {load_mbag_config_from}...")
-        episode_info = load_episode_info(load_mbag_config_from)
-        mbag_config = episode_info.env_config
+        episode = load_episode(load_mbag_config_from)
+        mbag_config = episode.env_config
 
     episode_fnames = glob.glob(
         os.path.join(data_dir, "**", "episode.pkl"), recursive=True
@@ -94,15 +94,13 @@ def main(  # noqa: C901
     for episode_fname in sorted(episode_fnames):
         try:
             _log.info(f"reading {episode_fname}...")
-            episode_info = load_episode_info(episode_fname)
+            episode = load_episode(episode_fname)
         except Exception:
             _log.exception(f"failed to read {episode_fname}")
             continue
 
         _log.info("repairing missing player locations if necessary...")
-        episode_info = repair_missing_player_locations(
-            episode_info, mbag_config=mbag_config
-        )
+        episode = repair_missing_player_locations(episode, mbag_config=mbag_config)
 
         assert episode_fname[: len(data_dir)] == data_dir
         episode_dir = os.path.dirname(episode_fname)[len(data_dir) :].lstrip(
@@ -114,9 +112,9 @@ def main(  # noqa: C901
                 participant_id = int(path_part[len("participant_") :])
                 break
 
-        if hasattr(episode_info, "env_config"):
+        if hasattr(episode, "env_config"):
             _log.info("using env config from EpisodeInfo")
-            mbag_config = episode_info.env_config
+            mbag_config = episode.env_config
 
         mbag_config = convert_old_config_to_new(mbag_config)
 
@@ -128,8 +126,8 @@ def main(  # noqa: C901
 
         for player_index in player_indices:
             _log.info(f"converting to RLlib format for player {player_index}...")
-            sample_batch = convert_episode_info_to_sample_batch(
-                episode_info,
+            sample_batch = convert_episode_to_sample_batch(
+                episode,
                 player_index=player_index,
                 inventory_player_indices=inventory_player_indices,
                 participant_id=participant_id,
@@ -154,13 +152,13 @@ def main(  # noqa: C901
                 total_reward,
             )
             if place_wrong_reward == 0:
-                if total_reward != episode_info.cumulative_reward:
+                if total_reward != episode.cumulative_reward:
                     _log.error(
                         "total reward mismatch: %.1f != %.1f",
                         total_reward,
-                        episode_info.cumulative_reward,
+                        episode.cumulative_reward,
                     )
-                assert total_reward == episode_info.cumulative_reward
+                assert total_reward == episode.cumulative_reward
             _log.info("saving trajectory...")
             json_writer.write(sample_batch)
 

@@ -35,7 +35,7 @@ ex = Experiment("rollout")
 def sacred_config():
     run = "MbagPPO"  # noqa: F841
     checkpoint = ""  # noqa: F841
-    episodes = 100  # noqa: F841
+    num_episodes = 100  # noqa: F841
     experiment_name = ""  # noqa: F841
     policy_ids: Optional[List[str]] = None  # noqa: F841
     player_names = policy_ids  # noqa: F841
@@ -56,7 +56,7 @@ def sacred_config():
         "num_workers": 0,
         "evaluation_num_workers": num_workers,
         "create_env_on_local_worker": True,
-        "evaluation_duration": episodes,
+        "evaluation_duration": num_episodes,
         "evaluation_duration_unit": "episodes",
         "output_max_file_size": output_max_file_size,
         "evaluation_config": {},

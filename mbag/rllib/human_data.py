@@ -14,29 +14,27 @@ from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import DEFAULT_CONFIG, MbagConfigDict
 from mbag.environment.types import CURRENT_PLAYER, GOAL_BLOCKS, PLAYER_LOCATIONS
-from mbag.evaluation.evaluator import EpisodeInfo
+from mbag.evaluation.episode import MbagEpisode
 
 PARTICIPANT_ID = "participant_id"
 EPISODE_DIR = "episode_dir"
 
 
-def load_episode_info(episode_fname: str) -> EpisodeInfo:
+def load_episode(episode_fname: str) -> MbagEpisode:
     if episode_fname.endswith(".zip"):
         with zipfile.ZipFile(episode_fname, "r") as zip_file:
             with zip_file.open("episode.pkl", "r") as episode_file:
-                episode_info = OldHumanDataUnpickler(episode_file).load()
+                episode = OldHumanDataUnpickler(episode_file).load()
     else:
         with open(episode_fname, "rb") as episode_file:
-            episode_info = OldHumanDataUnpickler(episode_file).load()
-    if not isinstance(episode_info, EpisodeInfo):
-        raise ValueError(
-            f"Invalid episode info in {episode_fname} ({type(episode_info)})"
-        )
-    return episode_info
+            episode = OldHumanDataUnpickler(episode_file).load()
+    if not isinstance(episode, MbagEpisode):
+        raise ValueError(f"Invalid episode info in {episode_fname} ({type(episode)})")
+    return episode
 
 
-def convert_episode_info_to_sample_batch(  # noqa: C901
-    episode_info: EpisodeInfo,
+def convert_episode_to_sample_batch(  # noqa: C901
+    episode: MbagEpisode,
     *,
     player_index: int,
     # Players to include in the inventory observations.
@@ -53,7 +51,7 @@ def convert_episode_info_to_sample_batch(  # noqa: C901
     action_delay=DEFAULT_CONFIG["malmo"]["action_delay"],
 ) -> SampleBatch:
     if mbag_config is None:
-        mbag_config = episode_info.env_config
+        mbag_config = episode.env_config
 
     if inventory_player_indices is None:
         inventory_player_indices = range(mbag_config["num_players"])
@@ -68,18 +66,18 @@ def convert_episode_info_to_sample_batch(  # noqa: C901
     intermediate_rewards: float = 0
     prev_action_time: Optional[datetime] = None
     current_time: Optional[datetime] = None
-    for i in range(episode_info.length):
-        obs = episode_info.obs_history[i][player_index]
-        info = episode_info.info_history[i][player_index]
-        reward = episode_info.reward_history[i]
+    for i in range(episode.length):
+        obs = episode.obs_history[i][player_index]
+        info = episode.info_history[i][player_index]
+        reward = episode.reward_history[i]
         if offset_rewards:
-            reward = episode_info.reward_history[i + 1]
+            reward = episode.reward_history[i + 1]
         assert reward == sum(
             info["goal_dependent_reward"] + info["goal_independent_reward"]
-            for info in episode_info.info_history[i]
+            for info in episode.info_history[i]
         )
         action = info["action"]
-        actions = [info["action"] for info in episode_info.info_history[i]]
+        actions = [info["action"] for info in episode.info_history[i]]
         if include_noops_for_other_player_actions:
             not_noop = any(action.action_type != MbagAction.NOOP for action in actions)
         else:
@@ -87,7 +85,7 @@ def convert_episode_info_to_sample_batch(  # noqa: C901
         world_obs = obs[0]
 
         for other_player_index in range(mbag_config["num_players"]):
-            other_info = episode_info.info_history[i][other_player_index]
+            other_info = episode.info_history[i][other_player_index]
             other_action = other_info["action"]
             if (
                 other_action.action_type == MbagAction.PLACE_BLOCK
@@ -129,9 +127,7 @@ def convert_episode_info_to_sample_batch(  # noqa: C901
                 inventory_obs_pieces = [inventory_obs]
                 for other_player_index in inventory_player_indices:
                     if other_player_index != player_index:
-                        other_inventory = episode_info.obs_history[i][
-                            other_player_index
-                        ][1]
+                        other_inventory = episode.obs_history[i][other_player_index][1]
                         inventory_obs_pieces.append(other_inventory)
                 inventory_obs = np.stack(inventory_obs_pieces, axis=0)
             obs = world_obs, inventory_obs, np.array(t)
@@ -185,35 +181,33 @@ def convert_episode_info_to_sample_batch(  # noqa: C901
 
 
 def repair_missing_player_locations(
-    episode_info: EpisodeInfo,
+    episode: MbagEpisode,
     *,
     mbag_config: Optional[MbagConfigDict] = None,
-) -> EpisodeInfo:
+) -> MbagEpisode:
     """
     In some of the human data, the observations seem to be missing the current player's
     location. This function tries to repair the missing locations by using the
     previous locations combined with the actions taken by the player.
     """
 
-    repaired_episode_info = copy.deepcopy(episode_info)
+    repaired_episode = copy.deepcopy(episode)
 
     if mbag_config is None:
-        mbag_config = episode_info.env_config
+        mbag_config = episode.env_config
     width, height, depth = mbag_config["world_size"]
-    num_players = mbag_config.get("num_players", len(episode_info.obs_history[0]))
+    num_players = mbag_config.get("num_players", len(episode.obs_history[0]))
 
     for player_index in range(num_players):
-        prev_world_obs, _, _ = repaired_episode_info.obs_history[0][player_index]
+        prev_world_obs, _, _ = repaired_episode.obs_history[0][player_index]
         if not np.any(prev_world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER):
             raise ValueError(
                 f"Player {player_index} location is missing in the first observation"
             )
 
-        for t in range(1, episode_info.length):
-            world_obs, _, _ = repaired_episode_info.obs_history[t][player_index]
-            prev_action = repaired_episode_info.info_history[t - 1][player_index][
-                "action"
-            ]
+        for t in range(1, episode.length):
+            world_obs, _, _ = repaired_episode.obs_history[t][player_index]
+            prev_action = repaired_episode.info_history[t - 1][player_index]["action"]
 
             if np.any(world_obs[PLAYER_LOCATIONS] == CURRENT_PLAYER):
                 pass  # The player location is already present in the observation.
@@ -246,4 +240,4 @@ def repair_missing_player_locations(
 
             prev_world_obs = world_obs
 
-    return repaired_episode_info
+    return repaired_episode

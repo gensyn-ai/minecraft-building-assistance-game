@@ -20,12 +20,8 @@ from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS, merge_configs
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.evaluation.evaluator import (
-    EpisodeInfo,
-    EpisodeInfoJSONEncoder,
-    MbagAgentConfig,
-    MbagEvaluator,
-)
+from mbag.evaluation.episode import EpisodeJSONEncoder, MbagEpisode
+from mbag.evaluation.evaluator import MbagAgentConfig, MbagEvaluator
 from mbag.rllib.agents import RllibAlphaZeroAgent, RllibMbagAgent
 from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.training_utils import load_trainer, load_trainer_config
@@ -44,7 +40,7 @@ def sacred_config():
     policy_ids = [""]  # noqa: F841
     min_action_interval = 0  # noqa: F841
     explore = False  # noqa: F841
-    episodes = 100  # noqa: F841
+    num_episodes = 100  # noqa: F841
     experiment_name = ""
     experiment_tag = experiment_name  # noqa: F841
     seed = 0  # noqa: F841
@@ -63,7 +59,7 @@ def main(  # noqa: C901
     policy_ids: List[Optional[PolicyID]],
     min_action_interval: float,
     explore: bool,
-    episodes: int,
+    num_episodes: int,
     experiment_tag: str,
     env_config_updates: MbagConfigDict,
     algorithm_config_updates: dict,
@@ -178,41 +174,36 @@ def main(  # noqa: C901
         env_config["malmo"]["use_spectator"] = True
         env_config["malmo"]["video_dir"] = out_dir
 
-    _log.info(f"evaluating for {episodes} episodes...")
+    _log.info(f"evaluating for {num_episodes} episodes...")
     evaluator = MbagEvaluator(
         env_config,
         agent_configs,
         return_on_exception=use_malmo,
     )
 
-    episode_infos: List[EpisodeInfo] = []
-    with tqdm.trange(episodes) as progress_bar:
+    episodes: List[MbagEpisode] = []
+    with tqdm.trange(num_episodes) as progress_bar:
         for _ in progress_bar:
-            episode_infos.append(evaluator.rollout())
-            mean_reward = np.mean(
-                [episode_info.cumulative_reward for episode_info in episode_infos]
-            )
+            episodes.append(evaluator.rollout())
+            mean_reward = np.mean([episode.cumulative_reward for episode in episodes])
             mean_goal_similarity = np.mean(
-                [
-                    episode_info.last_infos[0]["goal_similarity"]
-                    for episode_info in episode_infos
-                ]
+                [episode.last_infos[0]["goal_similarity"] for episode in episodes]
             )
             progress_bar.set_postfix(
                 mean_reward=f"{mean_reward:.1f}",
                 mean_goal_similarity=f"{mean_goal_similarity:.1f}",
             )
 
-    out_pickle_fname = os.path.join(out_dir, "episode_info.pickle")
+    out_pickle_fname = os.path.join(out_dir, "episode.pickle")
     _log.info(f"saving full results to {out_pickle_fname}")
     with open(out_pickle_fname, "wb") as out_pickle:
-        pickle.dump(episode_infos, out_pickle)
+        pickle.dump(episodes, out_pickle)
 
-    out_json_fname = os.path.join(out_dir, "episode_info.jsonl")
+    out_json_fname = os.path.join(out_dir, "episode.jsonl")
     _log.info(f"saving JSON results to {out_json_fname}")
     with open(out_json_fname, "w") as out_json:
-        for episode_info in episode_infos:
-            json.dump(episode_info.to_json(), out_json, cls=EpisodeInfoJSONEncoder)
+        for episode in episodes:
+            json.dump(episode.to_json(), out_json, cls=EpisodeJSONEncoder)
 
     for trainer in trainers:
         trainer.stop()
