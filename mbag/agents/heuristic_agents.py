@@ -400,6 +400,9 @@ class RandomAgent(MbagAgent):
 
 
 ALL_HEURISTIC_AGENTS: Dict[str, Type[MbagAgent]] = {
+    "noop": NoopAgent,
+    "movement": MovementAgent,
+    "random": RandomAgent,
     "layer_builder": LayerBuilderAgent,
     "priority_queue": PriorityQueueAgent,
     "lowest_block": LowestBlockAgent,

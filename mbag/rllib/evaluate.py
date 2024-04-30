@@ -16,6 +16,7 @@ from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
 import mbag
+from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS, merge_configs
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
@@ -140,6 +141,8 @@ def main(  # noqa: C901
     ):
         if run == "HumanAgent":
             agent_configs.append((HumanAgent, {}))
+        elif run in ALL_HEURISTIC_AGENTS:
+            agent_configs.append((ALL_HEURISTIC_AGENTS[run], {}))
         else:
             assert checkpoint is not None and policy_id is not None
             _log.info(f"loading policy {policy_id} from {checkpoint}...")
@@ -180,7 +183,7 @@ def main(  # noqa: C901
     evaluator = MbagEvaluator(
         env_config,
         agent_configs,
-        return_on_exception=True,
+        return_on_exception=use_malmo,
     )
 
     episode_infos: List[EpisodeInfo] = []
@@ -197,7 +200,8 @@ def main(  # noqa: C901
                 ]
             )
             progress_bar.set_postfix(
-                mean_reward=mean_reward, mean_goal_similarity=mean_goal_similarity
+                mean_reward=f"{mean_reward:.1f}",
+                mean_goal_similarity=f"{mean_goal_similarity:.1f}",
             )
 
     out_pickle_fname = os.path.join(out_dir, "episode_info.pickle")
