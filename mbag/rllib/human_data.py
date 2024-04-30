@@ -35,7 +35,7 @@ def load_episode_info(episode_fname: str) -> EpisodeInfo:
     return episode_info
 
 
-def convert_episode_info_to_sample_batch(
+def convert_episode_info_to_sample_batch(  # noqa: C901
     episode_info: EpisodeInfo,
     *,
     player_index: int,
@@ -47,6 +47,7 @@ def convert_episode_info_to_sample_batch(
     offset_rewards=False,
     place_wrong_reward: float = 0,
     include_noops=True,
+    include_noops_for_other_player_actions=True,
     flat_actions=False,
     flat_observations=False,
     action_delay=DEFAULT_CONFIG["malmo"]["action_delay"],
@@ -57,9 +58,14 @@ def convert_episode_info_to_sample_batch(
     if inventory_player_indices is None:
         inventory_player_indices = range(mbag_config["num_players"])
 
+    if mbag_config["rewards"]["own_reward_prop"] != 0:
+        raise ValueError("This function only supports own_reward_prop=0.")
+
     sample_batch_builder = SampleBatchBuilder()
     episode_id = random.randrange(int(1e18))
     t = 0
+    # Keep track of any rewards received during intermediate NOOPs.
+    intermediate_rewards: float = 0
     prev_action_time: Optional[datetime] = None
     current_time: Optional[datetime] = None
     for i in range(episode_info.length):
@@ -74,21 +80,31 @@ def convert_episode_info_to_sample_batch(
         )
         action = info["action"]
         actions = [info["action"] for info in episode_info.info_history[i]]
-        not_noop = any(action.action_type != MbagAction.NOOP for action in actions)
+        if include_noops_for_other_player_actions:
+            not_noop = any(action.action_type != MbagAction.NOOP for action in actions)
+        else:
+            not_noop = action.action_type != MbagAction.NOOP
         world_obs = obs[0]
 
-        if (
-            action.action_type == MbagAction.PLACE_BLOCK
-            and not info["action_correct"]
-            and world_obs[(GOAL_BLOCKS,) + action.block_location] != MinecraftBlocks.AIR
-        ):
-            reward += place_wrong_reward
-        if (
-            action.action_type == MbagAction.BREAK_BLOCK
-            and info["action_correct"]
-            and world_obs[(GOAL_BLOCKS,) + action.block_location] != MinecraftBlocks.AIR
-        ):
-            reward -= place_wrong_reward
+        for other_player_index in range(mbag_config["num_players"]):
+            other_info = episode_info.info_history[i][other_player_index]
+            other_action = other_info["action"]
+            if (
+                other_action.action_type == MbagAction.PLACE_BLOCK
+                and not other_info["action_correct"]
+                and world_obs[(GOAL_BLOCKS,) + other_action.block_location]
+                != MinecraftBlocks.AIR
+            ):
+                reward += place_wrong_reward
+            if (
+                other_action.action_type == MbagAction.BREAK_BLOCK
+                and other_info["action_correct"]
+                and world_obs[(GOAL_BLOCKS,) + other_action.block_location]
+                != MinecraftBlocks.AIR
+            ):
+                reward -= place_wrong_reward
+
+        intermediate_rewards += reward
 
         if info["malmo_observations"]:
             if prev_action_time is None:
@@ -136,13 +152,14 @@ def convert_episode_info_to_sample_batch(
                             SampleBatch.ACTIONS: 0 if flat_actions else (0, 0, 0),
                             SampleBatch.ACTION_PROB: 1.0,
                             SampleBatch.ACTION_LOGP: 0.0,
-                            SampleBatch.REWARDS: 0,
+                            SampleBatch.REWARDS: intermediate_rewards,
                             SampleBatch.DONES: False,
                             SampleBatch.INFOS: {},
                             PARTICIPANT_ID: participant_id,
                             EPISODE_DIR: episode_dir,
                         }
                     )
+                    intermediate_rewards = 0
                     t += 1
                 prev_action_time = current_time
 
@@ -155,13 +172,14 @@ def convert_episode_info_to_sample_batch(
                     SampleBatch.ACTIONS: action_id,
                     SampleBatch.ACTION_PROB: 1.0,
                     SampleBatch.ACTION_LOGP: 0.0,
-                    SampleBatch.REWARDS: reward,
+                    SampleBatch.REWARDS: intermediate_rewards,
                     SampleBatch.DONES: False,
                     SampleBatch.INFOS: info,
                     PARTICIPANT_ID: participant_id,
                     EPISODE_DIR: episode_dir,
                 }
             )
+            intermediate_rewards = 0
             t += 1
     return sample_batch_builder.build_and_reset()
 

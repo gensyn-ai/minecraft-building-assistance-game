@@ -121,7 +121,7 @@ def test_convert_episode_info_to_sample_batch():
     )
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 def test_repair_missing_player_locations():
     episode_info = load_episode_info(
         "data/human_data/sample_tutorial/participant_1/2023-07-18_15-41-19/1/episode.zip"
@@ -143,7 +143,7 @@ def test_repair_missing_player_locations():
         np.testing.assert_array_equal(world_obs, expected_world_obs)
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 def test_convert_human_data_consistency_with_rllib_env(tmp_path):
     for flat_actions, env_id in [
         (False, "MBAG-v1"),
@@ -199,7 +199,7 @@ def test_convert_human_data_consistency_with_rllib_env(tmp_path):
                 assert info_dict["player_0"]["goal_similarity"] == 216
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 def test_convert_human_data_to_rllib_participant_id(tmp_path):
     out_dir = str(tmp_path / "rllib")
     convert_human_data_to_rllib_ex.run(

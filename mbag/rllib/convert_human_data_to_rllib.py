@@ -32,6 +32,7 @@ def sacred_config():
         "abilities": {"teleportation": False, "flying": True, "inf_blocks": False},
     }
     include_noops = False  # noqa: F841
+    include_noops_for_other_player_actions = True  # noqa: F841
     action_delay = DEFAULT_CONFIG["malmo"]["action_delay"]  # noqa: F841
     flat_actions = True  # noqa: F841
     flat_observations = True  # noqa: F841
@@ -41,7 +42,12 @@ def sacred_config():
     inventory_player_indices = player_indices  # noqa: F841
 
     experiment_name = "rllib"
-    experiment_name += "_with_noops" if include_noops else "_no_noops"
+    if not include_noops:
+        experiment_name += "_no_noops"
+    elif include_noops_for_other_player_actions:
+        experiment_name += "_with_noops"
+    else:
+        experiment_name += "_with_own_noops"
     experiment_name += "_flat_actions" if flat_actions else "_tuple_actions"
     experiment_name += "_flat_observations" if flat_observations else ""
     experiment_name += (
@@ -58,6 +64,7 @@ def main(  # noqa: C901
     out_dir: str,
     mbag_config: MbagConfigDict,
     include_noops: bool,
+    include_noops_for_other_player_actions: bool,
     action_delay: float,
     flat_actions: bool,
     flat_observations: bool,
@@ -132,6 +139,7 @@ def main(  # noqa: C901
                 offset_rewards=offset_rewards,
                 place_wrong_reward=place_wrong_reward,
                 include_noops=include_noops,
+                include_noops_for_other_player_actions=include_noops_for_other_player_actions,
                 flat_actions=flat_actions,
                 flat_observations=flat_observations,
                 action_delay=action_delay,
