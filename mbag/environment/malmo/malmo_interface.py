@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import threading
@@ -843,6 +844,19 @@ class MalmoInterface:
                 f"{self._palette_x} 0 0",
             )
             time.sleep(0.1)
+
+    def update_goal_percentage(self, goal_percentage: float):
+        with self._malmo_lock:
+            percent = int(round(goal_percentage * 100))
+            title_json = {
+                "text": f"Goal completion: {percent}%",
+                "fadeIn": "0s",
+                "stay": "2s",
+                "fadeOut": "0s",
+            }
+            self._malmo_client.send_command(
+                0, f"chat /title @a actionbar {json.dumps(title_json)}"
+            )
 
     def _run_spectator(self):
         """

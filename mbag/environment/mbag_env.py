@@ -345,6 +345,7 @@ class MbagEnv(object):
             infos.append(info)
 
         if self.config["malmo"]["use_malmo"]:
+            self.malmo_interface.update_goal_percentage(infos[0]["goal_percentage"])
             self._wait_for_malmo_and_sync()
             self._add_human_actions_to_info(infos)
 
