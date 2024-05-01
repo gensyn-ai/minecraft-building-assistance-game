@@ -31,7 +31,6 @@ from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.training_utils import load_trainer, load_trainer_config
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
-SETTINGS.CONFIG
 
 
 ex = Experiment("evaluate")

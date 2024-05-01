@@ -58,6 +58,8 @@ from mbag.rllib.training_utils import (
     load_trainer_config,
 )
 
+from .train_configs import make_named_configs
+
 if TYPE_CHECKING:
     from typing import List
 else:
@@ -521,7 +523,7 @@ def sacred_config(_log):  # noqa
                 policy_class,
                 observation_space,
                 action_space,
-                policy_config,
+                convert_dogmatics_to_standard(policy_config),
             )
         else:
             # Heuristic agent policy.
@@ -644,14 +646,11 @@ def sacred_config(_log):  # noqa
     elif "AlphaZero" in run:
         assert isinstance(config, MbagAlphaZeroConfig)
         assert reward_scale == 1.0, "Reward scaling not supported for AlphaZero"
-        mcts_config = {
+        mcts_config: Dict[str, Any] = {
             "puct_coefficient": puct_coefficient,
             "num_simulations": num_simulations,
             "temperature": temperature,
-            "temperature_schedule": [
-                (0, temperature_start),
-                (temperature_horizon, temperature_end),
-            ],
+            "temperature_schedule": None,
             "dirichlet_epsilon": dirichlet_epsilon,
             "dirichlet_noise": dirichlet_noise,
             "dirichlet_action_subtype_noise_multiplier": dirichlet_action_subtype_noise_multiplier,
@@ -664,6 +663,11 @@ def sacred_config(_log):  # noqa
             "sample_from_full_support_policy": sample_from_full_support_policy,
             "explore_noops": explore_noops,
         }
+        if temperature_start != temperature_end:
+            mcts_config["temperature_schedule"] = [
+                (0, temperature_start),
+                (temperature_horizon, temperature_end),
+            ]
         config.training(
             lr=lr,
             lr_schedule=convert_dogmatics_to_standard(lr_schedule),
@@ -680,7 +684,7 @@ def sacred_config(_log):  # noqa
             sample_batch_size=sample_batch_size,
             ranked_rewards={"enable": False},
             num_steps_sampled_before_learning_starts=0,
-            mcts_config=mcts_config,
+            mcts_config=convert_dogmatics_to_standard(mcts_config),
             use_critic=use_critic,
             use_goal_predictor=use_goal_predictor,
             other_agent_action_predictor_loss_coeff=other_agent_action_predictor_loss_coeff,
@@ -699,9 +703,11 @@ def sacred_config(_log):  # noqa
         evaluation_mcts_config["argmax_tree_policy"] = True
         evaluation_mcts_config["add_dirichlet_noise"] = False
         config.evaluation(
-            evaluation_config={
-                "mcts_config": evaluation_mcts_config,
-            }
+            evaluation_config=convert_dogmatics_to_standard(
+                {
+                    "mcts_config": evaluation_mcts_config,
+                }
+            )
         )
     elif run == "BC":
         assert isinstance(config, BCConfig)
@@ -741,6 +747,9 @@ def sacred_config(_log):  # noqa
 
     observer = NoTypeAnnotationsFileStorageObserver(experiment_dir)
     ex.observers.append(observer)
+
+
+make_named_configs(ex)
 
 
 @ex.automain
