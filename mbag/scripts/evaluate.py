@@ -1,12 +1,14 @@
 import copy
+import itertools
 import json
+import multiprocessing as mp
 import os
 import pickle
 import random
 import zipfile
 from datetime import datetime
 from logging import Logger
-from typing import List, Optional, Type
+from typing import Any, Generator, List, Optional, Type
 
 import numpy as np
 import ray
@@ -49,37 +51,33 @@ def sacred_config():
     seed = 0  # noqa: F841
     record_video = False  # noqa: F841
     use_malmo = record_video  # noqa: F841
+    num_workers: int = 0  # noqa: F841
     out_dir = None  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
     algorithm_config_updates = {}  # noqa: F841
 
 
-@ex.automain
-def main(  # noqa: C901
+def run_evaluation(
+    *,
     runs: List[str],
     checkpoints: List[Optional[str]],
     policy_ids: List[Optional[PolicyID]],
     min_action_interval: float,
     explore: List[bool],
     confidence_thresholds: Optional[List[Optional[float]]],
-    num_episodes: int,
-    experiment_tag: str,
     env_config_updates: MbagConfigDict,
     algorithm_config_updates: dict,
     seed: int,
     record_video: bool,
     use_malmo: bool,
-    out_dir: Optional[str],
-    _log: Logger,
-):
+    out_dir: str,
+) -> Generator[MbagEpisode, Any, Any]:
     ray.init(
         num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
         include_dashboard=False,
     )
-
-    mbag.logger.setLevel(_log.getEffectiveLevel())
 
     algorithm_config_updates["seed"] = seed
     random.seed(seed)
@@ -91,21 +89,6 @@ def main(  # noqa: C901
     algorithm_config_updates.setdefault("num_workers", 0)
     algorithm_config_updates.setdefault("num_envs_per_worker", 1)
     algorithm_config_updates.setdefault("evaluation_num_workers", 0)
-
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    if not experiment_tag.endswith("_") and experiment_tag != "":
-        experiment_tag += "_"
-    if out_dir is None:
-        for checkpoint in checkpoints:
-            if checkpoint is not None:
-                out_dir = os.path.join(
-                    checkpoint,
-                    f"evaluate_{experiment_tag}{time_str}",
-                )
-                break
-    if out_dir is None:
-        raise ValueError("out_dir must be set if no checkpoints are provided")
-    os.makedirs(out_dir, exist_ok=True)
 
     # Try to load env config from the first checkpoint.
     env_config: Optional[MbagConfigDict] = None
@@ -144,7 +127,6 @@ def main(  # noqa: C901
             agent_configs.append((ALL_HEURISTIC_AGENTS[run], {}))
         else:
             assert checkpoint is not None and policy_id is not None
-            _log.info(f"loading policy {policy_id} from {checkpoint}...")
 
             trainer = load_trainer(
                 checkpoint,
@@ -182,17 +164,152 @@ def main(  # noqa: C901
         env_config["malmo"]["use_spectator"] = True
         env_config["malmo"]["video_dir"] = out_dir
 
-    _log.info(f"evaluating for {num_episodes} episodes...")
     evaluator = MbagEvaluator(
         env_config,
         agent_configs,
         return_on_exception=use_malmo,
     )
 
+    while True:
+        yield evaluator.rollout()
+
+
+def evaluation_worker(
+    worker_index: int,
+    queue: mp.Queue,
+    num_episodes: int,
+    *,
+    runs: List[str],
+    checkpoints: List[Optional[str]],
+    policy_ids: List[Optional[PolicyID]],
+    min_action_interval: float,
+    explore: List[bool],
+    confidence_thresholds: Optional[List[Optional[float]]],
+    env_config_updates: MbagConfigDict,
+    algorithm_config_updates: dict,
+    seed: int,
+    record_video: bool,
+    use_malmo: bool,
+    out_dir: str,
+):
+    for episode in itertools.islice(
+        run_evaluation(
+            runs=runs,
+            checkpoints=checkpoints,
+            policy_ids=policy_ids,
+            min_action_interval=min_action_interval,
+            explore=explore,
+            confidence_thresholds=confidence_thresholds,
+            env_config_updates=env_config_updates,
+            algorithm_config_updates=algorithm_config_updates,
+            seed=seed + worker_index,
+            record_video=record_video,
+            use_malmo=use_malmo,
+            out_dir=os.path.join(out_dir, f"worker_{worker_index}"),
+        ),
+        num_episodes,
+    ):
+        queue.put(episode)
+
+
+def queue_episode_generator(queues: List[mp.Queue]) -> Generator[MbagEpisode, Any, Any]:
+    while True:
+        for queue in queues:
+            yield queue.get()
+
+
+@ex.automain
+def main(  # noqa: C901
+    runs: List[str],
+    checkpoints: List[Optional[str]],
+    policy_ids: List[Optional[PolicyID]],
+    min_action_interval: float,
+    explore: List[bool],
+    confidence_thresholds: Optional[List[Optional[float]]],
+    num_episodes: int,
+    experiment_tag: str,
+    env_config_updates: MbagConfigDict,
+    algorithm_config_updates: dict,
+    seed: int,
+    record_video: bool,
+    use_malmo: bool,
+    num_workers: int,
+    out_dir: Optional[str],
+    _log: Logger,
+):
+    mp.set_start_method("spawn")
+    mbag.logger.setLevel(_log.getEffectiveLevel())
+
+    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if not experiment_tag.endswith("_") and experiment_tag != "":
+        experiment_tag += "_"
+    if out_dir is None:
+        for checkpoint in checkpoints:
+            if checkpoint is not None:
+                out_dir = os.path.join(
+                    checkpoint,
+                    f"evaluate_{experiment_tag}{time_str}",
+                )
+                break
+    if out_dir is None:
+        raise ValueError("out_dir must be set if no checkpoints are provided")
+    os.makedirs(out_dir, exist_ok=True)
+
+    processes: List[mp.Process] = []
+    queues: List[mp.Queue] = []
+    if num_workers == 0:
+        episode_generator = run_evaluation(
+            runs=runs,
+            checkpoints=checkpoints,
+            policy_ids=policy_ids,
+            min_action_interval=min_action_interval,
+            explore=explore,
+            confidence_thresholds=confidence_thresholds,
+            env_config_updates=env_config_updates,
+            algorithm_config_updates=algorithm_config_updates,
+            seed=seed,
+            record_video=record_video,
+            use_malmo=use_malmo,
+            out_dir=out_dir,
+        )
+    else:
+        for worker_index in range(num_workers):
+            queue: mp.Queue = mp.Queue(maxsize=10)
+            worker_num_episodes = num_episodes // num_workers
+            if worker_index < num_episodes % num_workers:
+                worker_num_episodes += 1
+            process = mp.Process(
+                target=evaluation_worker,
+                args=(
+                    worker_index,
+                    queue,
+                    worker_num_episodes,
+                ),
+                kwargs={
+                    "runs": runs,
+                    "checkpoints": checkpoints,
+                    "policy_ids": policy_ids,
+                    "min_action_interval": min_action_interval,
+                    "explore": explore,
+                    "confidence_thresholds": confidence_thresholds,
+                    "env_config_updates": env_config_updates,
+                    "algorithm_config_updates": algorithm_config_updates,
+                    "seed": seed,
+                    "record_video": record_video,
+                    "use_malmo": use_malmo,
+                    "out_dir": out_dir,
+                },
+                daemon=True,
+            )
+            process.start()
+            processes.append(process)
+            queues.append(queue)
+        episode_generator = queue_episode_generator(queues)
+
     episodes: List[MbagEpisode] = []
     with tqdm.trange(num_episodes) as progress_bar:
         for _ in progress_bar:
-            episodes.append(evaluator.rollout())
+            episodes.append(next(episode_generator))
             mean_reward = np.mean([episode.cumulative_reward for episode in episodes])
             mean_goal_similarity = np.mean(
                 [episode.last_infos[0]["goal_similarity"] for episode in episodes]
@@ -201,6 +318,10 @@ def main(  # noqa: C901
                 mean_reward=f"{mean_reward:.1f}",
                 mean_goal_similarity=f"{mean_goal_similarity:.1f}",
             )
+
+    for process in processes:
+        process.join(timeout=10)
+        process.terminate()
 
     out_zip_fname = os.path.join(out_dir, "episodes.zip")
     _log.info(f"saving full results to {out_zip_fname}")
@@ -215,8 +336,5 @@ def main(  # noqa: C901
     with open(out_json_fname, "w") as out_json:
         for episode in episodes:
             json.dump(episode.to_json(), out_json, cls=EpisodeJSONEncoder)
-
-    for trainer in trainers:
-        trainer.stop()
 
     return calculate_mean_metrics([calculate_metrics(episode) for episode in episodes])
