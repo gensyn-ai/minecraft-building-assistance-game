@@ -122,13 +122,13 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
         "player_metrics": players_metrics,
     }
 
-    for t in range(episode.length):
+    for t in range(episode.env_config["horizon"]):
         total_seconds = (t + 1) * episode.env_config["malmo"]["action_delay"]
         rounded_minutes = int(total_seconds // (5 * 60)) * 5
         if rounded_minutes > 0:
             goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
             if goal_percentage_key not in metrics:
-                info_dict = episode.info_history[t][0]
+                info_dict = episode.info_history[min(t, episode.length - 1)][0]
                 metrics[goal_percentage_key] = info_dict[  # type: ignore[literal-required]
                     "goal_percentage"
                 ]

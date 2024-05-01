@@ -1,7 +1,7 @@
 import logging
 import re
 from itertools import product
-from typing import Any, Dict, cast
+from typing import Any, Dict, Type, cast
 
 import numpy as np
 import pytest
@@ -9,7 +9,8 @@ from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.utils.typing import MultiAgentPolicyConfigDict
 from ray.tune.registry import ENV_CREATOR, _global_registry
 
-from mbag.agents.heuristic_agents import RandomAgent
+from mbag.agents.heuristic_agents import LowestBlockAgent, RandomAgent
+from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.goals.simple import BasicGoalGenerator
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.evaluation.evaluator import MbagEvaluator
@@ -54,7 +55,11 @@ def test_rllib_heuristic_agents():
             }
         )
 
-        agents = [RandomAgent({}, env_config) for _ in range(num_players)]
+        agent_cls: Type[MbagAgent] = RandomAgent
+        if num_players == 1 and teleportation and inf_blocks:
+            agent_cls = LowestBlockAgent
+
+        agents = [agent_cls({}, env_config) for _ in range(num_players)]
         env_id = "MBAGFlatActions-v1"
         env = _global_registry.get(ENV_CREATOR, env_id)(env_config)
 
@@ -96,7 +101,7 @@ def test_rllib_heuristic_agents():
 
         evaluator = MbagEvaluator(
             env_config,
-            [(RandomAgent, {}) for _ in range(num_players)],
+            [(agent_cls, {}) for _ in range(num_players)],
         )
         episode = evaluator.rollout(agent_seed=0)
         metrics = calculate_metrics(episode)
