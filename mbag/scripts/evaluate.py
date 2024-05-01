@@ -3,6 +3,7 @@ import json
 import os
 import pickle
 import random
+import zipfile
 from datetime import datetime
 from logging import Logger
 from typing import List, Optional, Type
@@ -22,6 +23,7 @@ from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS, merge_configs
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
 from mbag.evaluation.episode import EpisodeJSONEncoder, MbagEpisode
 from mbag.evaluation.evaluator import MbagAgentConfig, MbagEvaluator
+from mbag.evaluation.metrics import calculate_mean_metrics, calculate_metrics
 from mbag.rllib.agents import RllibAlphaZeroAgent, RllibMbagAgent
 from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.training_utils import load_trainer, load_trainer_config
@@ -39,7 +41,8 @@ def sacred_config():
     checkpoints = [""]  # noqa: F841
     policy_ids = [""]  # noqa: F841
     min_action_interval = 0  # noqa: F841
-    explore = False  # noqa: F841
+    explore = [False] * len(runs)  # noqa: F841
+    confidence_thresholds = None  # noqa: F841
     num_episodes = 100  # noqa: F841
     experiment_name = ""
     experiment_tag = experiment_name  # noqa: F841
@@ -58,7 +61,8 @@ def main(  # noqa: C901
     checkpoints: List[Optional[str]],
     policy_ids: List[Optional[PolicyID]],
     min_action_interval: float,
-    explore: bool,
+    explore: List[bool],
+    confidence_thresholds: Optional[List[Optional[float]]],
     num_episodes: int,
     experiment_tag: str,
     env_config_updates: MbagConfigDict,
@@ -156,6 +160,10 @@ def main(  # noqa: C901
                 "min_action_interval": min_action_interval,
                 "explore": explore,
             }
+            if confidence_thresholds is not None:
+                agent_config["confidence_threshold"] = confidence_thresholds[
+                    player_index
+                ]
             if "AlphaZero" in run:
                 mbag_agent_class = RllibAlphaZeroAgent
                 agent_config["player_index"] = player_index
@@ -194,12 +202,15 @@ def main(  # noqa: C901
                 mean_goal_similarity=f"{mean_goal_similarity:.1f}",
             )
 
-    out_pickle_fname = os.path.join(out_dir, "episode.pickle")
-    _log.info(f"saving full results to {out_pickle_fname}")
-    with open(out_pickle_fname, "wb") as out_pickle:
-        pickle.dump(episodes, out_pickle)
+    out_zip_fname = os.path.join(out_dir, "episodes.zip")
+    _log.info(f"saving full results to {out_zip_fname}")
+    with zipfile.ZipFile(
+        out_zip_fname, "w", compression=zipfile.ZIP_DEFLATED
+    ) as episodes_zip:
+        with episodes_zip.open("episodes.pickle", "w") as out_pickle:
+            pickle.dump(episodes, out_pickle)
 
-    out_json_fname = os.path.join(out_dir, "episode.jsonl")
+    out_json_fname = os.path.join(out_dir, "episodes.jsonl")
     _log.info(f"saving JSON results to {out_json_fname}")
     with open(out_json_fname, "w") as out_json:
         for episode in episodes:
@@ -207,3 +218,5 @@ def main(  # noqa: C901
 
     for trainer in trainers:
         trainer.stop()
+
+    return calculate_mean_metrics([calculate_metrics(episode) for episode in episodes])

@@ -2,6 +2,7 @@ import time
 from typing import Iterable, List, Optional, cast
 
 import numpy as np
+from ray.rllib.evaluation import SampleBatch
 from ray.rllib.policy import Policy
 from ray.rllib.utils.typing import TensorType
 from typing_extensions import TypedDict
@@ -38,6 +39,9 @@ class RllibMbagAgent(MbagAgent):
         self.policy = self.agent_config["policy"]
         self.explore = self.agent_config.get("explore", False)
         self.min_action_interval = self.agent_config["min_action_interval"]
+        self.confidence_threshold = cast(
+            Optional[float], self.agent_config.get("confidence_threshold", None)
+        )
         self.action_mapping = MbagActionDistribution.get_action_mapping(self.env_config)
 
     def reset(self, **kwargs) -> None:
@@ -60,14 +64,34 @@ class RllibMbagAgent(MbagAgent):
         state_batch = [state_piece[None] for state_piece in self.state]
         state_out_batch: List[TensorType]
         action_batch: Iterable[np.ndarray]
-        action_batch, state_out_batch, info = self.policy.compute_actions(
-            obs_batch,
-            state_batch,
-            explore=self.explore,
-            force_noop=force_noop,
-            **compute_actions_kwargs,
+        action_batch, state_out_batch, compute_actions_info = (
+            self.policy.compute_actions(
+                obs_batch,
+                state_batch,
+                explore=self.explore,
+                force_noop=force_noop,
+                **compute_actions_kwargs,
+            )
         )
         self.state = [state_piece[0] for state_piece in state_out_batch]
+
+        if self.confidence_threshold is not None and not force_noop:
+            logits = compute_actions_info[SampleBatch.ACTION_DIST_INPUTS][0]
+            probs = np.exp(logits)
+            probs /= np.sum(probs)
+            (action_id,) = action_batch
+            # normalized_probs = probs / np.mean(probs[probs != 0])
+            if probs[action_id] < self.confidence_threshold:
+                action_batch = [np.array(0)]
+            # normalized_probs[normalized_probs < self.normalized_confidence_threshold] = 0
+            # if np.sum(normalized_probs) == 0:
+            #     normalized_probs[0] = 1
+            # normalized_probs /= np.sum(normalized_probs)
+            # action_batch = np.random.choice(
+            #     np.arange(len(normalized_probs)), p=normalized_probs
+            # )[None]
+
+        self.last_info = compute_actions_info
 
         if isinstance(action_batch, tuple):
             action = cast(
