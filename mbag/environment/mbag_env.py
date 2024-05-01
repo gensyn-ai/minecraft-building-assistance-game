@@ -4,6 +4,7 @@ import copy
 import logging
 import random
 import time
+from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
@@ -985,6 +986,7 @@ class MbagEnv(object):
             "action_correct": action_correct,
             "malmo_observations": [],
             "human_action": (MbagAction.NOOP, 0, 0),
+            "timestamp": datetime.now(),
         }
         return info
 

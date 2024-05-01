@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List
 
 import numpy as np
@@ -38,6 +39,8 @@ class EpisodeJSONEncoder(json.JSONEncoder):
             return obj.tolist()
         if isinstance(obj, np.bool_):
             return bool(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
         if isinstance(obj, MbagAction):
             return obj.to_tuple()
         return super().default(obj)

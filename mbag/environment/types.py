@@ -158,3 +158,8 @@ class MbagInfoDict(TypedDict):
     If this player is a human agent, then this is an action that has been deduced from
     what the human has been doing in Malmo and should be played immediately.
     """
+
+    timestamp: datetime
+    """
+    The time at which this timestep occurred.
+    """
