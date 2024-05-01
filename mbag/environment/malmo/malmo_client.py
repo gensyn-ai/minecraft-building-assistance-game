@@ -16,6 +16,7 @@ import tempfile
 import time
 import uuid
 from datetime import datetime
+from threading import Lock
 from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
 import numpy as np
@@ -72,6 +73,8 @@ class MalmoClient(object):
 
         self.ssh_processes = []
         atexit.register(self._cleanup_ssh_processes)
+
+        self.command_lock = Lock()
 
     def get_player_name(self, player_index: int, env_config: "MbagConfigDict") -> str:
         player_name = env_config["players"][player_index].get("player_name")
@@ -601,7 +604,9 @@ class MalmoClient(object):
 
     def send_command(self, player_index: int, command: str):
         logger.debug(f"player {player_index} command: {command}")
-        self.agent_hosts[player_index].sendCommand(command)
+        with self.command_lock:
+            self.agent_hosts[player_index].sendCommand(command)
+            time.sleep(0.01)
 
     def get_observations(
         self, player_index: int
