@@ -1036,6 +1036,12 @@ class MbagEnv(object):
         then update the environment state from the latest Malmo state.
         """
 
+        if time.time() - self.previous_step_timestamp > self.config["malmo"]["action_delay"]:
+            logger.warn(
+                "environment step took longer than Malmo action_delay; action_delay "
+                "may need to be increased to achieve consistent step rate"
+            )
+
         any_human_actions = False
         while True:
             human_actions, malmo_state = (
