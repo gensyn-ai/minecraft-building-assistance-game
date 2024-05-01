@@ -348,7 +348,7 @@ class MbagEnv(object):
         if self.config["malmo"]["use_malmo"]:
             self.malmo_interface.update_goal_percentage(infos[0]["goal_percentage"])
             self._wait_for_malmo_and_sync()
-            self._add_human_actions_to_info(infos)
+            self._add_human_actions_and_malmo_observations_to_info(infos)
 
         self.previous_step_timestamp = time.time()
 
@@ -1080,7 +1080,11 @@ class MbagEnv(object):
             # any remaining discrepancies are resolved.
             self._update_state_from_malmo(malmo_state)
 
-    def _add_human_actions_to_info(self, infos: List[MbagInfoDict]):
+    def _add_human_actions_and_malmo_observations_to_info(
+        self, infos: List[MbagInfoDict]
+    ):
+        malmo_observations = self.malmo_interface.get_malmo_observations()
+
         for player_index, info in enumerate(infos):
             human_action_tuple: MbagActionTuple = (MbagAction.NOOP, 0, 0)
             if len(self.human_action_queues[player_index]) > 0:
@@ -1095,6 +1099,12 @@ class MbagEnv(object):
                     f"received human action for non-human player {player_index}: "
                     f"{human_action}"
                 )
+
+            info["malmo_observations"] = [
+                (timestamp, malmo_observation)
+                for timestamp, observation_player_index, malmo_observation in malmo_observations
+                if observation_player_index == player_index
+            ]
 
     def _update_state_from_malmo(self, malmo_state: MalmoState):
         self._update_blocks_from_malmo(malmo_state)

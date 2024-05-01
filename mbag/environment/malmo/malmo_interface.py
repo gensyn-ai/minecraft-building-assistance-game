@@ -262,6 +262,13 @@ class MalmoInterface:
 
     _palette_x: Optional[int]
 
+    _malmo_observations_lock: threading.Lock
+    _malmo_observations: List[Tuple[datetime, int, MalmoObservationDict]]
+    """
+    List of (timestamp, player_index, malmo_observation) tuples. These are emptied and
+    put into info dicts returned from MbagEnv.step.
+    """
+
     def __init__(self, env_config: MbagConfigDict):
         self._env_config = env_config
 
@@ -276,6 +283,9 @@ class MalmoInterface:
         self._malmo_lock = threading.Lock()
 
         self._expected_state_diffs_lock = threading.Lock()
+
+        self._malmo_observations = []
+        self._malmo_observations_lock = threading.Lock()
 
         self.episode_running = False
 
@@ -432,7 +442,9 @@ class MalmoInterface:
         self.episode_running = False
         logger.info("successfully ended episode")
 
-    def _get_malmo_observations(self) -> List[Tuple[int, MalmoObservationDict]]:
+    def _fetch_malmo_observations(
+        self, *, save: bool
+    ) -> List[Tuple[int, MalmoObservationDict]]:
         """
         Gets the latest observations from Malmo. Returns a list of tuples of
         (player_index, observation_dict) sorted by the time the observation was
@@ -455,6 +467,10 @@ class MalmoInterface:
 
         malmo_observations_with_timestamps.sort(key=lambda x: x[0])
 
+        if save:
+            with self._malmo_observations_lock:
+                self._malmo_observations.extend(malmo_observations_with_timestamps)
+
         return [
             (player_index, malmo_observation)
             for _, player_index, malmo_observation in malmo_observations_with_timestamps
@@ -462,7 +478,7 @@ class MalmoInterface:
 
     def _run_human_action_detection(self):
         # Clear any observations created during env reset.
-        self._get_malmo_observations()
+        self._fetch_malmo_observations(save=False)
 
         player_blocks_on_ground: ReadOnlyList[ReadOnlyDict[int, int]] = ReadOnlyList(
             [ReadOnlyDict({}) for _ in range(self._env_config["num_players"])]
@@ -481,7 +497,7 @@ class MalmoInterface:
         """
 
         while not self._episode_done.is_set():
-            malmo_observations = self._get_malmo_observations()
+            malmo_observations = self._fetch_malmo_observations(save=True)
 
             for player_index, malmo_observation in malmo_observations:
                 with self._malmo_state_and_human_actions_lock:
@@ -539,6 +555,14 @@ class MalmoInterface:
                     self._human_action_queue.extend(new_human_actions)
 
             time.sleep(0.03)
+
+    def get_malmo_observations(
+        self,
+    ) -> List[Tuple[datetime, int, MalmoObservationDict]]:
+        with self._malmo_observations_lock:
+            malmo_observations = self._malmo_observations
+            self._malmo_observations = []
+        return malmo_observations
 
     def get_human_actions_and_malmo_state(
         self,
