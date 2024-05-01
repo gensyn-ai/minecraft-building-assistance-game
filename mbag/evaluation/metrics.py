@@ -37,6 +37,7 @@ class MbagEpisodeMetrics(TypedDict):
     player_metrics: List[MbagPlayerMetrics]
     goal_similarity: float
     goal_distance: float
+    goal_percentage: float
 
 
 def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
@@ -114,11 +115,25 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
 
         players_metrics.append(player_metrics)
 
-    return {
+    metrics: MbagEpisodeMetrics = {
         "goal_similarity": episode.last_infos[0]["goal_similarity"],
         "goal_distance": goal_distance,
+        "goal_percentage": episode.last_infos[0].get("goal_percentage", np.nan),
         "player_metrics": players_metrics,
     }
+
+    for t in range(episode.length):
+        total_seconds = (t + 1) * episode.env_config["malmo"]["action_delay"]
+        rounded_minutes = int(total_seconds // (5 * 60)) * 5
+        if rounded_minutes > 0:
+            goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
+            if goal_percentage_key not in metrics:
+                info_dict = episode.info_history[t][0]
+                metrics[goal_percentage_key] = info_dict[  # type: ignore[literal-required]
+                    "goal_percentage"
+                ]
+
+    return metrics
 
 
 def calculate_mean_metrics(
@@ -134,12 +149,29 @@ def calculate_mean_metrics(
                 for episode_metrics in episodes_metrics
             ]
             mean_player_metrics[player_index][metric_name] = np.nanmean(metric_values)  # type: ignore[literal-required]
-    return {
+    metrics: MbagEpisodeMetrics = {
         "goal_similarity": np.mean(
             [episode_metrics["goal_similarity"] for episode_metrics in episodes_metrics]
         ),
         "goal_distance": np.mean(
             [episode_metrics["goal_distance"] for episode_metrics in episodes_metrics]
         ),
+        "goal_percentage": np.mean(
+            [
+                episode_metrics["goal_percentage"]
+                for episode_metrics in episodes_metrics
+                if "goal_percentage" in episode_metrics
+            ]
+        ),
         "player_metrics": mean_player_metrics,
     }
+
+    for key in episodes_metrics[0]:
+        if key not in metrics:
+            metric_values = [
+                episode_metrics[key]  # type: ignore[literal-required]
+                for episode_metrics in episodes_metrics
+            ]
+            metrics[key] = np.mean(metric_values)  # type: ignore[literal-required]
+
+    return metrics

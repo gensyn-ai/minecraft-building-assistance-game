@@ -234,8 +234,8 @@ def test_lowest_block_agent():
                 ]
                 * num_players,
             )
-            episode_info = evaluator.rollout()
-            last_obs, _, _ = episode_info.last_obs[0]
+            episode = evaluator.rollout()
+            last_obs, _, _ = episode.last_obs[0]
             assert_array_equal(
                 last_obs[0], last_obs[2], "Agent should finish building house."
             )

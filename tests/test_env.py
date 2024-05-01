@@ -5,8 +5,11 @@ from typing import cast
 import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.agents.heuristic_agents import LowestBlockAgent
 from mbag.environment.actions import MbagActionTuple
+from mbag.environment.goals import TransformedGoalGenerator
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
+from mbag.evaluation.evaluator import MbagEvaluator
 
 
 def _convert_state(data):
@@ -65,3 +68,55 @@ def test_deterministic():
                 state_after_b = env_b.get_state()
                 assert _convert_state(state_after_a) == _convert_state(state_after_b)
                 assert rewards_a == rewards_b
+
+
+def test_goal_similarity_and_goal_percentage():
+    for place_wrong_reward in [0, -1]:
+        num_players = 1
+        for goal_generator in ["basic", "random", "simple_overhang", "grabcraft"]:
+            if goal_generator != "grabcraft":
+                transforms = []
+            else:
+                transforms = [
+                    {
+                        "transform": "crop",
+                        "config": {"tethered_to_ground": True},
+                        "density_threshold": 0.5,
+                    },
+                    {"transform": "single_cc_filter"},
+                    {"transform": "randomly_place"},
+                    {"transform": "add_grass"},
+                ]
+            evaluator = MbagEvaluator(
+                {
+                    "world_size": (6, 6, 6),
+                    "num_players": num_players,
+                    "horizon": 100,
+                    "goal_generator": TransformedGoalGenerator,
+                    "goal_generator_config": {
+                        "goal_generator": goal_generator,
+                        "goal_generator_config": {},
+                        "transforms": transforms,
+                    },
+                    "players": [{}] * num_players,
+                    "malmo": {
+                        "use_malmo": False,
+                        "use_spectator": False,
+                        "video_dir": None,
+                    },
+                    "rewards": {
+                        "place_wrong": place_wrong_reward,
+                    },
+                },
+                [
+                    (LowestBlockAgent, {}),
+                ]
+                * num_players,
+            )
+
+            _, initial_infos = evaluator.env.reset()
+            episode = evaluator.rollout()
+
+            assert initial_infos[0]["goal_percentage"] == 0
+            assert episode.info_history[-1][0]["goal_similarity"] == 6 * 6 * 6
+            assert episode.info_history[-1][0]["goal_percentage"] == 1

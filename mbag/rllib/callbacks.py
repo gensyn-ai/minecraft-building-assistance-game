@@ -120,7 +120,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                 episode, base_env, env_index, policy_id
             )
 
-            info_dict = cast(MbagInfoDict, self._get_last_info(episode, agent_id))
+            info_dict = self._get_last_info(episode, agent_id)
             episode.custom_metrics[f"{policy_id}/own_reward"] += info_dict["own_reward"]
             episode.custom_metrics[f"{policy_id}/goal_dependent_reward"] += info_dict[
                 "goal_dependent_reward"
@@ -167,6 +167,20 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                     f"{policy_id}/expected_own_reward"
                 ] += expected_own_reward
 
+        if isinstance(episode, EpisodeV2):
+            env_config = unwrap_mbag_env(env).config
+            total_seconds = (
+                episode.total_env_steps * env_config["malmo"]["action_delay"]
+            )
+            rounded_minutes = int(total_seconds // (5 * 60)) * 5
+            if rounded_minutes > 0:
+                goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
+                if goal_percentage_key not in episode.custom_metrics:
+                    info_dict = self._get_last_info(episode, "player_0")
+                    episode.custom_metrics[goal_percentage_key] = info_dict[
+                        "goal_percentage"
+                    ]
+
     def on_episode_end(
         self,
         *,
@@ -188,6 +202,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
         info_dict = cast(MbagInfoDict, self._get_last_info(episode, "player_0"))
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
+        episode.custom_metrics["goal_percentage"] = info_dict["goal_percentage"]
         env = unwrap_mbag_env(base_env.get_sub_environments()[env_index or 0])
         width, height, depth = env.config["world_size"]
         episode.custom_metrics["goal_distance"] = (

@@ -112,6 +112,12 @@ class MbagInfoDict(TypedDict):
     resource gathering bonuses, etc.
     """
 
+    goal_percentage: float
+    """
+    Percentage of the goal structure that has been completed. This is basically the
+    percentage of the total available goal-dependent reward which has been earned.
+    """
+
     own_reward: float
     """
     The reward from this step which is due to the current player's direct actions, i.e.

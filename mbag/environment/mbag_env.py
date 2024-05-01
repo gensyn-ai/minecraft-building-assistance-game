@@ -265,6 +265,19 @@ class MbagEnv(object):
         if not self.config["abilities"]["inf_blocks"]:
             self._copy_palette_from_goal()
 
+        self.initial_goal_similarities: List[float] = []
+        for player_index in range(self.config["num_players"]):
+            self.initial_goal_similarities.append(
+                self._get_goal_similarity(
+                    self.current_blocks[:],
+                    self.goal_blocks[:],
+                    partial_credit=True,
+                    player_index=player_index,
+                ).sum()
+            )
+        width, height, depth = self.config["world_size"]
+        self.max_goal_similarity = width * height * depth
+
         if self.config["malmo"]["use_malmo"]:
             self.malmo_interface.reset(
                 self.current_blocks,
@@ -871,6 +884,17 @@ class MbagEnv(object):
         similarity[goal_block_id == current_block_id] = 1
         return similarity
 
+    def _get_goal_percentage(self, player_index: int) -> float:
+        similarity: float = self._get_goal_similarity(
+            self.current_blocks[:],
+            self.goal_blocks[:],
+            partial_credit=True,
+            player_index=player_index,
+        ).sum()
+        return (similarity - self.initial_goal_similarities[player_index]) / (
+            self.max_goal_similarity - self.initial_goal_similarities[player_index]
+        )
+
     def _get_player_obs(self, player_index: int) -> MbagObs:
         world_obs = np.zeros(self.world_obs_shape, np.uint8)
         world_obs[CURRENT_BLOCKS] = self.current_blocks.blocks
@@ -952,6 +976,7 @@ class MbagEnv(object):
             ).sum(),
             "goal_dependent_reward": goal_dependent_reward,
             "goal_independent_reward": goal_independent_reward,
+            "goal_percentage": self._get_goal_percentage(player_index),
             "own_reward": own_reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "attempted_action": attempted_action,
