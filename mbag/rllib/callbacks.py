@@ -213,7 +213,9 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         horizon_rounded_minutes = int(horizon_seconds // (5 * 60)) * 5
         for rounded_minutes in range(5, horizon_rounded_minutes + 1, 5):
             goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
-            episode.custom_metrics.setdefault(goal_percentage_key, episode.custom_metrics["goal_percentage"])
+            episode.custom_metrics.setdefault(
+                goal_percentage_key, episode.custom_metrics["goal_percentage"]
+            )
 
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
