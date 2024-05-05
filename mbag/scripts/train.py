@@ -97,12 +97,12 @@ def sacred_config(_log):  # noqa
     goal_generator = "craftassist"
     goal_subset = "train"
     horizon = 1000
-    randomize_first_episode_length = False
+    randomize_first_episode_length = True
     num_players = 1
     width = 11
     height = 10
     depth = 10
-    random_start_locations = False
+    random_start_locations = True
     teleportation = True
     flying = True
     inf_blocks = True
@@ -553,6 +553,9 @@ def sacred_config(_log):  # noqa
     evaluation_config = {
         "input": "sampler",
         "explore": evaluation_explore,
+        "env_config": {
+            "randomize_first_episode_length": False,
+        },
     }
 
     # Logging
@@ -590,7 +593,7 @@ def sacred_config(_log):  # noqa
     config.multi_agent(
         policies=policies,
         policy_mapping_fn=policy_mapping_fn,
-        policies_to_train=policies_to_train,
+        policies_to_train=convert_dogmatics_to_standard(policies_to_train),
     )
     config.callbacks(MbagCallbacks)
     config.offline_data(
@@ -671,6 +674,7 @@ def sacred_config(_log):  # noqa
         config.training(
             lr=lr,
             lr_schedule=convert_dogmatics_to_standard(lr_schedule),
+            grad_clip=grad_clip,
             gamma=gamma,
             train_batch_size=train_batch_size,
             sgd_minibatch_size=sgd_minibatch_size,
@@ -747,6 +751,11 @@ def sacred_config(_log):  # noqa
 
     observer = NoTypeAnnotationsFileStorageObserver(experiment_dir)
     ex.observers.append(observer)
+
+    # Extra args that are ignored here but used in some of the named configs.
+    checkpoint_name = None  # noqa: F841
+    data_split = None  # noqa: F841
+    lr_start = None  # noqa: F841
 
 
 make_named_configs(ex)

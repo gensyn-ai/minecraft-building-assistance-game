@@ -188,6 +188,9 @@
     "env_runner_cls": null,
     "env_task_fn": null,
     "evaluation_config": {
+      "env_config": {
+        "randomize_first_episode_length": false
+      },
       "explore": false,
       "input": "sampler",
       "mcts_config": {
