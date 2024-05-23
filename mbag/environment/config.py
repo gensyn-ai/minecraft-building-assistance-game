@@ -210,6 +210,13 @@ class MbagConfigDict(TypedDict, total=False):
     Otherwise the episode will continue until the horizon is reached.
     """
 
+    truncate_on_no_progress_timesteps: Optional[int]
+    """
+    If specified, then the episode will truncate if no progress is made for this many
+    timesteps. Progress is defined as an increase in goal percentage over the previous
+    maximum.
+    """
+
 
 DEFAULT_PLAYER_CONFIG: MbagPlayerConfigDict = {
     "player_name": None,
@@ -226,7 +233,9 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "horizon": 50,
     "world_size": (5, 5, 5),
     "random_start_locations": False,
+    "randomize_first_episode_length": False,
     "terminate_on_goal_completion": True,
+    "truncate_on_no_progress_timesteps": None,
     "goal_generator": TransformedGoalGenerator,
     "goal_generator_config": {
         "goal_generator": "random",

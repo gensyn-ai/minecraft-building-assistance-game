@@ -68,6 +68,8 @@ class MbagEnv(object):
     previous_step_timestamp: float
     timestep: int
     global_timestep: int
+    maximum_goal_percentages: List[float]
+    timesteps_with_no_progress: int
 
     human_action_queues: List[List[MbagActionTuple]]
     """A queue for each player of human actions from MalmoInterface."""
@@ -298,6 +300,9 @@ class MbagEnv(object):
             for player_index in range(self.config["num_players"])
         ]
 
+        self.maximum_goal_percentages = [info["goal_percentage"] for info in info_list]
+        self.timesteps_with_no_progress = 0
+
         return obs_list, info_list
 
     def step(
@@ -362,6 +367,14 @@ class MbagEnv(object):
             if self.config["malmo"]["use_malmo"]:
                 logger.info("copying palette from goal")
                 self.malmo_interface.copy_palette_from_goal()
+
+        # Update timesteps_with_no_progress.
+        self.timesteps_with_no_progress += 1
+        for player_index, info in enumerate(infos):
+            previous_max_goal_percentage = self.maximum_goal_percentages[player_index]
+            if info["goal_percentage"] > previous_max_goal_percentage:
+                self.maximum_goal_percentages[player_index] = info["goal_percentage"]
+                self.timesteps_with_no_progress = 0
 
         obs = [
             self._get_player_obs(player_index)
@@ -1184,6 +1197,12 @@ class MbagEnv(object):
         done = self.timestep >= self.config["horizon"]
         if self.config["terminate_on_goal_completion"]:
             done = done or self.current_blocks == self.goal_blocks
+        if self.config["truncate_on_no_progress_timesteps"] is not None:
+            done = (
+                done
+                or self.timesteps_with_no_progress
+                >= self.config["truncate_on_no_progress_timesteps"]
+            )
         return done
 
     def get_state(self) -> MbagStateDict:
@@ -1202,6 +1221,11 @@ class MbagEnv(object):
     def set_state_no_obs(self, state: MbagStateDict) -> None:
         if self.config["malmo"]["use_malmo"]:
             raise RuntimeError("Cannot set state when using Malmo.")
+        if self.config["truncate_on_no_progress_timesteps"]:
+            raise RuntimeError(
+                "Environment state does not include the information necessary "
+                "to implement truncate_on_no_progress_timesteps=True."
+            )
 
         self.current_blocks = state["current_blocks"].copy()
         self.goal_blocks = state["goal_blocks"].copy()

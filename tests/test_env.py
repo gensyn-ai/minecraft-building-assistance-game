@@ -6,7 +6,8 @@ import numpy as np
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.agents.heuristic_agents import LowestBlockAgent
-from mbag.environment.actions import MbagActionTuple
+from mbag.environment.actions import MbagAction, MbagActionTuple
+from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.goals import TransformedGoalGenerator
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
 from mbag.evaluation.evaluator import MbagEvaluator
@@ -120,3 +121,69 @@ def test_goal_similarity_and_goal_percentage():
             assert initial_infos[0]["goal_percentage"] == 0
             assert episode.info_history[-1][0]["goal_similarity"] == 6 * 6 * 6
             assert episode.info_history[-1][0]["goal_percentage"] == 1
+
+
+def test_truncate_on_no_progress():
+    for truncate in [False, True]:
+        env = MbagEnv(
+            {
+                "goal_generator": "basic",
+                "horizon": 100,
+                "abilities": {
+                    "teleportation": True,
+                    "flying": True,
+                    "inf_blocks": True,
+                },
+                "rewards": {
+                    "place_wrong": -1,
+                },
+                "world_size": (5, 5, 5),
+                "truncate_on_no_progress_timesteps": 10 if truncate else None,
+            }
+        )
+
+        break_action: MbagActionTuple = (
+            MbagAction.BREAK_BLOCK,
+            int(
+                np.ravel_multi_index(
+                    (2, 1, 2),
+                    env.config["world_size"],
+                )
+            ),
+            0,
+        )
+        place_action: MbagActionTuple = (
+            MbagAction.PLACE_BLOCK,
+            int(
+                np.ravel_multi_index(
+                    (2, 1, 2),
+                    env.config["world_size"],
+                )
+            ),
+            MinecraftBlocks.NAME2ID["cobblestone"],
+        )
+
+        _, initial_infos = env.reset()
+
+        for _ in range(9):
+            _, _, (done,), _ = env.step([(MbagAction.NOOP, 0, 0)])
+            assert not done
+        _, _, (done,), _ = env.step([break_action])
+        assert not done
+
+        for _ in range(9):
+            _, _, (done,), _ = env.step([(MbagAction.NOOP, 0, 0)])
+            assert not done
+        _, _, (done,), _ = env.step([place_action])
+        assert not done
+
+        for _ in range(8):
+            _, _, (done,), _ = env.step([(MbagAction.NOOP, 0, 0)])
+            assert not done
+        _, _, (done,), _ = env.step([break_action])
+        assert not done
+        _, _, (done,), _ = env.step([place_action])
+        if truncate:
+            assert done
+        else:
+            assert not done
