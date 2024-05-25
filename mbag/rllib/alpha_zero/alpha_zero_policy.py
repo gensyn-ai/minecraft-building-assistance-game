@@ -93,6 +93,8 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             # Don't waste time generating goals in the env model.
             env_config["goal_generator"] = "basic"
             env_config["goal_generator_config"] = {}
+            # Don't plan based on truncating early.
+            env_config["truncate_on_no_progress_timesteps"] = None
             # If we're using a goal predictor, then we shouldn't end the episode when
             # the goal is completed because that leaks information about the goal.
             if self.mcts.use_goal_predictor:
