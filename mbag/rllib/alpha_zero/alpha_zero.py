@@ -41,6 +41,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.vf_loss_coeff = 1.0
         self.other_agent_action_predictor_loss_coeff = 1.0
         self.goal_loss_coeff = 1.0
+        self.prev_goal_kl_coeff = 0.0
         self.entropy_coeff = 0
         self.entropy_coeff_schedule = 0
         self.use_critic = True
@@ -63,6 +64,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         vf_loss_coeff=NotProvided,
         other_agent_action_predictor_loss_coeff=NotProvided,
         goal_loss_coeff=NotProvided,
+        prev_goal_kl_coeff=NotProvided,
         entropy_coeff=NotProvided,
         entropy_coeff_schedule=NotProvided,
         use_critic=NotProvided,
@@ -86,6 +88,9 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             other_agent_action_predictor_loss_coeff (float): Coefficient of the
                 other agent action predictor loss.
             goal_loss_coeff (float): Coefficient of the goal predictor loss.
+            prev_goal_kl_coeff (float): Coefficient between the KL of the previous
+                goal predictions and the current goal predictions during training
+                (encourages stability of goal predictions).
             entropy_coeff (float): Coefficient of the entropy loss.
             entropy_coeff_schedule (float): Schedule for the entropy
                 coefficient.
@@ -121,6 +126,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             )
         if goal_loss_coeff is not NotProvided:
             self.goal_loss_coeff = goal_loss_coeff
+        if prev_goal_kl_coeff is not NotProvided:
+            self.prev_goal_kl_coeff = prev_goal_kl_coeff
         if entropy_coeff is not NotProvided:
             self.entropy_coeff = entropy_coeff
         if entropy_coeff_schedule is not NotProvided:

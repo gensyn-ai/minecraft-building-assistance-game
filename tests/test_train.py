@@ -34,6 +34,7 @@ def default_config():
         "area_sample": False,
         "use_extra_features": True,
         "num_training_iters": 2,
+        "vf_share_layers": True,
         "train_batch_size": 100,
         "sgd_minibatch_size": 5,
         "rollout_fragment_length": 10,
@@ -154,10 +155,12 @@ def test_lstm(default_config):
     result = ex.run(
         config_updates={
             **default_config,
+            "num_workers": 0,  # TODO: remove
             "use_per_location_lstm": True,
             "max_seq_len": 5,
             "sgd_minibatch_size": 20,
             "vf_share_layers": True,
+            "use_prev_blocks": True,
         }
     ).result
 
@@ -177,6 +180,24 @@ def test_transformer(default_config):
             "num_layers": 3,
             "num_heads": 1,
             "use_separated_transformer": True,
+        }
+    ).result
+
+    assert result is not None
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "model": "transformer",
+            "position_embedding_size": 6,
+            "hidden_size": 50,
+            "num_layers": 4,
+            "num_heads": 1,
+            "use_separated_transformer": True,
+            "interleave_lstm": True,
+            "max_seq_len": 5,
+            "sgd_minibatch_size": 20,
         }
     ).result
 
@@ -417,6 +438,37 @@ def test_lstm_alpha_zero_assistant(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
+def test_interleaved_lstm_alpha_zero_assistant(
+    default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
+):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["assistant"],
+            "model": "transformer_alpha_zero",
+            "use_separated_transformer": True,
+            "interleave_lstm": True,
+            "pretrain": True,
+            "num_layers": 4,
+            "max_seq_len": 5,
+            "sgd_minibatch_size": 20,
+            "vf_share_layers": True,
+        }
+    ).result
+    assert result is not None
+    assert result["custom_metrics"]["human/own_reward_mean"] > -10
+    assert result["custom_metrics"]["assistant/own_reward_mean"] > -10
+
+
+@pytest.mark.uses_rllib
 @pytest.mark.timeout(120)
 @pytest.mark.limit_memory("600 MB")
 def test_lstm_alpha_zero_memory_usage(
@@ -588,6 +640,31 @@ def test_predicted_rewards_equal_rewards_in_alpha_zero(
     ]
     assert abs(prediction_stats["reward_mse"]) < 1e-8
     assert abs(prediction_stats["own_reward_mse"]) < 1e-8
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(120)
+def test_alpha_zero_goal_predictor_kl(default_config, default_alpha_zero_config):
+    prev_goal_kls: Dict[float, float] = {}
+
+    for prev_goal_kl_coeff in [0, 10]:
+        result = ex.run(
+            config_updates={
+                **default_config,
+                **default_alpha_zero_config,
+                "use_goal_predictor": True,
+                "prev_goal_kl_coeff": prev_goal_kl_coeff,
+            }
+        ).result
+
+        assert result is not None
+        prev_goal_kl = result["info"]["learner"]["human"]["learner_stats"][
+            "prev_goal_kl"
+        ]
+        prev_goal_kls[prev_goal_kl_coeff] = prev_goal_kl
+
+    assert prev_goal_kls[10] < prev_goal_kls[0]
+    assert 0 < prev_goal_kls[0] < 1
 
 
 @pytest.mark.uses_rllib

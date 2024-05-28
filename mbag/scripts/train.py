@@ -340,6 +340,7 @@ def sacred_config(_log):  # noqa
     explore_noops = True
     policy_loss_coeff = 1
     goal_loss_coeff = 0.5
+    prev_goal_kl_coeff = 0
     place_block_loss_coeff = 1
     place_block_loss_coeff_schedule = None
 
@@ -361,6 +362,8 @@ def sacred_config(_log):  # noqa
     num_action_layers = 2
     num_value_layers = 2
     use_per_location_lstm = False
+    lstm_depth = None
+    num_lstm_layers = 1
     mask_action_distribution = True
     # Line-of-sight masking is super slow with teleportation=True.
     line_of_sight_masking = not teleportation
@@ -368,6 +371,8 @@ def sacred_config(_log):  # noqa
     vf_scale = 1.0
     num_heads = 4
     use_separated_transformer = False
+    interleave_lstm = False
+    use_prev_blocks = False
     use_resnet = False
     num_unet_layers = 0
     unet_grow_factor = 2
@@ -394,6 +399,9 @@ def sacred_config(_log):  # noqa
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
+            "lstm_depth": lstm_depth,
+            "num_lstm_layers": num_lstm_layers,
+            "use_prev_blocks": use_prev_blocks,
             "mask_action_distribution": mask_action_distribution,
             "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
@@ -418,7 +426,11 @@ def sacred_config(_log):  # noqa
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
             "use_per_location_lstm": use_per_location_lstm,
+            "lstm_depth": lstm_depth,
+            "num_lstm_layers": num_lstm_layers,
+            "use_prev_blocks": use_prev_blocks,
             "use_separated_transformer": use_separated_transformer,
+            "interleave_lstm": interleave_lstm,
             "mask_action_distribution": mask_action_distribution,
             "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
@@ -683,6 +695,7 @@ def sacred_config(_log):  # noqa
             num_sgd_iter=num_sgd_iter,
             policy_loss_coeff=policy_loss_coeff,
             vf_loss_coeff=vf_loss_coeff,
+            prev_goal_kl_coeff=prev_goal_kl_coeff,
             entropy_coeff_schedule=[
                 (0, entropy_coeff_start),
                 (entropy_coeff_horizon, entropy_coeff_end),

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union, cast
 
 import numpy as np
 import torch
+import torch.nn.functional as F  # noqa: N812
 from gymnasium import spaces
 from ray.rllib.algorithms.alpha_zero.alpha_zero_policy import AlphaZeroPolicy
 from ray.rllib.evaluation import SampleBatch
@@ -27,7 +28,7 @@ from torch import nn
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import MbagConfigDict
-from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict
+from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict, WorldSize
 
 from ..kl_regularization import ANCHOR_POLICY_ACTION_DIST_INPUTS
 from ..rllib_env import unwrap_mbag_env
@@ -41,6 +42,7 @@ OWN_REWARDS = "own_rewards"
 EXPECTED_REWARDS = "expected_rewards"
 EXPECTED_OWN_REWARDS = "expected_own_rewards"
 VALUE_ESTIMATES = "value_estimates"
+GOAL_LOGITS = "goal_logits"
 FORCE_NOOP = "force_noop"
 
 
@@ -112,6 +114,14 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         self.envs = []
         self.obs_space = observation_space
 
+        original_obs_space = self.obs_space
+        if hasattr(original_obs_space, "original_space"):
+            original_obs_space = original_obs_space.original_space
+        assert isinstance(original_obs_space, spaces.Tuple)
+        world_obs_space = original_obs_space.spaces[0]
+        assert world_obs_space.shape is not None
+        world_size = cast(WorldSize, world_obs_space.shape[1:])
+
         self.view_requirements[ACTION_MASK] = ViewRequirement(
             space=spaces.MultiBinary(action_space.n)
         )
@@ -130,6 +140,14 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         self.view_requirements[VALUE_ESTIMATES] = ViewRequirement(
             space=spaces.Box(low=-np.inf, high=np.inf, shape=())
         )
+        if self.mcts.use_goal_predictor:
+            self.view_requirements[GOAL_LOGITS] = ViewRequirement(
+                space=spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(MinecraftBlocks.NUM_BLOCKS,) + world_size,
+                )
+            )
 
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
@@ -269,7 +287,6 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             )
 
         action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
-
         value_estimates = np.array([node.value_estimate for node in nodes])
 
         extra_out = {
@@ -279,6 +296,16 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_OWN_REWARDS: expected_own_rewards,
             VALUE_ESTIMATES: value_estimates,
         }
+
+        if self.mcts.use_goal_predictor:
+
+            def enforce_not_none(goal_logits: Optional[np.ndarray]) -> np.ndarray:
+                assert goal_logits is not None
+                return goal_logits
+
+            extra_out[GOAL_LOGITS] = np.stack(
+                [enforce_not_none(node.goal_logits) for node in nodes], axis=0
+            )
 
         return actions, state_out, extra_out
 
@@ -306,16 +333,21 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         state_out = convert_to_numpy(state_out_torch)
         value_estimates = convert_to_numpy(self.model.value_function())
 
+        extra_out = {
+            ACTION_MASK: action_mask,
+            MCTS_POLICIES: mcts_policies,
+            EXPECTED_REWARDS: expected_rewards,
+            EXPECTED_OWN_REWARDS: expected_own_rewards,
+            VALUE_ESTIMATES: value_estimates,
+        }
+
+        if self.mcts.use_goal_predictor:
+            extra_out[GOAL_LOGITS] = convert_to_numpy(self.model.goal_predictor())
+
         return (
             actions,
             state_out,
-            {
-                ACTION_MASK: action_mask,
-                MCTS_POLICIES: mcts_policies,
-                EXPECTED_REWARDS: expected_rewards,
-                EXPECTED_OWN_REWARDS: expected_own_rewards,
-                VALUE_ESTIMATES: value_estimates,
-            },
+            extra_out,
         )
 
     def _check_expected_rewards_and_store_in_episodes(
@@ -422,6 +454,8 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_OWN_REWARDS: compute_actions_extra_out[EXPECTED_OWN_REWARDS],
             VALUE_ESTIMATES: compute_actions_extra_out[VALUE_ESTIMATES],
         }
+        if GOAL_LOGITS in compute_actions_extra_out:
+            extra_out[GOAL_LOGITS] = compute_actions_extra_out[GOAL_LOGITS]
 
         return np.array(actions), state_out, extra_out
 
@@ -541,7 +575,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         entropy = reduce_mean_valid(dist.entropy())
 
         # Compute goal prediction loss.
-        goal_logits = model.goal_predictor()
+        goal_logits: torch.Tensor = model.goal_predictor()
         world_obs, _, _ = restore_original_dimensions(
             train_batch[SampleBatch.OBS],
             obs_space=self.observation_space,
@@ -557,10 +591,25 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         )
         unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
+        prev_goal_kl: Union[torch.Tensor, float] = 0.0
+        if GOAL_LOGITS in train_batch:
+            prev_goal_logits = cast(torch.Tensor, train_batch[GOAL_LOGITS])
+            prev_goal_logits = prev_goal_logits.permute(0, 2, 3, 4, 1).flatten(
+                end_dim=3
+            )
+            flat_goal_logits = goal_logits.permute(0, 2, 3, 4, 1).flatten(end_dim=3)
+            prev_goal_kl = F.kl_div(
+                F.log_softmax(flat_goal_logits, dim=1),
+                F.log_softmax(prev_goal_logits, dim=1),
+                reduction="batchmean",
+                log_target=True,
+            )
+
         # Compute total loss.
         total_loss: torch.Tensor = (
             self.config["vf_loss_coeff"] * value_loss
             + self.config["goal_loss_coeff"] * goal_loss
+            + self.config["prev_goal_kl_coeff"] * prev_goal_kl
             - self.entropy_coeff * entropy
         )
         if not self.config["pretrain"]:
@@ -618,6 +667,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             train_batch[Postprocessing.VALUE_TARGETS], values
         )
         model.tower_stats["goal_loss"] = goal_loss
+        model.tower_stats["prev_goal_kl"] = prev_goal_kl
         model.tower_stats["unplaced_blocks_goal_loss"] = unplaced_blocks_goal_loss
         model.tower_stats["entropy"] = entropy
 
@@ -638,6 +688,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             "vf_loss",
             "vf_explained_var",
             "goal_loss",
+            "prev_goal_kl",
             "unplaced_blocks_goal_loss",
             "entropy",
             "other_agent_action_predictor_loss",

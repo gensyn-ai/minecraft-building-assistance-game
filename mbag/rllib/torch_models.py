@@ -2,7 +2,17 @@ import contextlib
 import copy
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, ContextManager, Dict, List, Tuple, cast
+from typing import (
+    Any,
+    ContextManager,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
 
 import numpy as np
 import torch
@@ -14,6 +24,7 @@ from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from ray.rllib.utils.typing import TensorType
@@ -31,9 +42,11 @@ from mbag.environment.types import (
     LAST_INTERACTED,
     NO_ONE,
     PLAYER_LOCATIONS,
+    WorldSize,
 )
 
 ACTION_MASK = "action_mask"
+PREV_OBS = "prev_obs"
 
 
 class MbagModel(ABC, TorchModelV2):
@@ -72,6 +85,10 @@ class MbagModelConfig(TypedDict, total=False):
     """Number of extra layers for the value head."""
     use_per_location_lstm: bool
     """Include a LSTM operating per-location."""
+    lstm_depth: Optional[int]
+    """How many layers into the backbone to run the LSTM; default is at the end."""
+    num_lstm_layers: int
+    """Number of LSTM layers."""
     mask_action_distribution: bool
     """Mask invalid actions in the output action distribution."""
     line_of_sight_masking: bool
@@ -83,6 +100,8 @@ class MbagModelConfig(TypedDict, total=False):
     """Scale inventory and timestep observations."""
     vf_scale: float
     """Scale the value function output by this amount."""
+    use_prev_blocks: bool
+    """Whether to input the last different value of each block type to the network."""
 
 
 DEFAULT_CONFIG: MbagModelConfig = {
@@ -96,10 +115,13 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "num_action_layers": 1,
     "num_value_layers": 1,
     "use_per_location_lstm": False,
+    "lstm_depth": None,
+    "num_lstm_layers": 1,
     "mask_action_distribution": True,
     "line_of_sight_masking": False,
     "scale_obs": False,
     "vf_scale": 1.0,
+    "use_prev_blocks": False,
 }
 
 
@@ -134,7 +156,7 @@ class MbagTorchModel(ActorCriticModel):
         world_obs_space = obs_space[0]
         assert isinstance(world_obs_space, spaces.Box)
         self.world_obs_space: spaces.Box = world_obs_space
-        self.world_size = self.world_obs_space.shape[-3:]
+        self.world_size = cast(WorldSize, self.world_obs_space.shape[-3:])
 
         extra_config = copy.deepcopy(DEFAULT_CONFIG)
         extra_config.update(cast(MbagModelConfig, kwargs))
@@ -148,10 +170,13 @@ class MbagTorchModel(ActorCriticModel):
         self.num_action_layers = extra_config["num_action_layers"]
         self.num_value_layers = extra_config["num_value_layers"]
         self.use_per_location_lstm = extra_config.get("use_per_location_lstm", False)
+        self.lstm_depth = extra_config.get("lstm_depth", None)
+        self.num_lstm_layers = extra_config.get("num_lstm_layers", 1)
         self.mask_action_distribution = extra_config["mask_action_distribution"]
         self.line_of_sight_masking = extra_config["line_of_sight_masking"]
         self.scale_obs = extra_config["scale_obs"]
         self.vf_scale = extra_config["vf_scale"]
+        self.use_prev_blocks = extra_config["use_prev_blocks"]
 
         self.block_id_embedding = nn.Embedding(
             num_embeddings=len(MinecraftBlocks.ID2NAME),
@@ -180,8 +205,15 @@ class MbagTorchModel(ActorCriticModel):
             self.per_location_lstm = nn.LSTM(
                 input_size=self.hidden_size,
                 hidden_size=self.hidden_size,
-                num_layers=1,
+                num_layers=self.num_lstm_layers,
                 batch_first=True,
+            )
+
+        if self.use_prev_blocks:
+            self.view_requirements[PREV_OBS] = ViewRequirement(
+                data_col=SampleBatch.OBS,
+                space=self.view_requirements[SampleBatch.OBS].space,
+                shift=-1,
             )
 
     @property
@@ -194,9 +226,14 @@ class MbagTorchModel(ActorCriticModel):
         embedded observation.
         """
 
-        # We have in-planes for current blocks, player locations, last interacted, and
-        # goal blocks if mask_goal is False.
-        return 3 if self.mask_goal else 4
+        # We always have in-planes for current blocks, player locations, and
+        # last interacted.
+        planes = 3
+        if not self.mask_goal:
+            planes += 1
+        if self.use_prev_blocks:
+            planes += 1
+        return planes
 
     def _get_in_channels(self) -> int:
         """Get the number of channels in the embedded observation."""
@@ -301,6 +338,7 @@ class MbagTorchModel(ActorCriticModel):
         world_obs: torch.Tensor,
         inventory_obs: torch.Tensor,
         timestep: torch.Tensor,
+        prev_blocks: Optional[torch.Tensor] = None,
     ):
         """
         Transform a raw observation into the input for the network backbone.
@@ -311,6 +349,10 @@ class MbagTorchModel(ActorCriticModel):
         if not self.mask_goal:
             embedded_goal_blocks = self.block_id_embedding(world_obs[:, GOAL_BLOCKS])
             embedded_obs_pieces.append(embedded_goal_blocks)
+        if self.use_prev_blocks:
+            assert prev_blocks is not None
+            embedded_prev_blocks = self.block_id_embedding(prev_blocks)
+            embedded_obs_pieces.append(embedded_prev_blocks)
 
         player_locations = world_obs[:, PLAYER_LOCATIONS].clone()
         if self.mask_other_players:
@@ -408,33 +450,77 @@ class MbagTorchModel(ActorCriticModel):
         self._world_obs = self._world_obs.to(self.device).long()
         self._inventory_obs = self._inventory_obs.to(self.device).long()
         self._timestep = self._timestep.to(self.device)
-        self._embedded_obs = self._get_embedded_obs(
-            self._world_obs,
-            self._inventory_obs,
-            self._timestep,
-        )
 
         state = [
             state_var.to(self.device) if state_var is not None else None
             for state_var in state
         ]
 
+        prev_blocks: Optional[torch.Tensor] = None
+        if self.use_prev_blocks:
+            start_prev_blocks: torch.Tensor
+            state, start_prev_blocks = state[:-1], state[-1]
+            start_prev_blocks = start_prev_blocks.long()  # Size (B, W, H, D)
+            current_blocks_with_time: torch.Tensor = (  # Size (B, T, W, H, D)
+                add_time_dimension(
+                    self._world_obs[:, CURRENT_BLOCKS],
+                    seq_lens=seq_lens,
+                    framework="torch",
+                    time_major=False,
+                ).long()
+            )
+            prev_blocks = torch.concatenate(
+                [start_prev_blocks[:, None], current_blocks_with_time[:, :-1]],
+                dim=1,
+            ).flatten(end_dim=1)
+            end_current_blocks = current_blocks_with_time[:, -1]
+
+        self._embedded_obs = self._get_embedded_obs(
+            self._world_obs,
+            self._inventory_obs,
+            self._timestep,
+            prev_blocks,
+        )
+
         self._amp_or_nothing: ContextManager = contextlib.nullcontext()
         if self.device.type == "cuda" and torch.cuda.is_bf16_supported():
             self._amp_or_nothing = torch.autocast("cuda", dtype=torch.bfloat16)
 
         with self._amp_or_nothing:
-            if self.vf_share_layers:
-                self._backbone_out = self.backbone(self._embedded_obs)
+            backbone = self.backbone if self.vf_share_layers else self.action_backbone
+
+            if self.lstm_depth is not None:
+                assert self.use_per_location_lstm
+                assert not (
+                    isinstance(backbone, SeparatedTransformerEncoder)
+                    and backbone.interleave_lstm
+                )
+                lstm_in = backbone(
+                    self._embedded_obs, layer_indices=range(0, self.lstm_depth)
+                )
+                lstm_out, state = self._run_lstm(lstm_in, state, seq_lens)
+                num_layers: int = self.num_layers
+                self._backbone_out = backbone(
+                    lstm_out, layer_indices=range(self.lstm_depth, num_layers)
+                )
             else:
-                self._backbone_out = self.action_backbone(self._embedded_obs)
+                if (
+                    isinstance(backbone, SeparatedTransformerEncoder)
+                    and backbone.interleave_lstm
+                ):
+                    assert not self.use_per_location_lstm
+                    self._backbone_out, state = backbone(
+                        self._embedded_obs, state, seq_lens
+                    )
+                else:
+                    self._backbone_out = backbone(self._embedded_obs)
+                    if self.use_per_location_lstm:
+                        self._backbone_out, state = self._run_lstm(
+                            self._backbone_out, state, seq_lens
+                        )
+
             self._backbone_out_shape = self._backbone_out.size()[1:]
             assert self._backbone_out_shape[0] == self._get_head_in_channels()
-
-            if self.use_per_location_lstm:
-                self._backbone_out, state = self._run_lstm(
-                    self._backbone_out, state, seq_lens
-                )
 
             self._logits = self.action_head(self._backbone_out)
             self._flat_logits = MbagActionDistribution.to_flat_torch_logits(
@@ -444,6 +530,9 @@ class MbagTorchModel(ActorCriticModel):
         self._logits = self._logits.float()
         self._flat_logits = self._flat_logits.float()
         state = [state_var.float() for state_var in state]
+
+        if self.use_prev_blocks:
+            state.append(end_current_blocks.clone())
 
         if mask_logits and self.mask_action_distribution:
             if ACTION_MASK in input_dict and torch.any(input_dict[ACTION_MASK]):
@@ -485,13 +574,22 @@ class MbagTorchModel(ActorCriticModel):
         return goal_preds.float()
 
     def get_initial_state(self):
+        state: List[TensorType]
         if self.use_per_location_lstm:
-            return [torch.zeros((self.hidden_size, *self.world_size)) for _ in range(2)]
+            state = [
+                torch.zeros((self.hidden_size, *self.world_size)) for _ in range(2)
+            ]
         else:
             if self.fake_state:
-                return [np.zeros(1)]
+                state = [torch.zeros(1)]
             else:
-                return super().get_initial_state()
+                state = super().get_initial_state()
+        if self.use_prev_blocks:
+            state.append(self._get_prev_blocks_initial_state())
+        return state
+
+    def _get_prev_blocks_initial_state(self):
+        return torch.zeros(self.world_size, dtype=torch.uint8)
 
     def compute_priors_and_value(self, obs, state_in=[], action_mask=None):
         batch_size = len(obs)
@@ -954,17 +1052,41 @@ class Permute(nn.Module):
 
 
 class SeparatedTransformerEncoder(nn.Module):
-    def __init__(self, num_layers: int, d_model: int, nhead: int, dim_feedforward):
+    def __init__(
+        self,
+        num_layers: int,
+        d_model: int,
+        nhead: int,
+        dim_feedforward: int,
+        n_spatial_dims: int = 3,
+        interleave_lstm: bool = False,
+    ):
         super().__init__()
 
-        self.layers: List[nn.TransformerEncoderLayer] = []
+        self.d_model = d_model
+        self.n_spatial_dims = n_spatial_dims
+        self.interleave_lstm = interleave_lstm
+
+        self.layers: List[Union[nn.TransformerEncoderLayer, nn.LSTM]] = []
         for layer_index in range(num_layers):
-            layer = nn.TransformerEncoderLayer(
-                d_model=d_model,
-                nhead=nhead,
-                dim_feedforward=dim_feedforward,
-                batch_first=True,
-            )
+            layer: Union[nn.TransformerEncoderLayer, nn.LSTM]
+            if (
+                self.interleave_lstm
+                and (layer_index + 1) % (self.n_spatial_dims + 1) == 0
+            ):
+                layer = nn.LSTM(
+                    input_size=d_model,
+                    hidden_size=d_model,
+                    num_layers=1,
+                    batch_first=True,
+                )
+            else:
+                layer = nn.TransformerEncoderLayer(
+                    d_model=d_model,
+                    nhead=nhead,
+                    dim_feedforward=dim_feedforward,
+                    batch_first=True,
+                )
             self.add_module(f"layer_{layer_index}", layer)
             self.layers.append(layer)
 
@@ -991,50 +1113,136 @@ class SeparatedTransformerEncoder(nn.Module):
                 )
             return torch.cat(minibatch_outputs, dim=0)
 
-    def _run_layer(self, layer_index: int, x: torch.Tensor) -> torch.Tensor:
-        n_spatial_dims = len(x.size()) - 2
+    def _run_layer(
+        self, layer_index: int, x: torch.Tensor, state: List[torch.Tensor], seq_lens
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        assert len(x.size()) - 2 == self.n_spatial_dims
         layer = self.layers[layer_index]
-        spatial_dim = layer_index % n_spatial_dims
-        permutation = (
-            (0,)
-            + tuple(
-                other_spatial_dim + 2
-                for other_spatial_dim in range(n_spatial_dims)
-                if other_spatial_dim != spatial_dim
-            )
-            + (spatial_dim + 2, 1)
-        )
-        inverse_permutation = tuple(
-            permutation.index(dim) for dim in range(len(x.size()))
-        )
-        x_permuted = x.permute(*permutation)
-        layer_input = x_permuted.flatten(end_dim=-3)
-        # We use the default (math) kernel for attention b/c the sequence lengths are
-        # super short, so it ends up being faster.
-        if hasattr(torch.backends.cuda, "sdp_kernel"):
-            with torch.backends.cuda.sdp_kernel(
-                enable_flash=False, enable_mem_efficient=False
-            ):
-                layer_output = self._batched_layer_forward(layer, layer_input)
-        else:
-            layer_output = self._batched_layer_forward(layer, layer_input)
-        x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
-        return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if isinstance(layer, nn.LSTM):
+            lstm_index = layer_index // (self.n_spatial_dims + 1)
+            lstm_state = state[2 * lstm_index : 2 * (lstm_index + 1)]
+            return self._run_lstm(layer, x, lstm_state, seq_lens)
+        else:
+            spatial_dim = layer_index % self.n_spatial_dims
+            permutation = (
+                (0,)
+                + tuple(
+                    other_spatial_dim + 2
+                    for other_spatial_dim in range(self.n_spatial_dims)
+                    if other_spatial_dim != spatial_dim
+                )
+                + (spatial_dim + 2, 1)
+            )
+            inverse_permutation = tuple(
+                permutation.index(dim) for dim in range(len(x.size()))
+            )
+            x_permuted = x.permute(*permutation)
+            layer_input = x_permuted.flatten(end_dim=-3)
+            # We use the default (math) kernel for attention b/c the sequence lengths are
+            # super short, so it ends up being faster.
+            if hasattr(torch.backends.cuda, "sdp_kernel"):
+                with torch.backends.cuda.sdp_kernel(
+                    enable_flash=False, enable_mem_efficient=False
+                ):
+                    layer_output = self._batched_layer_forward(layer, layer_input)
+            else:
+                layer_output = self._batched_layer_forward(layer, layer_input)
+            x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+            return x, []
+
+    def _run_lstm(
+        self, lstm: nn.LSTM, x: torch.Tensor, state_in: List[torch.Tensor], seq_lens
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        world_size = x.size()[2:]
+        flat_x = x.flatten(start_dim=1)
+        flat_backone_out_with_time: torch.Tensor = add_time_dimension(
+            flat_x,
+            seq_lens=seq_lens,
+            framework="torch",
+            time_major=False,
+        )
+        # Should be of size (batch_size, max_seq_len, hidden_size, width, height, depth).
+        x_with_time = flat_backone_out_with_time.reshape(
+            *flat_backone_out_with_time.size()[:2],
+            *x.size()[1:],
+        )
+        batch_size, max_seq_len = x_with_time.size()[:2]
+        assert x_with_time.size()[2:] == (self.d_model,) + world_size
+        x_per_location = x_with_time.permute(0, 3, 4, 5, 1, 2).flatten(end_dim=3)
+        # State in should be of size (batch_size, hidden_size, width, height, depth).
+        state_in_per_location = tuple(
+            state.permute(0, 2, 3, 4, 1).flatten(end_dim=3)[None].contiguous()
+            for state in state_in
+        )
+
+        lstm_out_per_location: torch.Tensor
+        state_out_per_location: torch.Tensor
+        lstm_out_per_location, state_out_per_location = lstm(
+            x_per_location, state_in_per_location
+        )
+        lstm_out_with_time = lstm_out_per_location.reshape(
+            batch_size,
+            *world_size,
+            max_seq_len,
+            self.d_model,
+        ).permute(0, 4, 5, 1, 2, 3)
+        state_out = [
+            state.reshape(batch_size, *world_size, self.d_model).permute(0, 4, 1, 2, 3)
+            for state in state_out_per_location
+        ]
+
+        lstm_out = lstm_out_with_time.flatten(end_dim=1)
+
+        out = lstm_out + x  # Residual connection.
+
+        return out, state_out
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        state: List[torch.Tensor] = [],
+        seq_lens=None,
+        *,
+        layer_indices: Optional[Sequence[int]] = None,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, List[torch.Tensor]]]:
         # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
-        for layer_index in range(len(self.layers)):
+
+        if layer_indices is None:
+            layer_indices = range(len(self.layers))
+
+        state_out: List[torch.Tensor] = []
+        for layer_index in layer_indices:
             if self.training:
                 from torch.utils.checkpoint import checkpoint
 
-                x = checkpoint(
-                    lambda x, layer_index=layer_index: self._run_layer(layer_index, x),
+                x, layer_state = checkpoint(
+                    lambda x, state, seq_lens, layer_index=layer_index: self._run_layer(
+                        layer_index, x, state, seq_lens
+                    ),
                     x,
+                    state,
+                    seq_lens,
                 )
             else:
-                x = self._run_layer(layer_index, x)
+                x, layer_state = self._run_layer(layer_index, x, state, seq_lens)
+            state_out.extend(layer_state)
 
-        return x
+        if self.interleave_lstm:
+            return x, state_out
+        else:
+            assert state_out == []
+            return x
+
+    def get_initial_state(self, world_size: WorldSize) -> List[torch.Tensor]:
+        if self.interleave_lstm:
+            num_lstm_layers = len(self.layers) // (self.n_spatial_dims + 1)
+            return [
+                torch.zeros((self.d_model, *world_size))
+                for _ in range(2 * num_lstm_layers)
+            ]
+        else:
+            return []
 
 
 class MbagTransformerModelConfig(MbagModelConfig, total=False):
@@ -1042,6 +1250,7 @@ class MbagTransformerModelConfig(MbagModelConfig, total=False):
     num_layers: int
     num_heads: int
     use_separated_transformer: bool
+    interleave_lstm: bool
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
@@ -1057,6 +1266,7 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
     "num_layers": 3,
     "num_heads": 2,
     "use_separated_transformer": False,
+    "interleave_lstm": False,
 }
 
 
@@ -1082,6 +1292,7 @@ class MbagTransformerModel(MbagTorchModel):
         self.num_layers = extra_config["num_layers"]
         self.num_heads = extra_config["num_heads"]
         self.use_separated_transformer = extra_config["use_separated_transformer"]
+        self.interleave_lstm = extra_config["interleave_lstm"]
 
         super().__init__(
             obs_space, action_space, num_outputs, model_config, name, **kwargs
@@ -1149,8 +1360,10 @@ class MbagTransformerModel(MbagTorchModel):
                 d_model=self.hidden_size,
                 nhead=self.num_heads,
                 dim_feedforward=self.hidden_size,
+                interleave_lstm=self.interleave_lstm,
             )
         else:
+            assert self.interleave_lstm is False
             return nn.Sequential(
                 nn.TransformerEncoder(
                     nn.TransformerEncoderLayer(
@@ -1170,8 +1383,11 @@ class MbagTransformerModel(MbagTorchModel):
         world_obs: torch.Tensor,
         inventory_obs: torch.Tensor,
         timestep: torch.Tensor,
+        prev_blocks: Optional[torch.Tensor] = None,
     ):
-        embedded_obs = super()._get_embedded_obs(world_obs, inventory_obs, timestep)
+        embedded_obs = super()._get_embedded_obs(
+            world_obs, inventory_obs, timestep, prev_blocks
+        )
         batch_size = embedded_obs.size()[0]
         embedded_obs = self._pad_to_hidden_size(
             torch.cat(
@@ -1187,6 +1403,16 @@ class MbagTransformerModel(MbagTorchModel):
             return embedded_obs
         else:
             return embedded_obs.flatten(start_dim=2).transpose(1, 2)
+
+    def get_initial_state(self):
+        if self.interleave_lstm:
+            assert isinstance(self.backbone, SeparatedTransformerEncoder)
+            state = self.backbone.get_initial_state(world_size=self.world_size)
+            if self.use_prev_blocks:
+                state.append(self._get_prev_blocks_initial_state())
+            return state
+        else:
+            return super().get_initial_state()
 
 
 ModelCatalog.register_custom_model("mbag_transformer_model", MbagTransformerModel)
