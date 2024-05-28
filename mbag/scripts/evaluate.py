@@ -1,10 +1,12 @@
 import copy
+import faulthandler
 import itertools
 import json
 import multiprocessing as mp
 import os
 import pickle
 import random
+import signal
 import zipfile
 from datetime import datetime
 from logging import Logger
@@ -34,6 +36,9 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
 
 ex = Experiment("evaluate")
+
+# Useful for debugging when debugging freezes.
+faulthandler.register(signal.SIGUSR1)
 
 
 @ex.config
@@ -191,6 +196,7 @@ def evaluation_worker(
     use_malmo: bool,
     out_dir: str,
 ):
+    faulthandler.register(signal.SIGUSR1)
     for episode in itertools.islice(
         run_evaluation(
             runs=runs,
