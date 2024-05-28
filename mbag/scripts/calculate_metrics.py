@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pickle
+import zipfile
 from typing import List
 
 import tqdm
@@ -29,12 +30,20 @@ def main(  # noqa: C901
     out_fname: str,
     _log: logging.Logger,
 ):
-    episodes_fname = os.path.join(evaluate_dir, "episodes.pickle")
-    if not os.path.exists(episodes_fname):
-        episodes_fname = os.path.join(evaluate_dir, "episode_info.pickle")
-    _log.info(f"loading episodes from {episodes_fname}...")
-    with open(episodes_fname, "rb") as episodes_file:
-        episodes: List[MbagEpisode] = pickle.load(episodes_file)
+    episodes: List[MbagEpisode]
+    episodes_zip_fname = os.path.join(evaluate_dir, "episodes.zip")
+    if os.path.exists(episodes_zip_fname):
+        _log.info(f"loading episodes from {episodes_zip_fname}...")
+        with zipfile.ZipFile(episodes_zip_fname, "r") as episodes_zip:
+            with episodes_zip.open("episodes.pickle") as episodes_file:
+                episodes = pickle.load(episodes_file)
+    else:
+        episodes_fname = os.path.join(evaluate_dir, "episodes.pickle")
+        if not os.path.exists(episodes_fname):
+            episodes_fname = os.path.join(evaluate_dir, "episode_info.pickle")
+        _log.info(f"loading episodes from {episodes_fname}...")
+        with open(episodes_fname, "rb") as episodes_file:
+            episodes = pickle.load(episodes_file)
 
     episode_metrics: List[MbagEpisodeMetrics] = []
     for episode in tqdm.tqdm(episodes):
