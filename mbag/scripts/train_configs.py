@@ -28,7 +28,7 @@ def make_named_configs(ex: Experiment):
         model = "transformer"
         hidden_size = 64
         use_separated_transformer = True
-        num_layers = 9
+        num_layers = 6
         vf_share_layers = True
         num_simulations = 100
         num_sgd_iter = 1
@@ -54,7 +54,7 @@ def make_named_configs(ex: Experiment):
         scale_obs = True
         randomize_first_episode_length = True
         line_of_sight_masking = True
-        grad_clip = 0.1
+        grad_clip = 10
         rollout_fragment_length = 100
 
     @ex.named_config
@@ -93,7 +93,7 @@ def make_named_configs(ex: Experiment):
         hidden_size = 64
         sgd_minibatch_size = 128
         use_separated_transformer = True
-        num_layers = 9
+        num_layers = 6
         vf_share_layers = True
         num_sgd_iter = 1
         inf_blocks = True
@@ -117,8 +117,6 @@ def make_named_configs(ex: Experiment):
         gamma = 0.95
         scale_obs = True
         permute_block_types = True
-        experiment_tag = (
-            f"bc_human/infinite_blocks_{str(inf_blocks).lower()}/{data_split}"
-        )
+        experiment_tag = f"bc_human/lr_{lr_start}/infinite_blocks_{str(inf_blocks).lower()}/{data_split}"
         if checkpoint_to_load_policies is not None:
             experiment_tag += f"/init_{checkpoint_name}"
