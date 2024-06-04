@@ -591,7 +591,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         )
         unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
-        prev_goal_kl: Union[torch.Tensor, float] = 0.0
+        prev_goal_kl: torch.Tensor = torch.tensor(0.0, device=policy_loss.device)
         if GOAL_LOGITS in train_batch:
             prev_goal_logits = cast(torch.Tensor, train_batch[GOAL_LOGITS])
             prev_goal_logits = prev_goal_logits.permute(0, 2, 3, 4, 1).flatten(
