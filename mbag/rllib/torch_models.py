@@ -451,6 +451,13 @@ class MbagTorchModel(ActorCriticModel):
         self._inventory_obs = self._inventory_obs.to(self.device).long()
         self._timestep = self._timestep.to(self.device)
 
+        if seq_lens is not None:
+            # Fix RLlib issue where sometimes seq_lens is too long.
+            if self._world_obs.size()[0] == 1:
+                seq_lens = torch.ones(
+                    1, dtype=torch.long, device=self._world_obs.device
+                )
+
         state = [
             state_var.to(self.device) if state_var is not None else None
             for state_var in state
