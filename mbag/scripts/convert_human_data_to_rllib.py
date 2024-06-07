@@ -3,8 +3,9 @@ import logging
 import os
 from typing import List, Optional
 
+import numpy as np
 from ray.rllib.offline.json_writer import JsonWriter
-from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from sacred import Experiment
 
 from mbag.compatibility_utils import convert_old_config_to_new
@@ -39,6 +40,8 @@ def sacred_config():
     place_wrong_reward = 0  # noqa: F841
     player_indices = [0]  # noqa: F841
     inventory_player_indices = player_indices  # noqa: F841
+    max_seq_len = None  # noqa: F841
+    policy_id = None  # noqa: F841
 
     experiment_name = "rllib"
     if not include_noops:
@@ -53,6 +56,7 @@ def sacred_config():
         f"_place_wrong_reward_{place_wrong_reward}" if place_wrong_reward != 0 else ""
     )
     experiment_name += f"_repaired_player_{'_'.join(map(str, player_indices))}"
+    experiment_name += f"_seq_{max_seq_len}" if max_seq_len is not None else ""
     out_dir = os.path.join(data_dir, experiment_name)  # noqa: F841
 
 
@@ -71,6 +75,8 @@ def main(  # noqa: C901
     place_wrong_reward: float,
     player_indices: List[int],
     inventory_player_indices: List[int],
+    max_seq_len: Optional[int],
+    policy_id: Optional[str],
     _log: logging.Logger,
 ):
     episode: MbagEpisode
@@ -141,6 +147,15 @@ def main(  # noqa: C901
                 flat_observations=flat_observations,
                 action_delay=action_delay,
             )
+
+            if max_seq_len is not None:
+                remaining_length = len(sample_batch)
+                seq_lens: List[int] = []
+                while remaining_length > 0:
+                    seq_lens.append(min(remaining_length, max_seq_len))
+                    remaining_length -= max_seq_len
+                sample_batch[SampleBatch.SEQ_LENS] = np.array(seq_lens)
+
             if len(sample_batch) == 0:
                 _log.info("skipping empty trajectory")
                 continue
@@ -159,7 +174,17 @@ def main(  # noqa: C901
                         episode.cumulative_reward,
                     )
                 assert total_reward == episode.cumulative_reward
+
             _log.info("saving trajectory...")
-            json_writer.write(sample_batch)
+            if policy_id is not None:
+                multi_agent_batch = MultiAgentBatch(
+                    {
+                        policy_id: sample_batch,
+                    },
+                    env_steps=len(sample_batch),
+                )
+                json_writer.write(multi_agent_batch)
+            else:
+                json_writer.write(sample_batch)
 
     return {"mbag_config": mbag_config, "out_dir": out_dir}
