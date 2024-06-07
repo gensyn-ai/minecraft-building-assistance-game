@@ -25,9 +25,13 @@ from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.agents.human_agent import HumanAgent
 from mbag.environment.config import DEFAULT_HUMAN_GIVE_ITEMS, merge_configs
 from mbag.environment.mbag_env import MbagConfigDict, MbagEnv
-from mbag.evaluation.episode import EpisodeJSONEncoder, MbagEpisode
+from mbag.evaluation.episode import MbagEpisode
 from mbag.evaluation.evaluator import MbagAgentConfig, MbagEvaluator
-from mbag.evaluation.metrics import calculate_mean_metrics, calculate_metrics
+from mbag.evaluation.metrics import (
+    MbagEpisodeMetrics,
+    calculate_mean_metrics,
+    calculate_metrics,
+)
 from mbag.rllib.agents import RllibAlphaZeroAgent, RllibMbagAgent
 from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.training_utils import load_trainer, load_trainer_config
@@ -57,6 +61,7 @@ def sacred_config():
     use_malmo = record_video  # noqa: F841
     num_workers: int = 0  # noqa: F841
     out_dir = None  # noqa: F841
+    save_episodes = False  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
     algorithm_config_updates = {}  # noqa: F841
@@ -135,7 +140,7 @@ def run_evaluation(
             trainer = load_trainer(
                 checkpoint,
                 run,
-                algorithm_config_updates,
+                copy.deepcopy(algorithm_config_updates),
             )
             policy = trainer.get_policy(policy_id)
             policy.observation_space = observation_space
@@ -240,6 +245,7 @@ def main(  # noqa: C901
     use_malmo: bool,
     num_workers: int,
     out_dir: Optional[str],
+    save_episodes: bool,
     _log: Logger,
 ):
     mp.set_start_method("spawn")
@@ -312,34 +318,44 @@ def main(  # noqa: C901
         episode_generator = queue_episode_generator(queues)
 
     episodes: List[MbagEpisode] = []
+    episode_metrics: List[MbagEpisodeMetrics] = []
     with tqdm.trange(num_episodes) as progress_bar:
         for _ in progress_bar:
-            episodes.append(next(episode_generator))
-            mean_reward = np.mean([episode.cumulative_reward for episode in episodes])
+            episode = next(episode_generator)
+            if save_episodes:
+                episodes.append(next(episode_generator))
+            episode_metrics.append(calculate_metrics(episode))
+            mean_goal_percentage = np.mean(
+                [metrics["goal_percentage"] for metrics in episode_metrics]
+            )
             mean_goal_similarity = np.mean(
-                [episode.last_infos[0]["goal_similarity"] for episode in episodes]
+                [metrics["goal_similarity"] for metrics in episode_metrics]
             )
             progress_bar.set_postfix(
-                mean_reward=f"{mean_reward:.1f}",
                 mean_goal_similarity=f"{mean_goal_similarity:.1f}",
+                mean_goal_percentage=f"{mean_goal_percentage:.3f}",
             )
 
     for process in processes:
         process.join(timeout=10)
         process.terminate()
 
-    out_zip_fname = os.path.join(out_dir, "episodes.zip")
-    _log.info(f"saving full results to {out_zip_fname}")
-    with zipfile.ZipFile(
-        out_zip_fname, "w", compression=zipfile.ZIP_DEFLATED
-    ) as episodes_zip:
-        with episodes_zip.open("episodes.pickle", "w") as out_pickle:
-            pickle.dump(episodes, out_pickle)
+    if episodes:
+        out_zip_fname = os.path.join(out_dir, "episodes.zip")
+        _log.info(f"saving full results to {out_zip_fname}")
+        with zipfile.ZipFile(
+            out_zip_fname, "w", compression=zipfile.ZIP_DEFLATED
+        ) as episodes_zip:
+            with episodes_zip.open("episodes.pickle", "w") as out_pickle:
+                pickle.dump(episodes, out_pickle)
 
-    out_json_fname = os.path.join(out_dir, "episodes.jsonl")
-    _log.info(f"saving JSON results to {out_json_fname}")
-    with open(out_json_fname, "w") as out_json:
-        for episode in episodes:
-            json.dump(episode.to_json(), out_json, cls=EpisodeJSONEncoder)
+    metrics = {
+        "mean_metrics": calculate_mean_metrics(episode_metrics),
+        "episode_metrics": episode_metrics,
+    }
+    metrics_fname = os.path.join(out_dir, "metrics.json")
+    _log.info(f"saving metrics to {metrics_fname}")
+    with open(metrics_fname, "w") as metrics_file:
+        json.dump(metrics, metrics_file)
 
-    return calculate_mean_metrics([calculate_metrics(episode) for episode in episodes])
+    return metrics["mean_metrics"]
