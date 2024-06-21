@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Type
 
 from .craftassist import CraftAssistGoalGenerator
@@ -25,6 +26,9 @@ from .transforms import (
     SeamCarvingTransform,
     UniformBlockTypeTransform,
 )
+
+logger = logging.getLogger(__package__)
+
 
 ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "basic": BasicGoalGenerator,
@@ -54,6 +58,7 @@ ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {
 }
 
 __all__ = [
+    "logger",
     "ALL_GOAL_GENERATORS",
     "ALL_GOAL_TRANSFORMS",
     "GoalGenerator",

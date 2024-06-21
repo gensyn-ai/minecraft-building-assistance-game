@@ -7,20 +7,65 @@ from sacred import Experiment
 def make_named_configs(ex: Experiment):
 
     @ex.named_config
+    def ppo_human():
+        run = "MbagPPO"
+        goal_generator = "craftassist"
+        width = 11
+        height = 10
+        depth = 10
+        randomize_first_episode_length = True
+        random_start_locations = True
+        num_training_iters = 150
+        horizon = 1500
+        teleportation = False
+        inf_blocks = True
+        entropy_coeff_start = 0.03
+        entropy_coeff_end = 0.03
+        num_workers = 20
+        num_envs_per_worker = 32
+        num_gpus = 0.5
+        num_gpus_per_worker = 0.7 / max(num_workers, 1)
+        train_batch_size = 64000
+        lr = 3e-4
+        kl_target = 0.01
+        num_sgd_iter = 3
+        rollout_fragment_length = 100
+        use_extra_features = True
+        model = "transformer"
+        hidden_channels = 64
+        sgd_minibatch_size = 512
+        use_separated_transformer = True
+        num_layers = 6
+        scale_obs = True
+        vf_share_layers = True
+        vf_loss_coeff = 0.01
+        place_block_loss_coeff = 0
+        evaluation_num_workers = 0
+        evaluation_interval = None
+        gamma = 0.95
+        clip_param = 0.2
+        gae_lambda = 0.95
+        line_of_sight_masking = True
+        custom_action_dist = "mbag_bilevel_categorical"
+        experiment_tag = f"ppo_human/infinite_blocks_{str(inf_blocks).lower()}"
+
+    @ex.named_config
     def alphazero_human():
         run = "MbagAlphaZero"
         goal_generator = "craftassist"
         width = 11
         height = 10
         depth = 10
-        sample_batch_size = 8000
+        sample_batch_size = 32704
+        rollout_fragment_length = 511
+        max_seq_len = 511
         sgd_minibatch_size = 512
         random_start_locations = True
-        num_training_iters = 2000
+        num_training_iters = 150
         train_batch_size = 8
         use_replay_buffer = True
         replay_buffer_size = 20
-        num_workers = 10
+        num_workers = 8
         num_envs_per_worker = 8
         evaluation_num_workers = 0
         num_gpus = 0.5 if torch.cuda.is_available() else 0
@@ -34,28 +79,29 @@ def make_named_configs(ex: Experiment):
         num_sgd_iter = 1
         save_freq = 5
         horizon = 1500
+        truncate_on_no_progress_timesteps = 100
         teleportation = False
         inf_blocks = True
         noop_reward = -0.2
-        get_resources_reward = 0.0
-        action_reward = 0.0
+        get_resources_reward = 0
+        action_reward = 0
         use_goal_predictor = False
         use_bilevel_action_selection = True
         fix_bilevel_action_selection = True
         temperature = 1.5
         dirichlet_noise = 0.25
-        dirichlet_action_subtype_noise_multiplier = 10.0
+        dirichlet_action_subtype_noise_multiplier = 10
         dirichlet_epsilon = 0.25
         prior_temperature = 1.0
         init_q_with_max = False
         gamma = 0.95
         lr = 0.001
-        puct_coefficient = 1.0
+        puct_coefficient = 1
         scale_obs = True
         randomize_first_episode_length = True
         line_of_sight_masking = True
         grad_clip = 10
-        rollout_fragment_length = 100
+        experiment_tag = f"alphazero_human/infinite_blocks_{str(inf_blocks).lower()}"
 
     @ex.named_config
     def bc_human():
