@@ -17,13 +17,12 @@ import numpy as np
 from ..blocks import MinecraftBlocks
 from ..config import MbagConfigDict
 from ..types import (
-    INVENTORY_NUM_SLOTS,
     BlockLocation,
     MbagInventory,
     WorldLocation,
     get_block_counts_in_inventory,
 )
-from .malmo_client import MalmoObservationDict
+from .malmo_client import INVENTORY_SLOT_NAMES, MalmoObservationDict
 
 
 class BlockDiff(NamedTuple):
@@ -194,7 +193,7 @@ def get_initial_malmo_state(
     world_size = env_config["world_size"]
 
     player_inventories = [
-        np.zeros((INVENTORY_NUM_SLOTS, 2), dtype=int) for _ in range(num_players)
+        np.zeros((len(INVENTORY_SLOT_NAMES), 2), dtype=int) for _ in range(num_players)
     ]
 
     # Set initial inventory if the user has infinite blocks
@@ -357,16 +356,16 @@ def _update_malmo_inventories(
 ) -> Tuple[List[MbagInventory], List[MalmoStateDiff]]:
     state_diffs: List[MalmoStateDiff] = []
     prev_inventory = previous_state.player_inventories[player_index]
-    new_inventory: MbagInventory = np.zeros((INVENTORY_NUM_SLOTS, 2), dtype=int)
-    for slot in range(INVENTORY_NUM_SLOTS):
+    new_inventory: MbagInventory = np.zeros((len(INVENTORY_SLOT_NAMES), 2), dtype=int)
+    for slot_index, slot in enumerate(INVENTORY_SLOT_NAMES):
         item_name = malmo_observation[f"InventorySlot_{slot}_item"]  # type: ignore
         block_id = MinecraftBlocks.NAME2ID.get(item_name)
         if block_id is None:
-            new_inventory[slot, 0] = 0
-            new_inventory[slot, 1] = 0
+            new_inventory[slot_index, 0] = 0
+            new_inventory[slot_index, 1] = 0
         else:
-            new_inventory[slot, 0] = block_id
-            new_inventory[slot, 1] = malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore
+            new_inventory[slot_index, 0] = block_id
+            new_inventory[slot_index, 1] = malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore
 
     new_inventories = list(previous_state.player_inventories)
     new_inventories[player_index] = new_inventory
@@ -402,10 +401,15 @@ def update_malmo_state(
 
     # Important to get block diffs before inventory diffs because of the way they're
     # processed by get_human_actions.
-    new_blocks, block_diffs = _update_malmo_blocks(
-        previous_state, malmo_observation, env_config
-    )
-    state_diffs.extend(block_diffs)
+    if player_index == 0:
+        # We only process block diffs from player 0 because all players should receive
+        # the same blocks.
+        new_blocks, block_diffs = _update_malmo_blocks(
+            previous_state, malmo_observation, env_config
+        )
+        state_diffs.extend(block_diffs)
+    else:
+        new_blocks = previous_state.blocks
 
     new_player_locations, location_diffs = _update_malmo_player_locations(
         previous_state, player_index, malmo_observation

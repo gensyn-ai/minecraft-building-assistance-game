@@ -24,7 +24,7 @@ from typing_extensions import Literal
 
 from ..blocks import MinecraftBlocks
 from ..config import MbagConfigDict
-from ..types import BlockLocation
+from ..types import INVENTORY_NUM_SLOTS, BlockLocation
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,11 @@ class MalmoObservationDict(TypedDict, total=False):
     ZPos: float
     events: List[MalmoEvent]
     LineOfSight: MalmoRayObservation
+
+
+INVENTORY_SLOT_NAMES: List[str] = [str(slot) for slot in range(INVENTORY_NUM_SLOTS)] + [
+    "held"
+]
 
 
 class MalmoClient(object):
@@ -89,14 +94,14 @@ class MalmoClient(object):
         is_human = env_config["players"][player_index]["is_human"]
 
         inventory_item_tags: List[str] = []
-        if env_config["abilities"]["inf_blocks"]:
-            for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
-                block_name = MinecraftBlocks.ID2NAME[block_id]
-                inventory_item_tags.append(
-                    f"""
-                    <InventoryItem slot="{block_id}" type="{block_name}" />
-                    """
-                )
+        # if env_config["abilities"]["inf_blocks"]:
+        #     for block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+        #         block_name = MinecraftBlocks.ID2NAME[block_id]
+        #         inventory_item_tags.append(
+        #             f"""
+        #             <InventoryItem slot="{block_id}" type="{block_name}" />
+        #             """
+        #         )
         inventory_items_xml = "\n".join(inventory_item_tags)
 
         if is_human:
@@ -197,8 +202,8 @@ class MalmoClient(object):
             </AgentStart>
             <AgentHandlers>
                 <VideoProducer>
-                    <Width>640</Width>
-                    <Height>480</Height>
+                    <Width>1920</Width>
+                    <Height>1080</Height>
                 </VideoProducer>
                 <AbsoluteMovementCommands />
                 <HumanLevelCommands>
@@ -603,7 +608,7 @@ class MalmoClient(object):
         self._safe_wait_for_start(self.agent_hosts)
 
     def send_command(self, player_index: int, command: str):
-        logger.debug(f"player {player_index} command: {command}")
+        # logger.debug(f"player {player_index} command: {command}")
         with self.command_lock:
             self.agent_hosts[player_index].sendCommand(command)
             time.sleep(0.01)

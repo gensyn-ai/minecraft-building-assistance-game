@@ -1,17 +1,18 @@
+import copy
 import json
 import logging
 import random
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
 from ..actions import MbagAction, MbagActionTuple, MbagActionType
 from ..blocks import MinecraftBlocks
-from ..config import MbagConfigDict
+from ..config import ItemDict, MbagConfigDict
 from ..types import WorldLocation
 from .ai_actions import (
     MalmoAIAction,
@@ -20,7 +21,7 @@ from .ai_actions import (
     MalmoPlaceBreakAIAction,
     get_state_diffs_for_ai_action,
 )
-from .malmo_client import MalmoClient, MalmoObservationDict
+from .malmo_client import INVENTORY_SLOT_NAMES, MalmoClient, MalmoObservationDict
 from .malmo_state import (
     BlockDiff,
     InventoryDiff,
@@ -32,6 +33,7 @@ from .malmo_state import (
     get_initial_malmo_state,
     update_malmo_state,
 )
+from .thread_utils import wrap_thread_to_handle_exceptions
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +271,8 @@ class MalmoInterface:
     put into info dicts returned from MbagEnv.step.
     """
 
+    _items_players_should_always_have: List[List[ItemDict]]
+
     def __init__(self, env_config: MbagConfigDict):
         self._env_config = env_config
 
@@ -306,6 +310,8 @@ class MalmoInterface:
             )
             time.sleep(1)  # Wait a second for the environment to load.
 
+            self._items_players_should_always_have = []
+
             # Pre-episode setup in Malmo.
             for player_index in range(self._env_config["num_players"]):
                 player_config = self._env_config["players"][player_index]
@@ -322,36 +328,30 @@ class MalmoInterface:
                 )
                 time.sleep(0.1)
 
-                # Give items to players.
-                for item in self._env_config["players"][player_index]["give_items"]:
-                    if "enchantments" not in item:
-                        item["enchantments"] = []
-
-                    for enchantment in item["enchantments"]:
-                        assert "id" in enchantment
-                        if "level" not in enchantment:
-                            enchantment["level"] = 32767
-
-                    enchantments_str = ",".join(
-                        [
-                            "{{id: {}, lvl: {}}}".format(
-                                enchantment["id"], enchantment["level"]
+                items_player_should_always_have = list(player_config["give_items"])
+                if (
+                    self._env_config["abilities"]["inf_blocks"]
+                    and player_config["is_human"]
+                ):
+                    for block_id, block_name in enumerate(MinecraftBlocks.ID2NAME):
+                        if block_id in MinecraftBlocks.PLACEABLE_BLOCK_IDS:
+                            items_player_should_always_have.append(
+                                {
+                                    "id": block_name,
+                                    "count": 1,
+                                    "enchantments": [],
+                                }
                             )
-                            for enchantment in item["enchantments"]
-                        ]
-                    )
+                self._items_players_should_always_have.append(
+                    items_player_should_always_have
+                )
 
+                # Give items to players.
+                for item in items_player_should_always_have:
                     self._malmo_client.send_command(
                         player_index,
-                        "chat /give {} {} {} {} {}".format(
-                            "@p",
-                            item["id"],
-                            item["count"],
-                            0,
-                            "{{ench: [{}]}}".format(enchantments_str),
-                        ),
+                        f"chat {self._get_give_command(player_index, item)}",
                     )
-
                     time.sleep(0.2)
 
             # Convert players to survival mode.
@@ -366,6 +366,35 @@ class MalmoInterface:
 
             # Wait for everything to run.
             time.sleep(1)
+
+    def _get_give_command(self, player_index: int, item: ItemDict) -> str:
+        if "enchantments" not in item:
+            item["enchantments"] = []
+
+        for enchantment in item["enchantments"]:
+            assert "id" in enchantment
+            if "level" not in enchantment:
+                enchantment["level"] = 32767
+
+        give_args: List[str] = [
+            self._malmo_client.get_player_name(player_index, self._env_config),
+            item["id"],
+            str(item["count"]),
+            "0",
+        ]
+
+        if item["enchantments"]:
+            enchantments_str = ",".join(
+                [
+                    "{{id: {}, lvl: {}}}".format(
+                        enchantment["id"], enchantment["level"]
+                    )
+                    for enchantment in item["enchantments"]
+                ]
+            )
+            give_args.append(f"{{ench: [{enchantments_str}]}}")
+
+        return f"/give {' '.join(give_args)}"
 
     def reset(
         self,
@@ -394,18 +423,20 @@ class MalmoInterface:
         self._episode_done = threading.Event()
 
         self._ai_action_queue.clear()
-        self._ai_actions_thread = threading.Thread(target=self._run_ai_actions)
+        self._ai_actions_thread = threading.Thread(
+            target=wrap_thread_to_handle_exceptions(self._run_ai_actions)
+        )
         self._ai_actions_thread.start()
 
         self._human_action_queue.clear()
         self._human_action_detection_thread = threading.Thread(
-            target=self._run_human_action_detection
+            target=wrap_thread_to_handle_exceptions(self._run_human_action_detection)
         )
         self._human_action_detection_thread.start()
 
         if self._env_config["malmo"]["use_spectator"]:
             self._spectator_thread: Optional[threading.Thread] = threading.Thread(
-                target=self._run_spectator
+                target=wrap_thread_to_handle_exceptions(self._run_spectator)
             )
             self._spectator_thread.start()
         else:
@@ -496,10 +527,20 @@ class MalmoInterface:
         the inventory diff is registered as well.
         """
 
+        latest_player_malmo_observations: List[Optional[MalmoObservationDict]] = [
+            None for _ in range(self._env_config["num_players"])
+        ]
+        last_replace_missing_items_time = time.time()
+        missing_items: List[List[Tuple[datetime, ItemDict]]] = [
+            [] for _ in range(self._env_config["num_players"])
+        ]
+
         while not self._episode_done.is_set():
             malmo_observations = self._fetch_malmo_observations(save=True)
 
             for player_index, malmo_observation in malmo_observations:
+                latest_player_malmo_observations[player_index] = malmo_observation
+
                 with self._malmo_state_and_human_actions_lock:
                     malmo_state = self._malmo_state
 
@@ -524,8 +565,6 @@ class MalmoInterface:
                         self._env_config,
                         self._palette_x,
                     )
-                    if human_actions:
-                        print("new human actions:", human_actions)
                     player_blocks_on_ground = ReadOnlyList(
                         [
                             ReadOnlyDict(blocks_on_ground)
@@ -535,26 +574,73 @@ class MalmoInterface:
 
                     new_human_actions.extend(human_actions)
 
-                    if self._env_config["abilities"]["inf_blocks"]:
-                        # If inf_blocks is True and the player has just placed a block,
-                        # give the block back to them.
-                        for player_index, (
-                            human_action_type,
-                            _,
-                            human_action_block_id,
-                        ) in human_actions:
-                            if human_action_type == MbagAction.PLACE_BLOCK:
-                                with self._malmo_lock:
-                                    self._malmo_client.send_command(
-                                        player_index,
-                                        f"chat /give @p {MinecraftBlocks.ID2NAME[human_action_block_id]} 1",
-                                    )
-
                 with self._malmo_state_and_human_actions_lock:
                     self._malmo_state = new_state
                     self._human_action_queue.extend(new_human_actions)
 
+            if time.time() - last_replace_missing_items_time >= 0:
+                last_replace_missing_items_time = time.time()
+                for player_index, latest_malmo_observation in enumerate(
+                    latest_player_malmo_observations
+                ):
+                    if latest_malmo_observation is not None:
+                        self._replace_missing_items(
+                            player_index,
+                            latest_malmo_observation,
+                            missing_items[player_index],
+                        )
+
             time.sleep(0.03)
+
+    def _replace_missing_items(
+        self,
+        player_index: int,
+        latest_malmo_observation: MalmoObservationDict,
+        missing_items: List[Tuple[datetime, ItemDict]],
+    ):
+        items_player_should_always_have = self._items_players_should_always_have[
+            player_index
+        ]
+
+        new_missing_items = {
+            item["id"]: copy.deepcopy(item) for item in items_player_should_always_have
+        }
+        for slot in INVENTORY_SLOT_NAMES:
+            item_name = latest_malmo_observation[f"InventorySlot_{slot}_item"]  # type: ignore
+            if item_name is None:
+                continue
+            item_count = latest_malmo_observation[f"InventorySlot_{slot}_size"]  # type: ignore
+            if item_name in new_missing_items:
+                missing_item = new_missing_items[item_name]
+                missing_item["count"] -= item_count
+                if missing_item["count"] <= 0:
+                    del new_missing_items[item_name]
+
+        now = datetime.now()
+
+        old_missing_items = list(missing_items)
+        missing_items.clear()
+        items_to_give: List[ItemDict] = []
+
+        # Remove any items that aren't still missing, and move any items that have
+        # been missing long enough to items_to_give.
+        for timestamp, item in old_missing_items:
+            if item["id"] in new_missing_items:
+                if now - timestamp >= timedelta(seconds=0.1):
+                    items_to_give.append(item)
+                else:
+                    missing_items.append((timestamp, item))
+                del new_missing_items[item["id"]]
+        # Add newly missing items.
+        for item in new_missing_items.values():
+            missing_items.append((now, item))
+
+        with self._malmo_lock:
+            for item in items_to_give:
+                self._malmo_client.send_command(
+                    player_index,
+                    f"chat {self._get_give_command(player_index, item)}",
+                )
 
     def get_malmo_observations(
         self,
@@ -794,10 +880,13 @@ class MalmoInterface:
                     while block_id not in malmo_inventory_block_types:
                         # Somehow the AI player lost this block type, so give
                         # it a new one.
+                        player_name = self._malmo_client.get_player_name(
+                            player_index, self._env_config
+                        )
                         with self._malmo_lock:
                             self._malmo_client.send_command(
                                 player_index,
-                                f"chat /give @p {MinecraftBlocks.ID2NAME[block_id]} 1",
+                                f"chat /give {player_name} {MinecraftBlocks.ID2NAME[block_id]} 1",
                             )
                         time.sleep(0.1)
                         with self._malmo_state_and_human_actions_lock:
@@ -944,9 +1033,10 @@ class MalmoInterface:
             # Don't think we need to lock here because no other threads interact with
             # the spectator AgentHost.
             with self._malmo_lock:
-                self._malmo_client.send_command(
-                    agent_index, f"chat /teleport @p {x} {y - 1.6} {z}"
-                )
+                # self._malmo_client.send_command(
+                #     agent_index, f"chat /teleport @p {x} {y - 1.6} {z}"
+                # )
+                self._malmo_client.send_command(agent_index, f"tp {x} {y} {z}")
                 self._malmo_client.send_command(agent_index, f"setPitch {pitch}")
                 self._malmo_client.send_command(agent_index, f"setYaw {yaw}")
 
