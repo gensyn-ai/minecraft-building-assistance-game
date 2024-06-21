@@ -190,6 +190,8 @@ class MbagEnvModel(gym.Env):
         obs: MbagObs,
         info: MbagEnvModelInfoDict,
         goal_logits: np.ndarray,
+        update_own_reward: bool = False,
+        average_own_reward: bool = False,
     ) -> float:
         """
         Given an observation and the info dict returned from step, returns an overall
@@ -213,6 +215,19 @@ class MbagEnvModel(gym.Env):
             other_reward += (
                 goal_dependent_reward + other_player_info["goal_independent_reward"]
             )
+
+        if update_own_reward or average_own_reward:
+            prev_own_reward = info["own_reward"]
+            new_own_reward = self._get_predicted_goal_dependent_reward(
+                obs,
+                info["action"],
+                goal_logits,
+            )
+            assert not (update_own_reward and average_own_reward)
+            if update_own_reward:
+                info["own_reward"] = new_own_reward
+            elif average_own_reward:
+                info["own_reward"] = (prev_own_reward + new_own_reward) / 2
 
         reward = info["own_reward"] + other_reward
         reward = (

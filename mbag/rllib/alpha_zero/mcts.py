@@ -386,6 +386,8 @@ class MbagMCTSNode:
                 self.parent.obs,
                 self.info,
                 self.goal_logits,
+                update_own_reward=self.mcts.predict_goal_using_next_state,
+                average_own_reward=self.mcts.predict_goal_using_average,
             )
 
         self.child_priors[~self.valid_actions] = 0
@@ -616,6 +618,18 @@ class MbagMCTS(MCTS):
             "sample_from_full_support_policy", False
         )
         self.explore_noops = mcts_param.get("explore_noops", True)
+
+        self.predict_goal_using_next_state = mcts_param.get(
+            "predict_goal_using_next_state", False
+        )
+        self.predict_goal_using_average = mcts_param.get(
+            "predict_goal_using_average", False
+        )
+        if self.predict_goal_using_next_state and self.predict_goal_using_average:
+            raise ValueError(
+                "predict_goal_using_next_state and predict_goal_using_average "
+                "cannot both be True"
+            )
 
         # Previously, we used a version of bilevel action selection that wasn't
         # quite accurate. It used the number of visits to the whole state rather than

@@ -343,6 +343,8 @@ def sacred_config(_log):  # noqa
     prev_goal_kl_coeff = 0
     place_block_loss_coeff = 1
     place_block_loss_coeff_schedule = None
+    predict_goal_using_next_state = False
+    predict_goal_using_average = False
 
     # Model
     model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
@@ -679,6 +681,8 @@ def sacred_config(_log):  # noqa
             "fix_bilevel_action_selection": fix_bilevel_action_selection,
             "sample_from_full_support_policy": sample_from_full_support_policy,
             "explore_noops": explore_noops,
+            "predict_goal_using_next_state": predict_goal_using_next_state,
+            "predict_goal_using_average": predict_goal_using_average,
         }
         if temperature_start != temperature_end:
             mcts_config["temperature_schedule"] = [
