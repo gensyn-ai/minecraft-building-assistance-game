@@ -580,6 +580,7 @@ def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
         **default_alpha_zero_config,
         "multiagent_mode": "cross_play",
         "num_players": 2,
+        "randomize_first_episode_length": False,
         "mask_goal": True,
         "use_extra_features": False,
         "checkpoint_to_load_policies": human_checkpoint_fname,
