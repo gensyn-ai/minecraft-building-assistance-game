@@ -1,5 +1,4 @@
 import _thread
-import signal
 import traceback
 
 
