@@ -117,11 +117,10 @@ def make_named_configs(ex: Experiment):
         train_batch_size = {
             True: {
                 "human_alone": 9642,
+                "human_with_assistant": 9479,
                 "combined": 19121,
             },
-        }[
-            inf_blocks
-        ][data_split]
+        }[inf_blocks][data_split]
         num_workers = 0
         evaluation_interval = 1
         save_freq = 1
@@ -130,6 +129,7 @@ def make_named_configs(ex: Experiment):
         num_envs_per_worker = 8
         num_gpus_per_worker = 0.0625 if torch.cuda.is_available() else 0
         use_extra_features = True
+        mask_other_players = data_split == "human_alone"
         goal_generator = "craftassist"
         width = 11
         height = 10

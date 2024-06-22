@@ -248,7 +248,8 @@ def main(  # noqa: C901
     save_episodes: bool,
     _log: Logger,
 ):
-    mp.set_start_method("spawn")
+    if num_workers > 0:
+        mp.set_start_method("spawn")
     mbag.logger.setLevel(_log.getEffectiveLevel())
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

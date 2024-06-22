@@ -48,6 +48,9 @@ def sacred_config():
     human_data_dir = ""  # noqa: F841
     participant_ids = None
 
+    # This is just used for testing to limit the amount of time spent on each episode.
+    max_episode_len = None  # noqa: F841
+
     minibatch_size = 128  # noqa: F841
 
     experiment_tag = ""
@@ -90,6 +93,7 @@ def main(  # noqa: C901
     extra_config_updates: dict,
     human_data_dir: str,
     participant_ids: Optional[List[int]],
+    max_episode_len: Optional[int],
     minibatch_size: int,
     observer,
     _log: Logger,
@@ -117,6 +121,10 @@ def main(  # noqa: C901
     )
     for episode in episodes:
         del episode[SampleBatch.INFOS]  # Avoid errors when slicing the episode.
+
+        if max_episode_len is not None and len(episode) > max_episode_len:
+            episode = episode.slice(0, max_episode_len)
+
         episode_id = int(episode[SampleBatch.EPS_ID][0])
         assert np.all(episode[SampleBatch.EPS_ID] == episode_id)
         episode_dir = str(episode[EPISODE_DIR][0])

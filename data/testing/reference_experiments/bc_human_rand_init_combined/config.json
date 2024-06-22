@@ -201,7 +201,7 @@
     "grad_clip_by": "global_norm",
     "ignore_worker_failures": false,
     "in_evaluation": false,
-    "input_": "data/human_data_cleaned/human_alone/infinite_blocks_true/rllib_with_own_noops_flat_actions_flat_observations_place_wrong_reward_-1_repaired_player_0",
+    "input_": "data/human_data_cleaned/combined/infinite_blocks_true/rllib_with_own_noops_flat_actions_flat_observations_place_wrong_reward_-1_repaired_player_0",
     "input_config": {},
     "input_evaluation": -1,
     "keep_per_episode_custom_metrics": false,
@@ -222,7 +222,7 @@
         0.001
       ],
       [
-        96420,
+        191210,
         0.0001
       ]
     ],
@@ -449,7 +449,7 @@
               "lstm_depth": null,
               "mask_action_distribution": true,
               "mask_goal": false,
-              "mask_other_players": true,
+              "mask_other_players": false,
               "num_action_layers": 2,
               "num_heads": 4,
               "num_layers": 6,
@@ -728,7 +728,7 @@
     "torch_compile_worker": false,
     "torch_compile_worker_dynamo_backend": "onnxrt",
     "torch_compile_worker_dynamo_mode": null,
-    "train_batch_size": 9642,
+    "train_batch_size": 19121,
     "update_worker_filter_stats": true,
     "use_worker_filter_stats": true,
     "validate_workers_after_construction": true,
@@ -749,7 +749,7 @@
   "data_augmentation": {
     "py/function": "__main__.data_augmentation"
   },
-  "data_split": "human_alone",
+  "data_split": "combined",
   "density_config": {
     "max_density": 1,
     "min_density": 0
@@ -877,16 +877,16 @@
   "evaluation_explore": true,
   "evaluation_interval": 1,
   "evaluation_num_workers": 8,
-  "experiment_dir": "data/logs/BC/self_play/11x10x10/craftassist/bc_human/infinite_blocks_true/human_alone/2024-05-28_21-21-57",
+  "experiment_dir": "data/logs/BC/self_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281/2024-06-04_03-09-29",
   "experiment_name_parts": [
     "BC",
     "self_play",
     "11x10x10",
     "craftassist",
-    "bc_human/infinite_blocks_true/human_alone",
-    "2024-05-28_21-21-57"
+    "teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281",
+    "2024-06-04_03-09-29"
   ],
-  "experiment_tag": "bc_human/infinite_blocks_true/human_alone",
+  "experiment_tag": "teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281",
   "explore_noops": true,
   "extract_largest_cc": true,
   "extract_largest_cc_connectivity": 18,
@@ -972,7 +972,7 @@
   "horizon": 1500,
   "inf_blocks": true,
   "init_q_with_max": false,
-  "input": "data/human_data_cleaned/human_alone/infinite_blocks_true/rllib_with_own_noops_flat_actions_flat_observations_place_wrong_reward_-1_repaired_player_0",
+  "input": "/nas/ucb/cassidy/minecraft-building-assistance-game/data/human_data_cleaned/combined/infinite_blocks_true/rllib_with_own_noops_flat_actions_flat_observations_place_wrong_reward_-1_repaired_player_0",
   "interleave_lstm": false,
   "is_human": [
     false
@@ -990,7 +990,7 @@
       0.001
     ],
     [
-      96420,
+      191210,
       0.0001
     ]
   ],
@@ -1167,7 +1167,7 @@
     "py/id": 45
   },
   "observer": {
-    "basedir": "data/logs/BC/self_play/11x10x10/craftassist/bc_human/infinite_blocks_true/human_alone/2024-05-28_21-21-57",
+    "basedir": "data/logs/BC/self_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281/2024-06-04_03-09-29",
     "config": {
       "py/id": 0
     },
@@ -1175,7 +1175,7 @@
     "copy_sources": true,
     "cout": "",
     "cout_write_cursor": 0,
-    "dir": "data/logs/BC/self_play/11x10x10/craftassist/bc_human/infinite_blocks_true/human_alone/2024-05-28_21-21-57/1",
+    "dir": "data/logs/BC/self_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281/2024-06-04_03-09-29/1",
     "info": {},
     "priority": 20,
     "py/object": "__main__.NoTypeAnnotationsFileStorageObserver",
@@ -1192,10 +1192,13 @@
             "self_play",
             "11x10x10",
             "craftassist",
-            "bc_human",
-            "infinite_blocks_true",
-            "human_alone",
-            "2024-05-28_21-21-57",
+            "teleportation_False",
+            "inf_blocks_True",
+            "split_combined",
+            "lr_0.001",
+            "seed_0",
+            "361281",
+            "2024-06-04_03-09-29",
             "_resources"
           ]
         }
@@ -1205,32 +1208,32 @@
       "artifacts": [],
       "command": "main",
       "experiment": {
-        "base_dir": "/nas/ucb/cassidy/minecraft-building-assistance-game/mbag/scripts",
+        "base_dir": "/nas/ucb/ebronstein/minecraft-building-assistance-game/mbag/scripts",
         "dependencies": [
           "gymnasium==0.28.1",
           "mbag==0.0.1",
           "numpy==1.21.6",
           "ray==2.7.1",
-          "sacred==0.8.5",
-          "torch==2.2.0"
+          "sacred==0.8.4",
+          "torch==2.1.0"
         ],
         "mainfile": "train.py",
         "name": "train_mbag",
         "repositories": [
           {
-            "commit": "2b33eb709660a8d485d37415e5f1e68e3c7fb7eb",
+            "commit": "065264fc6768e9c5809d165ca554dc5cb9a0dec2",
             "dirty": true,
-            "url": "https://github.com/cassidylaidlaw/minecraft-building-assistance-game"
+            "url": "git@github.com:cassidylaidlaw/minecraft-building-assistance-game.git"
           },
           {
-            "commit": "2b33eb709660a8d485d37415e5f1e68e3c7fb7eb",
+            "commit": "065264fc6768e9c5809d165ca554dc5cb9a0dec2",
             "dirty": true,
-            "url": "https://github.com/cassidylaidlaw/minecraft-building-assistance-game"
+            "url": "git@github.com:cassidylaidlaw/minecraft-building-assistance-game.git"
           },
           {
-            "commit": "2b33eb709660a8d485d37415e5f1e68e3c7fb7eb",
+            "commit": "065264fc6768e9c5809d165ca554dc5cb9a0dec2",
             "dirty": true,
-            "url": "https://github.com/cassidylaidlaw/minecraft-building-assistance-game"
+            "url": "git@github.com:cassidylaidlaw/minecraft-building-assistance-game.git"
           }
         ],
         "sources": [
@@ -1244,7 +1247,7 @@
           ],
           [
             "train_configs.py",
-            "_sources/train_configs_82c0165dbaea5d8d8f01c39207ed92e3.py"
+            "_sources/train_configs_bb6bae34a221c70c78fc9ce732ef6ad4.py"
           ]
         ]
       },
@@ -1274,8 +1277,12 @@
         "config_updates": {
           "checkpoint_name": "none",
           "checkpoint_to_load_policies": null,
-          "data_split": "human_alone",
+          "data_split": "combined",
+          "experiment_tag": "teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281",
           "inf_blocks": true,
+          "lr_start": 0.001,
+          "seed": 0,
+          "teleportation": false,
           "validation_participant_ids": []
         },
         "named_configs": [
@@ -1305,18 +1312,22 @@
           "COMMAND": null,
           "UPDATE": [
             "bc_human",
-            "data_split=human_alone",
+            "teleportation=False",
             "inf_blocks=True",
+            "lr_start=0.001",
+            "data_split=combined",
             "checkpoint_to_load_policies=None",
             "checkpoint_name=none",
-            "validation_participant_ids=[]"
+            "validation_participant_ids=[]",
+            "seed=0",
+            "experiment_tag=teleportation_False/inf_blocks_True/split_combined/lr_0.001/seed_0/361281"
           ],
           "help": false,
           "with": true
         }
       },
       "resources": [],
-      "start_time": "2024-05-28T21:21:57.911312",
+      "start_time": "2024-06-04T03:09:29.498390",
       "status": "RUNNING"
     },
     "source_dir": {
@@ -1332,10 +1343,13 @@
             "self_play",
             "11x10x10",
             "craftassist",
-            "bc_human",
-            "infinite_blocks_true",
-            "human_alone",
-            "2024-05-28_21-21-57",
+            "teleportation_False",
+            "inf_blocks_True",
+            "split_combined",
+            "lr_0.001",
+            "seed_0",
+            "361281",
+            "2024-06-04_03-09-29",
             "_sources"
           ]
         }
@@ -1544,12 +1558,12 @@
   "teleportation": false,
   "temperature": 1.5,
   "temperature_end": 1.5,
-  "temperature_horizon": 192840,
+  "temperature_horizon": 382420,
   "temperature_start": 1.5,
   "timestep_skip": [
     1
   ],
-  "train_batch_size": 9642,
+  "train_batch_size": 19121,
   "transformed_goal_generator_config": {
     "goal_generator": "craftassist",
     "goal_generator_config": {
