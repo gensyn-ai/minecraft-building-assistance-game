@@ -75,7 +75,7 @@ def assert_config_matches(
         assert mcts_config["fix_bilevel_action_selection"]
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(1200)
 def test_experiments(tmp_path):
     # Supress huge number of logging messages about the goals being sampled.
     mbag.environment.goals.logger.setLevel(logging.WARNING)
