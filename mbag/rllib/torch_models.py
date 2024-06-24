@@ -18,9 +18,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
 from gymnasium import spaces
-from ray.rllib.algorithms.alpha_zero.models.custom_torch_models import ActorCriticModel
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.modelv2 import restore_original_dimensions
+from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.rnn_sequencing import add_time_dimension
 from ray.rllib.policy.sample_batch import SampleBatch
@@ -125,7 +125,7 @@ DEFAULT_CONFIG: MbagModelConfig = {
 }
 
 
-class MbagTorchModel(ActorCriticModel):
+class MbagTorchModel(TorchModelV2, nn.Module, ABC):
     """
     This base class implements common functionality for PyTorch MBAG models such
     as block type embedding, separate policy and value networks and the value head.
@@ -145,11 +145,14 @@ class MbagTorchModel(ActorCriticModel):
         name,
         **kwargs,
     ):
-        ActorCriticModel.__init__(
+        TorchModelV2.__init__(
             self, obs_space, action_space, num_outputs, model_config, name
         )
+        nn.Module.__init__(self)
 
-        obs_space = cast(Any, obs_space).original_space
+        if hasattr(obs_space, "original_space"):
+            obs_space = cast(Any, obs_space).original_space
+        self.preprocessor = get_preprocessor(obs_space)(obs_space)
         if isinstance(obs_space, spaces.Dict):
             obs_space = obs_space.spaces["obs"]
         assert isinstance(obs_space, spaces.Tuple)
