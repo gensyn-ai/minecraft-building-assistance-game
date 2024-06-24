@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Sequence, Union, cast
 
 import numpy as np
@@ -10,6 +11,8 @@ from ray.rllib.policy.rnn_sequencing import add_time_dimension
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import ModelConfigDict
 from torch import nn
+
+logger = logging.getLogger(__name__)
 
 
 class MixtureModel(TorchModelV2, nn.Module):
@@ -70,7 +73,7 @@ class MixtureModel(TorchModelV2, nn.Module):
 
     def get_initial_state(self) -> List[Union[np.ndarray, torch.Tensor]]:
         state: List[Union[np.ndarray, torch.Tensor]] = [
-            torch.full((len(self.components),), torch.nan)
+            torch.zeros((len(self.components),))
         ]
         for model in self.components:
             state.extend(model.get_initial_state())
@@ -83,7 +86,7 @@ class MixtureModel(TorchModelV2, nn.Module):
         num_components = len(self.components)
 
         start_mixture_logprobs, *component_states = state  # shape (B, N)
-        no_dist_mask = torch.any(torch.isnan(start_mixture_logprobs), dim=1)
+        no_dist_mask = torch.all(start_mixture_logprobs == 0, dim=1)
         start_mixture_logprobs[no_dist_mask, :] = (
             F.one_hot(
                 torch.randint(
@@ -212,7 +215,13 @@ class MixtureModel(TorchModelV2, nn.Module):
 
         assert ~torch.any(torch.isnan(model_out))
 
+        self._vf = torch.zeros((batch_size,), device=device)
+
         return model_out, [final_mixture_logprobs, *component_states_out]
+
+    def value_function(self):
+        logger.warn("value function is not implemented for mixture models")
+        return self._vf
 
 
 ModelCatalog.register_custom_model("mbag_mixture", MixtureModel)

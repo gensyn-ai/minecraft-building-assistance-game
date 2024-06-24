@@ -49,10 +49,6 @@ class MbagBilevelCategorical(TorchCategoricalNoInf):
         super().__init__(inputs, model=model)
         self._action_mapping: Optional[torch.Tensor] = None
 
-        assert isinstance(self.model, MbagTorchModel)
-        if inputs is self.model.logits:
-            self.model.action_dist = self
-
     def _action_type_probs(self) -> torch.Tensor:
         assert self._action_mapping is not None
         batch_size = self.dist.probs.size()[0]

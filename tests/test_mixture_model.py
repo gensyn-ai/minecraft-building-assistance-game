@@ -108,8 +108,8 @@ def test_mixture_model(*, recurrent=False):
         [preprocessor.transform(cast(Any, obs)) for obs in obs_list[::seq_len]]
     )
     state_in = [
-        torch.tensor([state_piece for _ in range(batch_size)])
-        for state_piece in model.get_initial_state()
+        torch.stack([state_piece for _ in range(batch_size)])
+        for state_piece in cast(List[torch.Tensor], model.get_initial_state())
     ]
     model_out, state_out = model(
         {SampleBatch.OBS: torch.from_numpy(obs_batch)},
@@ -147,7 +147,9 @@ def test_mixture_model(*, recurrent=False):
 
     # Test that Bayesian inference over the mixture works.
     obs_batch = np.stack([preprocessor.transform(cast(Any, obs)) for obs in obs_list])
-    state_in[0] = torch.tensor([[0.5, 0.5] for _ in range(batch_size)])
+    state_in[0] = torch.tensor(
+        [[-np.log(2), -np.log(2)] for _ in range(batch_size)], dtype=torch.float32
+    )
     model_out, state_out = model(
         {
             SampleBatch.OBS: torch.from_numpy(obs_batch),

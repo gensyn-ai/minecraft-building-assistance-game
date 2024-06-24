@@ -1,16 +1,21 @@
 import glob
 import os
 import tempfile
-from typing import Dict
+from typing import Dict, List, cast
 
 import pytest
 import torch
 import torch.nn.functional as F  # noqa: N812
 from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
+from torch import nn
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS
+from mbag.rllib.mixture_model import MixtureModel
 from mbag.rllib.torch_models import MbagTransformerModel
+from mbag.rllib.training_utils import load_trainer
+from mbag.scripts.create_mixture_model import ex as create_mixture_model_ex
 from mbag.scripts.rollout import ex as rollout_ex
 from mbag.scripts.train import ex
 
@@ -816,3 +821,54 @@ def test_pikl(default_config, default_bc_config):
         }
     ).result
     assert pikl_result is not None
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
+def test_create_mixture_model(default_config, default_bc_config):
+    bc_checkpoints: List[str] = []
+
+    for seed in range(2):
+        bc_result = ex.run(
+            config_updates={
+                **default_config,
+                **default_bc_config,
+                "seed": seed,
+            }
+        ).result
+        assert bc_result is not None
+        bc_checkpoints.append(bc_result["final_checkpoint"])
+
+    create_mixture_model_result = create_mixture_model_ex.run(
+        config_updates={
+            "run": "BC",
+            "checkpoints": bc_checkpoints,
+        }
+    ).result
+    assert create_mixture_model_result is not None
+    mixture_model_checkpoint = create_mixture_model_result["final_checkpoint"]
+    mixture_model_trainer = load_trainer(
+        mixture_model_checkpoint,
+        "BC",
+        config_updates={"num_workers": 0, "num_evaluation_workers": 0},
+    )
+    mixture_model: MixtureModel = cast(
+        MixtureModel,
+        cast(TorchPolicyV2, mixture_model_trainer.get_policy("human")).model,
+    )
+
+    for component_index, bc_checkpoint in enumerate(bc_checkpoints):
+        bc_trainer = load_trainer(
+            bc_checkpoint,
+            "BC",
+            config_updates={"num_workers": 0, "num_evaluation_workers": 0},
+        )
+        bc_model: nn.Module = cast(TorchPolicyV2, bc_trainer.get_policy("human")).model
+        bc_state_dict = bc_model.state_dict()
+        mixture_state_dict = cast(
+            nn.Module, mixture_model.components[component_index]
+        ).state_dict()
+        for state_key in bc_state_dict:
+            assert torch.allclose(
+                bc_state_dict[state_key], mixture_state_dict[state_key]
+            )
