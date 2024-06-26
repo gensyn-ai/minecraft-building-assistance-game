@@ -158,6 +158,7 @@ def make_named_configs(ex: Experiment):
             load_policies_mapping = {"human": "human"}
         overwrite_loaded_policy_type = True
         lr_start = 1e-3 if checkpoint_to_load_policies is None else 1e-4
+        lr = lr_start
         lr_schedule = [[0, lr_start], [train_batch_size * 10, lr_start / 10]]
         vf_loss_coeff = 0
         gamma = 0.95

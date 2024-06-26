@@ -198,8 +198,6 @@ def test_experiments(tmp_path):
         ).result
         assert evaluate_result is not None
 
-    # TODO: test all human model evals
-
     # TODO: test alphazero_assistant
     # TODO: test ppo_assistant
     # TODO: test human_rollout
