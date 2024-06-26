@@ -49,6 +49,9 @@ class MbagBilevelCategorical(TorchCategoricalNoInf):
         super().__init__(inputs, model=model)
         self._action_mapping: Optional[torch.Tensor] = None
 
+        if isinstance(self.model, MbagTorchModel) and inputs is self.model.logits:
+            cast(Any, self.model).action_dist = self
+
     def _action_type_probs(self) -> torch.Tensor:
         assert self._action_mapping is not None
         batch_size = self.dist.probs.size()[0]
@@ -61,7 +64,7 @@ class MbagBilevelCategorical(TorchCategoricalNoInf):
         return action_type_probs
 
     def entropy(self):
-        assert isinstance(self.model, MbagTorchModel)
+        assert hasattr(self.model, "env_config")
         if self._action_mapping is None:
             self._action_mapping = torch.from_numpy(
                 MbagActionDistribution.get_action_mapping(self.model.env_config)
