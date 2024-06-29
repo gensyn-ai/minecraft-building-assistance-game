@@ -12,6 +12,8 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import ModelConfigDict
 from torch import nn
 
+from mbag.rllib.torch_models import MbagTorchModel
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,6 +86,7 @@ class MixtureModel(TorchModelV2, nn.Module):
         batch_size = obs.size()[0]
         device = obs.device
         num_components = len(self.components)
+        seq_lens = seq_lens.to(device)
 
         start_mixture_logprobs, *component_states = state  # shape (B, N)
         no_dist_mask = torch.all(start_mixture_logprobs == 0, dim=1)
@@ -218,6 +221,11 @@ class MixtureModel(TorchModelV2, nn.Module):
         self._vf = torch.zeros((batch_size,), device=device)
 
         return model_out, [final_mixture_logprobs, *component_states_out]
+
+    @property
+    def env_config(self):
+        assert isinstance(self.components[0], MbagTorchModel)
+        return self.components[0].env_config
 
     def value_function(self):
         logger.warn("value function is not implemented for mixture models")

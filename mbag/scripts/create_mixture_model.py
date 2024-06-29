@@ -74,6 +74,7 @@ def main(
     observer,
     _log: Logger,
 ):
+    os.environ["RAY_AIR_NEW_PERSISTENCE_MODE"] = "0"
     ray.init(
         num_cpus=available_cpu_count(),
         ignore_reinit_error=True,
@@ -141,6 +142,8 @@ def main(
     _log.info("Saving checkpoint...")
     checkpoint = trainer.save()
     _log.info(f"Saved checkpoint to {checkpoint}")
+
+    trainer.stop()
 
     return {
         "final_checkpoint": checkpoint,

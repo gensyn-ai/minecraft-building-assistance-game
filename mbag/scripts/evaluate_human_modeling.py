@@ -21,6 +21,7 @@ from sacred.observers import FileStorageObserver
 import mbag
 from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
 from mbag.rllib.human_data import EPISODE_DIR, PARTICIPANT_ID
+from mbag.rllib.mixture_model import MixtureModel
 from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.torch_models import MbagTorchModel
 from mbag.rllib.training_utils import load_trainer
@@ -134,6 +135,9 @@ def main(  # noqa: C901
             continue
 
         state_in = policy.get_initial_state()
+
+        if isinstance(policy.model, MixtureModel):
+            state_in[0][:] = np.log(1 / len(policy.model.components))
 
         correct_batches: List[np.ndarray] = []
         logprob_batches: List[np.ndarray] = []
