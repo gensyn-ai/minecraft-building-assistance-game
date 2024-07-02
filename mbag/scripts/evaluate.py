@@ -10,7 +10,7 @@ import signal
 import zipfile
 from datetime import datetime
 from logging import Logger
-from typing import Any, Generator, List, Optional, Type
+from typing import Any, Generator, List, Optional, Type, Union
 
 import numpy as np
 import ray
@@ -201,28 +201,34 @@ def evaluation_worker(
     use_malmo: bool,
     out_dir: str,
 ):
-    faulthandler.register(signal.SIGUSR1)
-    for episode in itertools.islice(
-        run_evaluation(
-            runs=runs,
-            checkpoints=checkpoints,
-            policy_ids=policy_ids,
-            min_action_interval=min_action_interval,
-            explore=explore,
-            confidence_thresholds=confidence_thresholds,
-            env_config_updates=env_config_updates,
-            algorithm_config_updates=algorithm_config_updates,
-            seed=seed + worker_index,
-            record_video=record_video,
-            use_malmo=use_malmo,
-            out_dir=os.path.join(out_dir, f"worker_{worker_index}"),
-        ),
-        num_episodes,
-    ):
-        queue.put(episode)
+    try:
+        faulthandler.register(signal.SIGUSR1)
+        for episode in itertools.islice(
+            run_evaluation(
+                runs=runs,
+                checkpoints=checkpoints,
+                policy_ids=policy_ids,
+                min_action_interval=min_action_interval,
+                explore=explore,
+                confidence_thresholds=confidence_thresholds,
+                env_config_updates=env_config_updates,
+                algorithm_config_updates=algorithm_config_updates,
+                seed=seed + worker_index,
+                record_video=record_video,
+                use_malmo=use_malmo,
+                out_dir=os.path.join(out_dir, f"worker_{worker_index}"),
+            ),
+            num_episodes,
+        ):
+            queue.put(episode)
+    except Exception as error:
+        queue.put(error)
+        raise error
 
 
-def queue_episode_generator(queues: List[mp.Queue]) -> Generator[MbagEpisode, Any, Any]:
+def queue_episode_generator(
+    queues: List[mp.Queue],
+) -> Generator[Union[MbagEpisode, Exception], Any, Any]:
     while True:
         for queue in queues:
             yield queue.get()
@@ -269,6 +275,7 @@ def main(  # noqa: C901
 
     processes: List[mp.Process] = []
     queues: List[mp.Queue] = []
+    episode_generator: Generator[Union[MbagEpisode, Exception], Any, Any]
     if num_workers == 0:
         episode_generator = run_evaluation(
             runs=runs,
@@ -322,9 +329,13 @@ def main(  # noqa: C901
     episode_metrics: List[MbagEpisodeMetrics] = []
     with tqdm.trange(num_episodes) as progress_bar:
         for _ in progress_bar:
-            episode = next(episode_generator)
+            episode_or_exception = next(episode_generator)
+            if isinstance(episode_or_exception, Exception):
+                raise episode_or_exception
+            else:
+                episode = episode_or_exception
             if save_episodes:
-                episodes.append(next(episode_generator))
+                episodes.append(episode)
             episode_metrics.append(calculate_metrics(episode))
             mean_goal_percentage = np.mean(
                 [metrics["goal_percentage"] for metrics in episode_metrics]
