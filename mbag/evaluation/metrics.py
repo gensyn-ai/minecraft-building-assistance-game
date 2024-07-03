@@ -129,7 +129,7 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
             total_seconds = (info_dict["timestamp"] - start_time).total_seconds()
         else:
             total_seconds = (t + 1) * episode.env_config["malmo"]["action_delay"]
-        rounded_minutes = int(total_seconds // (5 * 60)) * 5
+        rounded_minutes = int(total_seconds // 60)
         if rounded_minutes > 0:
             goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
             if goal_percentage_key not in metrics:

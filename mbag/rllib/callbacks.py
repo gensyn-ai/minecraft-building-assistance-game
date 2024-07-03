@@ -172,7 +172,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             total_seconds = (
                 episode.total_env_steps * env_config["malmo"]["action_delay"]
             )
-            rounded_minutes = int(total_seconds // (5 * 60)) * 5
+            rounded_minutes = int(total_seconds // 60)
             if rounded_minutes > 0:
                 goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
                 if goal_percentage_key not in episode.custom_metrics:
