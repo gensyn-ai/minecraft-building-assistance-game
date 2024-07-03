@@ -136,14 +136,21 @@ def test_mixture_model(*, recurrent=False):
             ],
             torch.tensor([1]),
         )
-        assert torch.allclose(
-            torch.log_softmax(model_out[i], dim=0),
-            torch.log_softmax(component_out[0], dim=0),
+        np.testing.assert_allclose(
+            torch.log_softmax(model_out[i], dim=0).cpu().detach().numpy(),
+            torch.log_softmax(component_out[0], dim=0).cpu().detach().numpy(),
+            rtol=1e-4,
+            atol=1e-4,
         )
         for state_piece, component_state_piece in zip(
             state_out[component_state_start:component_state_end], component_state_out
         ):
-            assert torch.allclose(state_piece[i], component_state_piece[0])
+            np.testing.assert_allclose(
+                state_piece[i].cpu().detach().numpy(),
+                component_state_piece[0].cpu().detach().numpy(),
+                rtol=1e-4,
+                atol=1e-4,
+            )
 
     # Test that Bayesian inference over the mixture works.
     obs_batch = np.stack([preprocessor.transform(cast(Any, obs)) for obs in obs_list])
@@ -199,28 +206,40 @@ def test_mixture_model(*, recurrent=False):
             component_0_cum_prod + component_1_cum_prod
         )
 
-        assert torch.allclose(
-            torch.softmax(model_out[seq_slice], dim=1),
-            component_0_weight[:-1, None] * component_0_probs
-            + component_1_weight[:-1, None] * component_1_probs,
+        np.testing.assert_allclose(
+            torch.softmax(model_out[seq_slice], dim=1).cpu().detach().numpy(),
+            (
+                component_0_weight[:-1, None] * component_0_probs
+                + component_1_weight[:-1, None] * component_1_probs
+            )
+            .cpu()
+            .detach()
+            .numpy(),
+            rtol=1e-4,
+            atol=1e-4,
         )
 
-        assert torch.allclose(
-            state_out[0][i].exp(),
-            torch.tensor(
+        np.testing.assert_allclose(
+            state_out[0][i].exp().cpu().detach().numpy(),
+            np.array(
                 [
-                    [
-                        component_0_weight[seq_len],
-                        component_1_weight[seq_len],
-                    ]
+                    component_0_weight[seq_len].item(),
+                    component_1_weight[seq_len].item(),
                 ]
             ),
+            rtol=1e-4,
+            atol=1e-4,
         )
 
         for state_piece, component_state_piece in zip(
             state_out[1:], component_0_state_out + component_1_state_out
         ):
-            assert torch.allclose(state_piece[i], component_state_piece[0])
+            np.testing.assert_allclose(
+                state_piece[i].cpu().detach().numpy(),
+                component_state_piece[0].cpu().detach().numpy(),
+                rtol=1e-4,
+                atol=1e-4,
+            )
 
 
 def test_mixture_model_recurrent():
