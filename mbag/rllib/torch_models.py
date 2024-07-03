@@ -7,6 +7,7 @@ from typing import (
     ContextManager,
     Dict,
     List,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
@@ -32,6 +33,7 @@ from torch import nn
 from typing_extensions import TypedDict
 
 from mbag.agents.action_distributions import MbagActionDistribution
+from mbag.environment.actions import MbagAction
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG as DEFAULT_ENV_CONFIG
 from mbag.environment.mbag_env import MbagConfigDict
@@ -342,6 +344,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         inventory_obs: torch.Tensor,
         timestep: torch.Tensor,
         prev_blocks: Optional[torch.Tensor] = None,
+        include_last_interacted: bool = True,
     ):
         """
         Transform a raw observation into the input for the network backbone.
@@ -387,12 +390,13 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
                 (world_obs[:, 0] == world_obs[:, 2]).float()[..., None]
             )
 
-        last_interacted = world_obs[:, LAST_INTERACTED].clone()
-        if self.mask_other_players:
-            last_interacted[last_interacted > CURRENT_PLAYER] = CURRENT_PLAYER
-        embedded_last_interacted = self.player_id_embedding(last_interacted)
+        if include_last_interacted:
+            last_interacted = world_obs[:, LAST_INTERACTED].clone()
+            if self.mask_other_players:
+                last_interacted[last_interacted > CURRENT_PLAYER] = CURRENT_PLAYER
+            embedded_last_interacted = self.player_id_embedding(last_interacted)
+            embedded_obs_pieces.append(embedded_last_interacted)
 
-        embedded_obs_pieces.append(embedded_last_interacted)
         embedded_obs = torch.cat(embedded_obs_pieces, dim=-1)
 
         return embedded_obs.permute(0, 4, 1, 2, 3)
@@ -1394,9 +1398,14 @@ class MbagTransformerModel(MbagTorchModel):
         inventory_obs: torch.Tensor,
         timestep: torch.Tensor,
         prev_blocks: Optional[torch.Tensor] = None,
+        include_last_interacted=True,
     ):
         embedded_obs = super()._get_embedded_obs(
-            world_obs, inventory_obs, timestep, prev_blocks
+            world_obs,
+            inventory_obs,
+            timestep,
+            prev_blocks,
+            include_last_interacted,
         )
         batch_size = embedded_obs.size()[0]
         embedded_obs = self._pad_to_hidden_size(
@@ -1463,4 +1472,199 @@ class MbagTransformerAlphaZeroModel(
 
 ModelCatalog.register_custom_model(
     "mbag_transformer_alpha_zero_model", MbagTransformerAlphaZeroModel
+)
+
+
+class ModelWithDiscriminator(TorchModelV2, nn.Module, ABC):
+    @abstractmethod
+    def discriminator(  # noqa: E704
+        self, input_dict: Dict[str, TensorType]
+    ) -> torch.Tensor: ...
+
+
+class DiscriminatorMixin(MbagTorchModel, ModelWithDiscriminator):
+    def __init__(
+        self,
+        obs_space: spaces.Space,
+        action_space: spaces.Space,
+        num_outputs: int,
+        model_config,
+        name,
+        **kwargs,
+    ):
+        super().__init__(
+            obs_space, action_space, num_outputs, model_config, name, **kwargs
+        )
+
+        self.discriminator_backbone = self._construct_backbone()
+        self.discriminator_head = self._construct_discriminator_head()
+
+    def _get_discriminator_module_names(self) -> List[str]:
+        return ["discriminator_backbone", "discriminator_head"]
+
+    def _get_embedded_obs_and_actions(
+        self,
+        world_obs: torch.Tensor,
+        inventory_obs: torch.Tensor,
+        timestep: torch.Tensor,
+        actions: torch.Tensor,
+        prev_blocks: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def _construct_discriminator_head(self) -> nn.Module:
+        return nn.Sequential(
+            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.Flatten(),
+            nn.Linear(self.hidden_size, 1),
+        )
+
+    def discriminator(self, input_dict: Dict[str, TensorType]) -> torch.Tensor:
+        if self.model_config.get("_disable_preprocessor_api"):
+            obs = cast(
+                Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                input_dict[SampleBatch.OBS],
+            )
+        else:
+            obs = cast(
+                Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                restore_original_dimensions(
+                    input_dict[SampleBatch.OBS], self.obs_space, self.framework
+                ),
+            )
+
+        world_obs, inventory_obs, timestep = obs
+        world_obs = world_obs.to(self.device).long()
+        inventory_obs = inventory_obs.to(self.device).long()
+        timestep = timestep.to(self.device)
+        actions = (
+            cast(torch.Tensor, input_dict[SampleBatch.ACTIONS]).to(self.device).long()
+        )
+
+        embedded_obs = self._get_embedded_obs_and_actions(
+            world_obs, inventory_obs, timestep, actions
+        )
+
+        with self._amp_or_nothing:
+            backbone_out: torch.Tensor = self.discriminator_backbone(embedded_obs)
+            logits: torch.Tensor = self.discriminator_head(backbone_out).squeeze(1)
+
+        return logits.float()
+
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict=True, assign=False):
+        # Allow loading existing model weights that don't include the discriminator
+        # weights.
+        new_state_dict = dict(state_dict)
+        current_state_dict = self.state_dict()
+        for key in current_state_dict:
+            if any(
+                key.startswith(module_name + ".")
+                for module_name in self._get_discriminator_module_names()
+            ):
+                new_state_dict.setdefault(key, current_state_dict[key])
+
+        super().load_state_dict(new_state_dict)
+
+
+class MbagTransformerModelWithDiscriminator(MbagTransformerModel, DiscriminatorMixin):
+    def __init__(
+        self,
+        obs_space: spaces.Space,
+        action_space: spaces.Space,
+        num_outputs: int,
+        model_config,
+        name,
+        **kwargs,
+    ):
+        super().__init__(
+            obs_space, action_space, num_outputs, model_config, name, **kwargs
+        )
+
+        self.discriminator_first_layer = nn.Conv3d(
+            in_channels=self._get_in_channels()
+            - self.embedding_size
+            + MbagActionDistribution.NUM_CHANNELS,
+            out_channels=self.hidden_size,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+        )
+
+    def _get_discriminator_module_names(self):
+        return super()._get_discriminator_module_names() + ["discriminator_first_layer"]
+
+    def _get_embedded_obs_and_actions(
+        self,
+        world_obs: torch.Tensor,
+        inventory_obs: torch.Tensor,
+        timestep: torch.Tensor,
+        actions: torch.Tensor,
+        prev_blocks: Optional[torch.Tensor] = None,
+    ):
+        # Ignore LAST_INTERACTED channel in the discriminator.
+        embedded_obs = MbagTorchModel._get_embedded_obs(
+            self,
+            world_obs,
+            inventory_obs,
+            timestep,
+            prev_blocks,
+            include_last_interacted=False,
+        )
+
+        batch_size, _, width, height, depth = world_obs.size()
+        embedded_actions = torch.zeros(
+            (batch_size, MbagActionDistribution.NUM_CHANNELS, width, height, depth),
+            dtype=embedded_obs.dtype,
+            device=embedded_obs.device,
+        )
+
+        flat_action_start = 0
+        for channel, (action_type, block_id) in enumerate(
+            MbagActionDistribution.CHANNELS
+        ):
+            channel_embedded_actions = embedded_actions[:, channel].view(batch_size, -1)
+            if action_type in MbagAction.BLOCK_LOCATION_ACTION_TYPES:
+                flat_action_end = flat_action_start + width * height * depth
+
+                actions_in_channel_mask = (actions >= flat_action_start) & (
+                    actions < flat_action_end
+                )
+                channel_embedded_actions[
+                    torch.arange(batch_size, device=embedded_obs.device)[
+                        actions_in_channel_mask
+                    ],
+                    actions[actions_in_channel_mask] - flat_action_start,
+                ] = 1
+            else:
+                actions_in_channel_mask = actions == flat_action_start
+                channel_embedded_actions[actions_in_channel_mask, :] = 1
+                flat_action_end = flat_action_start + 1
+
+            flat_action_start = flat_action_end
+
+        assert torch.any(embedded_actions.flatten(start_dim=1), dim=1).all()
+
+        batch_size = embedded_obs.size()[0]
+        embedded_obs_and_actions = torch.cat(
+            [
+                embedded_obs,
+                embedded_actions,
+                self.position_embedding[None]
+                .expand(batch_size, -1, -1, -1, -1)
+                .permute(0, 4, 1, 2, 3),
+            ],
+            dim=1,
+        )
+        embedded_obs_and_actions = self.discriminator_first_layer(
+            embedded_obs_and_actions
+        )
+
+        if self.use_separated_transformer:
+            return embedded_obs_and_actions
+        else:
+            return embedded_obs_and_actions.flatten(start_dim=2).transpose(1, 2)
+
+
+ModelCatalog.register_custom_model(
+    "mbag_transformer_with_discriminator_model", MbagTransformerModelWithDiscriminator
 )

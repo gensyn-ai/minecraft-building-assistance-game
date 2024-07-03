@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Type
 
 from .craftassist import CraftAssistGoalGenerator
+from .demonstrations import DemonstrationsGoalGenerator
 from .filters import DensityFilter, MinSizeFilter, SingleConnectedComponentFilter
 from .goal_generator import GoalGenerator, GoalGeneratorConfig
 from .goal_transform import GoalTransform, TransformedGoalGenerator
@@ -38,6 +39,7 @@ ALL_GOAL_GENERATORS: Dict[str, Type[GoalGenerator]] = {
     "grabcraft": GrabcraftGoalGenerator,
     "craftassist": CraftAssistGoalGenerator,
     "set_goal": SetGoalGenerator,
+    "demonstrations": DemonstrationsGoalGenerator,
 }
 
 ALL_GOAL_TRANSFORMS: Dict[str, Type[GoalTransform]] = {

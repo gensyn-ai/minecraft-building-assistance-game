@@ -29,6 +29,7 @@ from typing_extensions import Literal
 import mbag
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
 from mbag.environment.config import MbagConfigDict, MbagPlayerConfigDict, RewardSchedule
+from mbag.environment.goals.demonstrations import DemonstrationsGoalGeneratorConfig
 from mbag.environment.goals.filters import DensityFilterConfig, MinSizeFilterConfig
 from mbag.environment.goals.goal_transform import (
     GoalTransformSpec,
@@ -44,6 +45,7 @@ from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
 from mbag.rllib.callbacks import MbagCallbacks
 from mbag.rllib.data_augmentation import randomly_permute_block_types
+from mbag.rllib.gail import MbagGAILConfig, MbagGAILTorchPolicy
 from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.policies import MbagAgentPolicy
 from mbag.rllib.ppo import MbagPPOConfig, MbagPPOTorchPolicy
@@ -448,6 +450,7 @@ def sacred_config(_log):  # noqa
     load_policies_mapping: Dict[str, str] = {}
     use_anchor_policy = False
     overwrite_loaded_policy_type = use_anchor_policy
+    overwrite_loaded_policy_model = False
     load_config_from_checkpoint = not overwrite_loaded_policy_type
     if isinstance(load_policies_mapping, DogmaticDict):
         # Weird shim for sacred
@@ -512,6 +515,8 @@ def sacred_config(_log):  # noqa
         policy_class = MbagAlphaZeroPolicy
     elif run == "BC":
         policy_class = BCTorchPolicy
+    elif run == "MbagGAIL":
+        policy_class = MbagGAILTorchPolicy
     policy_config: Dict[str, Any] = {
         "model": model_config,
         "goal_loss_coeff": goal_loss_coeff,
@@ -534,6 +539,8 @@ def sacred_config(_log):  # noqa
             policies[policy_id] = policy_spec
             if overwrite_loaded_policy_type:
                 policies[policy_id].policy_class = policy_class
+            if overwrite_loaded_policy_model:
+                policies[policy_id].config["model"] = model_config
         elif policy_id in policies_to_train:
             policies[policy_id] = PolicySpec(
                 policy_class,
@@ -629,7 +636,7 @@ def sacred_config(_log):  # noqa
     )
     config.simple_optimizer = simple_optimizer
 
-    if "PPO" in run:
+    if "PPO" in run or "GAIL" in run:
         assert isinstance(config, PPOConfig)
         config.training(
             lr=lr,
@@ -662,6 +669,18 @@ def sacred_config(_log):  # noqa
                 anchor_policy_kl_coeff=anchor_policy_kl_coeff,
                 anchor_policy_reverse_kl=anchor_policy_reverse_kl,
             )
+        if isinstance(config, MbagGAILConfig):
+            demonstration_input = None
+            train_discriminator_on_separate_batch = False
+            discriminator_num_sgd_iter = num_sgd_iter
+
+            config.training(
+                demonstration_input=demonstration_input,
+                validation_participant_ids=validation_participant_ids,
+                train_discriminator_on_separate_batch=train_discriminator_on_separate_batch,
+                discriminator_num_sgd_iter=discriminator_num_sgd_iter,
+            )
+        environment_params
     elif "AlphaZero" in run:
         assert isinstance(config, MbagAlphaZeroConfig)
         assert reward_scale == 1.0, "Reward scaling not supported for AlphaZero"
@@ -749,21 +768,38 @@ def sacred_config(_log):  # noqa
             ),
         )
 
-        if permute_block_types:
+    if permute_block_types:
+        assert isinstance(config, BCConfig) or isinstance(config, MbagGAILConfig)
+        keep_dirt_at_ground_level = True
 
-            def data_augmentation(
-                batch: SampleBatch,
-                env_config=config.env_config,
-            ) -> SampleBatch:
-                batch.decompress_if_needed()
-                return randomly_permute_block_types(
-                    batch,
-                    flat_actions=True,
-                    flat_observations=True,
-                    env_config=env_config,
-                )
+        def data_augmentation(
+            batch: SampleBatch,
+            env_config=config.env_config,
+            keep_dirt_at_ground_level=keep_dirt_at_ground_level,
+        ) -> SampleBatch:
+            batch.decompress_if_needed()
+            return randomly_permute_block_types(
+                batch,
+                flat_actions=True,
+                flat_observations=True,
+                env_config=env_config,
+                keep_dirt_at_ground_level=keep_dirt_at_ground_level,
+            )
 
-            config.training(data_augmentation=data_augmentation)
+        config.training(data_augmentation=data_augmentation)
+
+    if isinstance(config, MbagGAILConfig):
+        # Set goal generator to use goals from the demonstrations since otherwise
+        # GAIL won't work.
+        environment_params["goal_generator"] = "demonstrations"
+        demonstrations_goal_generator_config: DemonstrationsGoalGeneratorConfig = {
+            "demonstration_input": config.demonstration_input,
+            "data_augmentation": config.data_augmentation,
+        }
+        environment_params["goal_generator_config"] = (
+            demonstrations_goal_generator_config
+        )
+        config.environment(environment_name, env_config=dict(environment_params))
 
     del env
     del loaded_policy_dict

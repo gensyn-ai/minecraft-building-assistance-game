@@ -872,3 +872,22 @@ def test_create_mixture_model(default_config, default_bc_config):
             assert torch.allclose(
                 bc_state_dict[state_key], mixture_state_dict[state_key]
             )
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.timeout(60)
+def test_gail(default_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            "run": "MbagGAIL",
+            "demonstration_input": "data/human_data/sample_tutorial_rllib",
+            "model": "transformer_with_discriminator",
+            "position_embedding_size": 6,
+            "hidden_size": 50,
+            "num_layers": 3,
+            "num_heads": 1,
+            "use_separated_transformer": True,
+        }
+    ).result
+    assert result is not None

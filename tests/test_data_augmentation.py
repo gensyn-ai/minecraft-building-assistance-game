@@ -15,9 +15,22 @@ from mbag.rllib.data_augmentation import randomly_permute_block_types
 
 
 def test_randomly_permute_block_types():
-    for teleportation, inf_blocks, flat_actions, flat_observations in itertools.product(
-        [False, True], [False, True], [False, True], [False, True]
+    for (
+        teleportation,
+        inf_blocks,
+        flat_actions,
+        flat_observations,
+        keep_dirt_at_ground_level,
+    ) in itertools.product(
+        [False, True],
+        [False, True],
+        [False, True],
+        [False, True],
+        [False, True],
     ):
+        if keep_dirt_at_ground_level and not inf_blocks:
+            continue
+
         horizon = 100
         episodes = 2
         env = MbagEnv(

@@ -14,6 +14,7 @@ from typing import (
 
 import numpy as np
 import torch
+from git import TYPE_CHECKING
 from gymnasium import spaces
 from ray.rllib.algorithms.algorithm import Algorithm, AlgorithmConfig
 from ray.rllib.evaluation import Episode
@@ -43,13 +44,7 @@ from ray.rllib.utils.torch_utils import (
     explained_variance,
     sequence_mask,
 )
-from ray.rllib.utils.typing import (
-    AlgorithmConfigDict,
-    PolicyID,
-    ResultDict,
-    SampleBatchType,
-    TensorType,
-)
+from ray.rllib.utils.typing import AlgorithmConfigDict, PolicyID, ResultDict, TensorType
 from ray.tune.registry import register_trainable
 from torch import nn
 
@@ -313,8 +308,8 @@ class BC(Algorithm):
             train_policy_batches: Dict[PolicyID, SampleBatch] = {}
             validation_policy_batches: Dict[PolicyID, SampleBatch] = {}
             for policy_id, policy_batch in train_batch.policy_batches.items():
-                train_episodes: List[SampleBatchType] = []
-                validation_episodes: List[SampleBatchType] = []
+                train_episodes: List[SampleBatch] = []
+                validation_episodes: List[SampleBatch] = []
                 for episode_batch in policy_batch.split_by_episode():
                     assert PARTICIPANT_ID in episode_batch
                     participant_id = episode_batch[PARTICIPANT_ID][0]
@@ -323,11 +318,9 @@ class BC(Algorithm):
                         validation_episodes.append(episode_batch)
                     else:
                         train_episodes.append(episode_batch)
-                train_policy_batch = cast(SampleBatch, concat_samples(train_episodes))
+                train_policy_batch = concat_samples(train_episodes)
                 train_policy_batches[policy_id] = train_policy_batch
-                validation_policy_batch = cast(
-                    SampleBatch, concat_samples(validation_episodes)
-                )
+                validation_policy_batch = concat_samples(validation_episodes)
                 validation_policy_batches[policy_id] = validation_policy_batch
             # Approximate number of env steps in each batch.
             train_prop = train_policy_batch.count / (
@@ -347,7 +340,8 @@ class BC(Algorithm):
             policy = self.workers.local_worker().get_policy(policy_id)
             validation_totals: Dict[str, float] = defaultdict(float)
             validation_counts: Dict[str, int] = defaultdict(int)
-            assert isinstance(policy, BCTorchPolicy)
+            if TYPE_CHECKING:
+                assert isinstance(policy, BCTorchPolicy)
             for minibatch in minibatches(
                 policy_batch, self.config["sgd_minibatch_size"]
             ):

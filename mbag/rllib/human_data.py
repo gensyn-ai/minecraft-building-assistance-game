@@ -130,6 +130,9 @@ def convert_episode_to_sample_batch(  # noqa: C901
                         other_inventory = episode.obs_history[i][other_player_index][1]
                         inventory_obs_pieces.append(other_inventory)
                 inventory_obs = np.stack(inventory_obs_pieces, axis=0)
+            # The inventory obs should be zeros if the player has infinite blocks.
+            if mbag_config["abilities"]["inf_blocks"]:
+                inventory_obs = np.zeros_like(inventory_obs)
             obs = world_obs, inventory_obs, np.array(t)
             if flat_observations:
                 obs = np.concatenate([obs_piece.flat for obs_piece in obs])

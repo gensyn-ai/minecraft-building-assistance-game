@@ -22,6 +22,7 @@ def randomly_permute_block_types(
     flat_actions=False,
     flat_observations=False,
     env_config: Optional[MbagConfigDict] = None,
+    keep_dirt_at_ground_level=False,
 ) -> SampleBatch:
     new_batch = batch.copy()
 
@@ -29,8 +30,10 @@ def randomly_permute_block_types(
         if env_config is None:
             raise ValueError("env_config must be provided if flat_actions is True")
         action_mapping = MbagActionDistribution.get_action_mapping(env_config)
+        old_action_block_locations = action_mapping[batch[SampleBatch.ACTIONS]][:, 0]
         old_action_block_ids = action_mapping[batch[SampleBatch.ACTIONS]][:, 2]
     else:
+        old_action_block_locations = batch[SampleBatch.ACTIONS][0]
         old_action_block_ids = batch[SampleBatch.ACTIONS][2]
     new_action_block_ids = np.empty_like(old_action_block_ids)
 
@@ -77,6 +80,8 @@ def randomly_permute_block_types(
 
     placeable_block_ids = np.array(list(MinecraftBlocks.PLACEABLE_BLOCK_IDS))
 
+    _, _, width, height, depth = old_world_obs.shape
+
     if SampleBatch.SEQ_LENS in batch:
         seq_lens = batch[SampleBatch.SEQ_LENS]
     else:
@@ -108,14 +113,38 @@ def randomly_permute_block_types(
             old_action_block_ids[seq_begin:seq_end]
         ]
 
+        if keep_dirt_at_ground_level:
+            if env_config is not None and not env_config["abilities"]["inf_blocks"]:
+                raise ValueError(
+                    "keep_dirt_at_ground_level only works with inf_blocks=True"
+                )
+            _, old_action_y, _ = np.unravel_index(
+                old_action_block_locations[seq_begin:seq_end],
+                (width, height, depth),
+            )
+            dirt = MinecraftBlocks.NAME2ID["dirt"]
+            new_ground_level = new_world_obs[seq_begin:seq_end, :, :, 1, :]
+            old_ground_level = old_world_obs[seq_begin:seq_end, :, :, 1, :]
+            new_ground_level[:, CURRENT_BLOCKS] = np.where(
+                old_ground_level[:, CURRENT_BLOCKS] == dirt,
+                dirt,
+                new_ground_level[:, CURRENT_BLOCKS],
+            )
+            new_ground_level[:, GOAL_BLOCKS] = np.where(
+                old_ground_level[:, GOAL_BLOCKS] == dirt,
+                dirt,
+                new_ground_level[:, GOAL_BLOCKS],
+            )
+            actions_at_ground_level = old_action_y == 1
+            new_action_block_ids[seq_begin:seq_end][actions_at_ground_level] = (
+                old_action_block_ids[seq_begin:seq_end][actions_at_ground_level]
+            )
+
         seq_begin = seq_end
 
     assert seq_end == len(batch)
 
     if flat_actions:
-        if env_config is None:
-            raise ValueError("env_config must be provided if flat_actions is True")
-        width, height, depth = env_config["world_size"]
         new_batch[SampleBatch.ACTIONS] += (
             (new_action_block_ids - old_action_block_ids) * width * height * depth
         )

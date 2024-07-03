@@ -170,6 +170,7 @@ def test_convert_human_data_consistency_with_rllib_env(tmp_path):
                 ).result
                 reader = JsonReader(out_dir)
                 episode = reader.next()
+                assert isinstance(episode, SampleBatch)
 
                 assert result is not None
                 mbag_config = cast(MbagConfigDict, dict(result["mbag_config"]))
