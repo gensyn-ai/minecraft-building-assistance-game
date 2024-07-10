@@ -181,6 +181,20 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
                         "goal_percentage"
                     ]
 
+            for agent_id in episode.get_agents():
+                policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
+                for metric_key in [
+                    f"{policy_id}/own_reward",
+                    f"{policy_id}/goal_dependent_reward",
+                    f"{policy_id}/goal_independent_reward",
+                ]:
+                    if rounded_minutes > 0:
+                        metric_min_key = f"{metric_key}_{rounded_minutes}_min"
+                        if metric_min_key not in episode.custom_metrics:
+                            episode.custom_metrics[metric_min_key] = (
+                                episode.custom_metrics[metric_key]
+                            )
+
     def on_episode_end(
         self,
         *,
@@ -210,12 +224,26 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
         )
 
         horizon_seconds = env.config["horizon"] * env.config["malmo"]["action_delay"]
-        horizon_rounded_minutes = int(horizon_seconds // (5 * 60)) * 5
-        for rounded_minutes in range(5, horizon_rounded_minutes + 1, 5):
+        horizon_rounded_minutes = int(horizon_seconds // 60)
+        for rounded_minutes in range(1, horizon_rounded_minutes + 1):
             goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
             episode.custom_metrics.setdefault(
                 goal_percentage_key, episode.custom_metrics["goal_percentage"]
             )
+
+            for agent_id in episode.get_agents():
+                policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
+                for metric_key in [
+                    f"{policy_id}/own_reward",
+                    f"{policy_id}/goal_dependent_reward",
+                    f"{policy_id}/goal_independent_reward",
+                ]:
+                    if rounded_minutes > 0:
+                        metric_min_key = f"{metric_key}_{rounded_minutes}_min"
+                        if metric_min_key not in episode.custom_metrics:
+                            episode.custom_metrics.setdefault(
+                                metric_min_key, episode.custom_metrics[metric_key]
+                            )
 
         for agent_id in episode.get_agents():
             policy_id = worker.policy_mapping_fn(agent_id, episode, worker)

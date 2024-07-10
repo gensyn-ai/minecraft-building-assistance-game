@@ -40,6 +40,16 @@ class MbagEpisodeMetrics(TypedDict):
     goal_percentage: float
 
 
+def get_rounded_minutes(episode: MbagEpisode, t: int) -> int:
+    info_dict = episode.info_history[min(t, episode.length - 1)][0]
+    if episode.env_config["malmo"]["use_malmo"] and t < episode.length:
+        start_time = episode.info_history[0][0]["timestamp"]
+        total_seconds = (info_dict["timestamp"] - start_time).total_seconds()
+    else:
+        total_seconds = (t + 1) * episode.env_config["malmo"]["action_delay"]
+    return int(total_seconds // 60)
+
+
 def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
     width, height, depth = episode.env_config["world_size"]
 
@@ -64,34 +74,48 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
         player_metrics["goal_dependent_reward"] = 0
         player_metrics["goal_independent_reward"] = 0
 
-        for t in range(episode.length):
-            info_dict = episode.info_history[t][player_index]
+        for t in range(episode.env_config["horizon"]):
+            if t < episode.length:
+                info_dict = episode.info_history[t][player_index]
 
-            player_metrics["own_reward"] += info_dict["own_reward"]
-            player_metrics["goal_dependent_reward"] += info_dict[
-                "goal_dependent_reward"
-            ]
-            player_metrics["goal_independent_reward"] += info_dict[
-                "goal_independent_reward"
-            ]
+                player_metrics["own_reward"] += info_dict["own_reward"]
+                player_metrics["goal_dependent_reward"] += info_dict[
+                    "goal_dependent_reward"
+                ]
+                player_metrics["goal_independent_reward"] += info_dict[
+                    "goal_independent_reward"
+                ]
 
-            action = info_dict["action"]
-            if action.action_type == MbagAction.BREAK_BLOCK and action.is_palette(
-                episode.env_config["abilities"]["inf_blocks"]
-            ):
-                action_type_name = MBAG_ACTION_BREAK_PALETTE_NAME
-            else:
-                action_type_name = MbagAction.ACTION_TYPE_NAMES[action.action_type]
-            player_metrics[f"num_{action_type_name.lower()}"] += 1  # type: ignore[literal-required]
+                action = info_dict["action"]
+                if action.action_type == MbagAction.BREAK_BLOCK and action.is_palette(
+                    episode.env_config["abilities"]["inf_blocks"]
+                ):
+                    action_type_name = MBAG_ACTION_BREAK_PALETTE_NAME
+                else:
+                    action_type_name = MbagAction.ACTION_TYPE_NAMES[action.action_type]
+                player_metrics[f"num_{action_type_name.lower()}"] += 1  # type: ignore[literal-required]
 
-            if (
-                info_dict["attempted_action"].action_type != MbagAction.NOOP
-                and info_dict["action"].action_type == MbagAction.NOOP
-            ):
-                player_metrics["num_unintentional_noop"] += 1
+                if (
+                    info_dict["attempted_action"].action_type != MbagAction.NOOP
+                    and info_dict["action"].action_type == MbagAction.NOOP
+                ):
+                    player_metrics["num_unintentional_noop"] += 1
 
-            if info_dict["action_correct"]:
-                player_metrics[f"num_correct_{action_type_name.lower()}"] += 1  # type: ignore[literal-required]
+                if info_dict["action_correct"]:
+                    player_metrics[f"num_correct_{action_type_name.lower()}"] += 1  # type: ignore[literal-required]
+
+            rounded_minutes = get_rounded_minutes(episode, t)
+            for metric_key in [
+                "own_reward",
+                "goal_dependent_reward",
+                "goal_independent_reward",
+            ]:
+                if rounded_minutes > 0:
+                    metric_min_key = f"{metric_key}_{rounded_minutes}_min"
+                    if metric_min_key not in player_metrics:
+                        player_metrics[metric_min_key] = player_metrics[  # type: ignore[literal-required]
+                            metric_key  # type: ignore[literal-required]
+                        ]
 
         last_info_dict = episode.last_infos[player_index]
         player_metrics["own_reward_prop"] = last_info_dict["own_reward_prop"]
@@ -122,14 +146,9 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
         "player_metrics": players_metrics,
     }
 
-    start_time = episode.info_history[0][0]["timestamp"]
     for t in range(episode.env_config["horizon"]):
+        rounded_minutes = get_rounded_minutes(episode, t)
         info_dict = episode.info_history[min(t, episode.length - 1)][0]
-        if episode.env_config["malmo"]["use_malmo"] and t < episode.length:
-            total_seconds = (info_dict["timestamp"] - start_time).total_seconds()
-        else:
-            total_seconds = (t + 1) * episode.env_config["malmo"]["action_delay"]
-        rounded_minutes = int(total_seconds // 60)
         if rounded_minutes > 0:
             goal_percentage_key = f"goal_percentage_{rounded_minutes}_min"
             if goal_percentage_key not in metrics:
