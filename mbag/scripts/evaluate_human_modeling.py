@@ -78,6 +78,8 @@ class EpisodeHumanModelingEvaluationResults(TypedDict):
     accuracy: float
     cross_entropy: float
 
+    logprobs: List[float]
+
 
 class HumanModelingEvaluationResults(TypedDict):
     episode_results: List[EpisodeHumanModelingEvaluationResults]
@@ -206,6 +208,7 @@ def main(  # noqa: C901
                 "length": int(np.sum(mask)),
                 "cross_entropy": float(cross_entropy),
                 "accuracy": float(accuracy),
+                "logprobs": logprobs.tolist(),
             }
         )
         total_timesteps += len(episode)
