@@ -1,6 +1,7 @@
 import logging
+import numbers
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import torch
@@ -42,6 +43,7 @@ class MbagRootParentNode:
 class MbagMCTSNode:
     env: MbagEnvModel
     mcts: "MbagMCTS"
+    c_puct: float
     children: Dict[Tuple[int, ...], "MbagMCTSNode"]
     action_mapping: np.ndarray
     action_type_slices: List[slice]
@@ -80,6 +82,15 @@ class MbagMCTSNode:
         self.obs = obs
 
         self.mcts = mcts
+
+        if isinstance(self.parent, MbagRootParentNode):
+            if isinstance(self.mcts.c_puct, numbers.Real):
+                self.c_puct = self.mcts.c_puct
+            else:
+                # Implement DiL-piKL by randomly choosing a c_puct value from the list.
+                self.c_puct = np.random.choice(self.mcts.c_puct)
+        else:
+            self.c_puct = self.parent.c_puct
 
         self.min_value = np.inf
         self.max_value = -np.inf
@@ -243,7 +254,7 @@ class MbagMCTSNode:
                     self.action_number_visits,
                     self.child_priors,
                     self.number_visits,
-                    self.mcts.c_puct,
+                    self.c_puct,
                     init_q_value,
                     self.max_value,
                     self.min_value,
@@ -254,7 +265,7 @@ class MbagMCTSNode:
                     logger.warning("C implementation of best_action not found")
 
             if force_python_impl or action_c is None:
-                child_score = self.child_Q() + self.mcts.c_puct * self.child_U()
+                child_score = self.child_Q() + self.c_puct * self.child_U()
                 masked_child_score = child_score
                 masked_child_score[~self.valid_actions] = -np.inf
                 action = int(np.argmax(masked_child_score))
@@ -274,7 +285,7 @@ class MbagMCTSNode:
                 self.action_type_number_visits,
                 self.action_type_priors,
                 self.number_visits,
-                self.mcts.c_puct,
+                self.c_puct,
                 init_q_value,
                 self.max_value,
                 self.min_value,
@@ -286,7 +297,7 @@ class MbagMCTSNode:
 
         if force_python_impl or action_type_c is None:
             action_type_score = (
-                self.action_type_Q() + self.mcts.c_puct * self.action_type_U()
+                self.action_type_Q() + self.c_puct * self.action_type_U()
             )
             action_type_score[~self.valid_action_types] = -np.inf
             action_type = int(np.argmax(action_type_score))
@@ -322,7 +333,7 @@ class MbagMCTSNode:
                 self.action_number_visits,
                 self.child_priors,
                 number_visits,
-                self.mcts.c_puct,
+                self.c_puct,
                 init_q_value,
                 self.max_value,
                 self.min_value,
@@ -340,7 +351,7 @@ class MbagMCTSNode:
             else:
                 child_score = self.child_Q(
                     valid_action_indices
-                ) + self.mcts.c_puct * self.child_U(valid_action_indices)
+                ) + self.c_puct * self.child_U(valid_action_indices)
                 action = int(valid_action_indices[np.argmax(child_score)])
                 assert (
                     child_score[np.where(valid_action_indices == action_c)[0][0]]
@@ -547,7 +558,7 @@ class MbagMCTSNode:
             dist = calculate_limiting_mcts_distribution(
                 self.child_priors[None, self.valid_actions],
                 self.child_Q()[None, self.valid_actions],
-                self.mcts.c_puct,
+                self.c_puct,
                 self.mcts.num_sims,
             )[0]
             policy[self.valid_actions] = dist
@@ -557,7 +568,7 @@ class MbagMCTSNode:
                 calculate_limiting_mcts_distribution(
                     self.action_type_priors[None, self.valid_action_types],
                     self.action_type_Q()[None, self.valid_action_types],
-                    self.mcts.c_puct,
+                    self.c_puct,
                     self.mcts.num_sims,
                 )[0]
             )
@@ -571,7 +582,7 @@ class MbagMCTSNode:
                         calculate_limiting_mcts_distribution(
                             priors[None, valid_actions],
                             q[None, valid_actions],
-                            self.mcts.c_puct,
+                            self.c_puct,
                             self.mcts.num_sims,
                         )[0]
                         * action_type_dist[action_type]
@@ -581,6 +592,7 @@ class MbagMCTSNode:
 
 
 class MbagMCTS(MCTS):
+    c_puct: Union[float, Sequence[float]]
     _temperature_schedule: Optional[Schedule]
 
     def __init__(
