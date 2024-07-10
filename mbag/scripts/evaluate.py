@@ -7,6 +7,7 @@ import os
 import pickle
 import random
 import signal
+import time
 import zipfile
 from datetime import datetime
 from logging import Logger
@@ -61,7 +62,7 @@ def sacred_config():
     use_malmo = record_video  # noqa: F841
     num_workers: int = 0  # noqa: F841
     out_dir = None  # noqa: F841
-    save_episodes = False  # noqa: F841
+    save_episodes = use_malmo  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
     algorithm_config_updates = {}  # noqa: F841
@@ -321,6 +322,7 @@ def main(  # noqa: C901
                 daemon=True,
             )
             process.start()
+            time.sleep(10)
             processes.append(process)
             queues.append(queue)
         episode_generator = queue_episode_generator(queues)
