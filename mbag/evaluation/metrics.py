@@ -1,4 +1,4 @@
-from typing import List, TypedDict, cast
+from typing import Dict, List, TypedDict, cast
 
 import numpy as np
 
@@ -32,6 +32,8 @@ class MbagPlayerMetrics(TypedDict, total=False):
     goal_dependent_reward: float
     goal_independent_reward: float
 
+    per_minute_metrics: Dict[str, float]
+
 
 class MbagEpisodeMetrics(TypedDict):
     player_metrics: List[MbagPlayerMetrics]
@@ -59,6 +61,7 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
     players_metrics: List[MbagPlayerMetrics] = []
     for player_index in range(episode.env_config["num_players"]):
         player_metrics: MbagPlayerMetrics = {}
+        per_minute_player_metrics: Dict[str, float] = {}
 
         for valid_action_type in MbagActionDistribution.get_valid_action_types(
             episode.env_config
@@ -105,20 +108,17 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
                     player_metrics[f"num_correct_{action_type_name.lower()}"] += 1  # type: ignore[literal-required]
 
             rounded_minutes = get_rounded_minutes(episode, t)
-            for metric_key in [
-                "own_reward",
-                "goal_dependent_reward",
-                "goal_independent_reward",
-            ]:
+            for metric_key in player_metrics:
                 if rounded_minutes > 0:
                     metric_min_key = f"{metric_key}_{rounded_minutes}_min"
-                    if metric_min_key not in player_metrics:
-                        player_metrics[metric_min_key] = player_metrics[  # type: ignore[literal-required]
+                    if metric_min_key not in per_minute_player_metrics:
+                        per_minute_player_metrics[metric_min_key] = player_metrics[
                             metric_key  # type: ignore[literal-required]
                         ]
 
         last_info_dict = episode.last_infos[player_index]
         player_metrics["own_reward_prop"] = last_info_dict["own_reward_prop"]
+        player_metrics["per_minute_metrics"] = per_minute_player_metrics
 
         action_type_names = [
             MbagAction.ACTION_TYPE_NAMES[action_type]
@@ -165,13 +165,27 @@ def calculate_mean_metrics(
     num_players = len(episodes_metrics[0]["player_metrics"])
     mean_player_metrics: List[MbagPlayerMetrics] = [{} for _ in range(num_players)]
     for player_index in range(num_players):
-        mean_player_metrics[player_index] = {}
+        mean_player_metrics[player_index] = {"per_minute_metrics": {}}
         for metric_name in episodes_metrics[0]["player_metrics"][player_index]:
+            if metric_name == "per_minute_metrics":
+                continue
             metric_values = [
                 episode_metrics["player_metrics"][player_index][metric_name]  # type: ignore[literal-required]
                 for episode_metrics in episodes_metrics
             ]
             mean_player_metrics[player_index][metric_name] = np.nanmean(metric_values)  # type: ignore[literal-required]
+        for metric_name in episodes_metrics[0]["player_metrics"][player_index][
+            "per_minute_metrics"
+        ]:
+            metric_values = [
+                episode_metrics["player_metrics"][player_index]["per_minute_metrics"][
+                    metric_name
+                ]
+                for episode_metrics in episodes_metrics
+            ]
+            mean_player_metrics[player_index]["per_minute_metrics"][metric_name] = (
+                np.nanmean(metric_values)
+            )
     metrics: MbagEpisodeMetrics = {
         "goal_similarity": np.mean(
             [episode_metrics["goal_similarity"] for episode_metrics in episodes_metrics]

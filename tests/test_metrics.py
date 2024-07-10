@@ -115,16 +115,23 @@ def test_rllib_heuristic_agents():
                 continue
             metric_name = custom_metric_name[: -len("_mean")]
 
-            if player_metric_match := re.fullmatch(r"player_(\d+)/(.*)", metric_name):
-                player_index_str, player_metric_name = player_metric_match.groups()
+            if player_metric_match := re.fullmatch(
+                r"player_(\d+)(/per_minute_metrics)?/(.*)", metric_name
+            ):
+                player_index_str, is_per_minute_metric, player_metric_name = (
+                    player_metric_match.groups()
+                )
                 player_index = int(player_index_str)
                 player_metrics = metrics["player_metrics"][player_index]
+                if is_per_minute_metric:
+                    other_metric_value = player_metrics["per_minute_metrics"][
+                        player_metric_name
+                    ]
+                else:
+                    other_metric_value = player_metrics[player_metric_name]  # type: ignore[literal-required]
                 assert (
-                    np.isnan(player_metrics[player_metric_name])  # type: ignore[literal-required]
-                    and np.isnan(metric_value)
-                ) or player_metrics[
-                    player_metric_name  # type: ignore[literal-required]
-                ] == metric_value
+                    np.isnan(other_metric_value) and np.isnan(metric_value)
+                ) or other_metric_value == metric_value
             else:
                 assert (
                     np.isnan(metrics[metric_name]) and np.isnan(metric_value)  # type: ignore[literal-required]

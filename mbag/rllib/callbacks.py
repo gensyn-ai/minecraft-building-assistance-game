@@ -183,13 +183,17 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
             for agent_id in episode.get_agents():
                 policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
-                for metric_key in [
-                    f"{policy_id}/own_reward",
-                    f"{policy_id}/goal_dependent_reward",
-                    f"{policy_id}/goal_independent_reward",
-                ]:
+                for metric_key in list(episode.custom_metrics.keys()):
+                    if not (
+                        metric_key.startswith(f"{policy_id}/")
+                        and not metric_key.startswith(
+                            f"{policy_id}/per_minute_metrics/"
+                        )
+                    ):
+                        continue
+                    metric_name = metric_key[len(f"{policy_id}/") :]
                     if rounded_minutes > 0:
-                        metric_min_key = f"{metric_key}_{rounded_minutes}_min"
+                        metric_min_key = f"{policy_id}/per_minute_metrics/{metric_name}_{rounded_minutes}_min"
                         if metric_min_key not in episode.custom_metrics:
                             episode.custom_metrics[metric_min_key] = (
                                 episode.custom_metrics[metric_key]
@@ -233,13 +237,17 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
 
             for agent_id in episode.get_agents():
                 policy_id = worker.policy_mapping_fn(agent_id, episode, worker)
-                for metric_key in [
-                    f"{policy_id}/own_reward",
-                    f"{policy_id}/goal_dependent_reward",
-                    f"{policy_id}/goal_independent_reward",
-                ]:
+                for metric_key in list(episode.custom_metrics.keys()):
+                    if not (
+                        metric_key.startswith(f"{policy_id}/")
+                        and not metric_key.startswith(
+                            f"{policy_id}/per_minute_metrics/"
+                        )
+                    ):
+                        continue
+                    metric_name = metric_key[len(f"{policy_id}/") :]
                     if rounded_minutes > 0:
-                        metric_min_key = f"{metric_key}_{rounded_minutes}_min"
+                        metric_min_key = f"{policy_id}/per_minute_metrics/{metric_name}_{rounded_minutes}_min"
                         if metric_min_key not in episode.custom_metrics:
                             episode.custom_metrics.setdefault(
                                 metric_min_key, episode.custom_metrics[metric_key]
