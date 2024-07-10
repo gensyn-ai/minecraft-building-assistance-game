@@ -271,6 +271,10 @@ class MbagGAIL(PPO, BC):
         policy_batches_1: Dict[PolicyID, SampleBatch] = {}
         policy_batches_2: Dict[PolicyID, SampleBatch] = {}
         for policy_id, policy_batch in batch.policy_batches.items():
+            # Shuffle episodes.
+            episode_batches = policy_batch.split_by_episode()
+            np.random.shuffle(episode_batches)  # type: ignore
+            policy_batch = concat_samples(episode_batches)
             batch_length = len(policy_batch)
             policy_batches_1[policy_id] = policy_batch.slice(0, batch_length // 2)
             policy_batches_2[policy_id] = policy_batch.slice(
@@ -304,7 +308,9 @@ class MbagGAIL(PPO, BC):
             ) in self.demonstration_train_batch.policy_batches.items():
                 total_timesteps = 0
                 augmented_batches: List[SampleBatch] = []
-                target_timesteps = len(train_batch.policy_batches[policy_id])
+                target_timesteps = len(
+                    discriminator_policy_batch.policy_batches[policy_id]
+                )
 
                 # Concatenate enough demonstration data to match the length of the
                 # PPO training batch. In order to uniformly sample from the
@@ -334,7 +340,7 @@ class MbagGAIL(PPO, BC):
             policy_batch[IS_DEMONSTRATION] = np.zeros(len(policy_batch), dtype=bool)
         discriminator_demonstration_batch = MultiAgentBatch(
             augmented_demonstration_train_policy_batches,
-            train_batch.env_steps(),
+            discriminator_policy_batch.env_steps(),
         )
         for (
             policy_id,

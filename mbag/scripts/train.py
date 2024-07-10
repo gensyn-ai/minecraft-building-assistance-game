@@ -770,7 +770,7 @@ def sacred_config(_log):  # noqa
 
     if permute_block_types:
         assert isinstance(config, BCConfig) or isinstance(config, MbagGAILConfig)
-        keep_dirt_at_ground_level = True
+        keep_dirt_at_ground_level = inf_blocks
 
         def data_augmentation(
             batch: SampleBatch,

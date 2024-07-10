@@ -59,6 +59,9 @@ def make_named_configs(ex: Experiment):
         inf_blocks = True
         num_envs_per_worker = 8
         train_batch_size = 16000
+        batch_mode = "truncate_episodes"
+        if batch_mode == "complete_episodes":
+            num_envs_per_worker = 1
         permute_block_types = True
         model = "transformer_with_discriminator"
         data_split = "human_alone"
@@ -77,12 +80,13 @@ def make_named_configs(ex: Experiment):
             overwrite_loaded_policy_type = True
             overwrite_loaded_policy_model = True
             policies_to_train = ["human"]
+        kl_target = 1e-2
         experiment_tag = (
             f"gail_human/discriminator_{discriminator_num_sgd_iter}_sgd_iter"
         )
         if train_discriminator_on_separate_batch:
             experiment_tag += "_separate_batch"
-        experiment_tag += f"/infinite_blocks_{str(inf_blocks).lower()}/{data_split}/permute_{permute_block_types}"
+        experiment_tag += f"/{batch_mode}/kl_target_{kl_target}/infinite_blocks_{str(inf_blocks).lower()}/{data_split}/permute_{permute_block_types}"
         if checkpoint_to_load_policies is not None:
             experiment_tag += f"/init_{checkpoint_name}"
 
@@ -200,6 +204,7 @@ def make_named_configs(ex: Experiment):
         vf_loss_coeff = 0
         gamma = 0.95
         scale_obs = True
+        permute_block_types = True
         experiment_tag = f"bc_human/lr_{lr_start}/infinite_blocks_{str(inf_blocks).lower()}/{data_split}"
         if checkpoint_to_load_policies is not None:
             experiment_tag += f"/init_{checkpoint_name}"
