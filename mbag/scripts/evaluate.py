@@ -7,7 +7,6 @@ import os
 import pickle
 import random
 import signal
-import time
 import zipfile
 from datetime import datetime
 from logging import Logger
@@ -322,7 +321,6 @@ def main(  # noqa: C901
                 daemon=True,
             )
             process.start()
-            time.sleep(10)
             processes.append(process)
             queues.append(queue)
         episode_generator = queue_episode_generator(queues)
