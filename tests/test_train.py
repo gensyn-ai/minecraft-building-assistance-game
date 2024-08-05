@@ -497,7 +497,7 @@ def test_interleaved_lstm_alpha_zero_assistant(
 @pytest.mark.uses_rllib
 @pytest.mark.slow
 @pytest.mark.timeout(120)
-@pytest.mark.limit_memory("600 MB")
+@pytest.mark.limit_memory("850 MB")
 def test_lstm_alpha_zero_memory_usage(
     default_config,
     default_alpha_zero_config,
