@@ -6,9 +6,7 @@ These are mostly copied from ray.rllib.utils.schedules, but with minor changes:
 """
 
 from abc import ABCMeta, abstractmethod
-from typing import Callable, List, Optional, Tuple, Union
-
-import numpy as np
+from typing import Callable, List, Optional, Tuple
 
 
 class Schedule(metaclass=ABCMeta):

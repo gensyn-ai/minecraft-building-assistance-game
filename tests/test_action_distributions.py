@@ -1,21 +1,23 @@
 import copy
 import logging
 import random
-from typing import cast
+from types import ModuleType
+from typing import Optional, cast
 
 import numpy as np
 import pytest
-
-try:
-    import torch
-except ImportError:
-    torch = None
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.mbag_env import DEFAULT_CONFIG, MbagEnv
 from mbag.environment.types import CURRENT_BLOCKS, PLAYER_LOCATIONS
+
+torch: Optional[ModuleType]
+try:
+    import torch  # noqa: E402
+except ImportError:
+    torch = None
 
 logger = logging.getLogger(__name__)
 

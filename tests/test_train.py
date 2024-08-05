@@ -22,7 +22,7 @@ try:
     from mbag.scripts.rollout import ex as rollout_ex
     from mbag.scripts.train import ex
 except ImportError:
-    MbagTransformerModel = object
+    MbagTransformerModel = object  # type: ignore
 
 
 @pytest.fixture(scope="session")
