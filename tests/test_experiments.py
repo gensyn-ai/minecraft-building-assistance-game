@@ -183,7 +183,7 @@ def test_experiments(tmp_path):
                 "checkpoints": [human_model_checkpoint],
                 "policy_ids": ["human"],
                 "num_episodes": 1,
-                "algorithm_config_updates": extra_config_updates,
+                "algorithm_config_updates": [extra_config_updates],
                 "env_config_updates": {
                     "horizon": 10,
                     "truncate_on_no_progress_timesteps": None,

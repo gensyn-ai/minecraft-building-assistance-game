@@ -7,6 +7,7 @@ import os
 import pickle
 import random
 import signal
+import time
 import zipfile
 from datetime import datetime
 from logging import Logger
@@ -64,7 +65,7 @@ def sacred_config():
     save_episodes = use_malmo  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
-    algorithm_config_updates = {}  # noqa: F841
+    algorithm_config_updates: List[dict] = [{}]  # noqa: F841
 
 
 def run_evaluation(
@@ -76,7 +77,7 @@ def run_evaluation(
     explore: List[bool],
     confidence_thresholds: Optional[List[Optional[float]]],
     env_config_updates: MbagConfigDict,
-    algorithm_config_updates: dict,
+    algorithm_config_updates: List[dict],
     seed: int,
     record_video: bool,
     use_malmo: bool,
@@ -88,16 +89,11 @@ def run_evaluation(
         include_dashboard=False,
     )
 
-    algorithm_config_updates["seed"] = seed
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
     env_config_updates.setdefault("randomize_first_episode_length", False)
-
-    algorithm_config_updates.setdefault("num_workers", 0)
-    algorithm_config_updates.setdefault("num_envs_per_worker", 1)
-    algorithm_config_updates.setdefault("evaluation_num_workers", 0)
 
     # Try to load env config from the first checkpoint.
     env_config: Optional[MbagConfigDict] = None
@@ -123,12 +119,10 @@ def run_evaluation(
 
     observation_space = MbagEnv(env_config).observation_space
 
-    algorithm_config_updates["env_config"] = copy.deepcopy(env_config)
-
     agent_configs: List[MbagAgentConfig] = []
     trainers: List[Algorithm] = []
-    for player_index, (run, checkpoint, policy_id) in enumerate(
-        zip(runs, checkpoints, policy_ids)
+    for player_index, (run, checkpoint, policy_id, config_updates) in enumerate(
+        zip(runs, checkpoints, policy_ids, algorithm_config_updates)
     ):
         if run == "HumanAgent":
             agent_configs.append((HumanAgent, {}))
@@ -137,10 +131,16 @@ def run_evaluation(
         else:
             assert checkpoint is not None and policy_id is not None
 
+            config_updates["seed"] = seed
+            config_updates.setdefault("num_workers", 0)
+            config_updates.setdefault("num_envs_per_worker", 1)
+            config_updates.setdefault("evaluation_num_workers", 0)
+            config_updates["env_config"] = copy.deepcopy(env_config)
+
             trainer = load_trainer(
                 checkpoint,
                 run,
-                copy.deepcopy(algorithm_config_updates),
+                copy.deepcopy(config_updates),
             )
             policy = trainer.get_policy(policy_id)
             policy.observation_space = observation_space
@@ -195,7 +195,7 @@ def evaluation_worker(
     explore: List[bool],
     confidence_thresholds: Optional[List[Optional[float]]],
     env_config_updates: MbagConfigDict,
-    algorithm_config_updates: dict,
+    algorithm_config_updates: List[dict],
     seed: int,
     record_video: bool,
     use_malmo: bool,
@@ -245,7 +245,7 @@ def main(  # noqa: C901
     num_episodes: int,
     experiment_tag: str,
     env_config_updates: MbagConfigDict,
-    algorithm_config_updates: dict,
+    algorithm_config_updates: List[dict],
     seed: int,
     record_video: bool,
     use_malmo: bool,
@@ -323,6 +323,7 @@ def main(  # noqa: C901
             process.start()
             processes.append(process)
             queues.append(queue)
+            time.sleep(10)
         episode_generator = queue_episode_generator(queues)
 
     episodes: List[MbagEpisode] = []
