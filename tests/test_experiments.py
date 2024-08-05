@@ -10,12 +10,17 @@ import os
 from typing import Any, Dict, List, Tuple
 
 import pytest
-import torch
 
 import mbag.environment.goals
-from mbag.scripts.evaluate import ex as evaluate_ex
-from mbag.scripts.evaluate_human_modeling import ex as evaluate_human_modeling_ex
-from mbag.scripts.train import ex as train_ex
+
+try:
+    import torch
+
+    from mbag.scripts.evaluate import ex as evaluate_ex
+    from mbag.scripts.evaluate_human_modeling import ex as evaluate_human_modeling_ex
+    from mbag.scripts.train import ex as train_ex
+except ImportError:
+    pass
 
 
 def assert_config_matches(
@@ -77,6 +82,7 @@ def assert_config_matches(
 
 @pytest.mark.timeout(600)
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 def test_experiments(tmp_path):
     # Supress huge number of logging messages about the goals being sampled.
     mbag.environment.goals.logger.setLevel(logging.WARNING)

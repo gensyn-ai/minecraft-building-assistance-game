@@ -1,12 +1,13 @@
 import pytest
 
-from mbag.rllib.training_utils import load_trainer
+try:
+    from mbag.rllib.training_utils import load_trainer
+except ImportError:
+    pass
 
 
 @pytest.mark.uses_rllib
 def test_load_alpha_zero_assistant_checkpoint(tmp_path):
-    # import ray
-    # ray.init()
     load_trainer(
         "data/testing/checkpoints/alpha_zero_assistant/checkpoint_000100",
         "MbagAlphaZero",

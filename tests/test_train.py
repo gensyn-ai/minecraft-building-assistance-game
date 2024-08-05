@@ -4,20 +4,25 @@ import tempfile
 from typing import Dict, List, cast
 
 import pytest
-import torch
-import torch.nn.functional as F  # noqa: N812
-from ray.rllib.models.catalog import ModelCatalog
-from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
-from torch import nn
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS
-from mbag.rllib.mixture_model import MixtureModel
-from mbag.rllib.torch_models import MbagTransformerModel
-from mbag.rllib.training_utils import load_trainer
-from mbag.scripts.create_mixture_model import ex as create_mixture_model_ex
-from mbag.scripts.rollout import ex as rollout_ex
-from mbag.scripts.train import ex
+
+try:
+    import torch
+    import torch.nn.functional as F  # noqa: N812
+    from ray.rllib.models.catalog import ModelCatalog
+    from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
+    from torch import nn
+
+    from mbag.rllib.mixture_model import MixtureModel
+    from mbag.rllib.torch_models import MbagTransformerModel
+    from mbag.rllib.training_utils import load_trainer
+    from mbag.scripts.create_mixture_model import ex as create_mixture_model_ex
+    from mbag.scripts.rollout import ex as rollout_ex
+    from mbag.scripts.train import ex
+except ImportError:
+    MbagTransformerModel = object
 
 
 @pytest.fixture(scope="session")
@@ -96,6 +101,7 @@ def dummy_ppo_checkpoint_fname(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_single_agent(default_config):
     result = ex.run(
@@ -110,6 +116,7 @@ def test_single_agent(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_ppo_with_bilevel_categorical(default_config):
     result = ex.run(
@@ -126,6 +133,7 @@ def test_ppo_with_bilevel_categorical(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_kl_regularized_ppo(default_config, dummy_ppo_checkpoint_fname):
     anchor_policy_kls: Dict[float, float] = {}
@@ -155,6 +163,7 @@ def test_kl_regularized_ppo(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_lstm(default_config):
     result = ex.run(
@@ -174,6 +183,7 @@ def test_lstm(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_transformer(default_config):
     result = ex.run(
@@ -226,6 +236,7 @@ def test_transformer(default_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
@@ -247,6 +258,7 @@ def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
@@ -261,6 +273,7 @@ def test_policy_retrieval(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_train_together(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
@@ -279,6 +292,7 @@ def test_train_together(default_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero(default_config, default_alpha_zero_config):
     result = ex.run(
@@ -292,6 +306,7 @@ def test_alpha_zero(default_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_kl_regularized_alpha_zero(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
@@ -322,6 +337,7 @@ def test_kl_regularized_alpha_zero(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero_strict_mode(default_config, default_alpha_zero_config):
     result = ex.run(
@@ -349,6 +365,7 @@ def test_alpha_zero_strict_mode(default_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero_multiple_envs(default_config, default_alpha_zero_config):
     result = ex.run(
@@ -364,6 +381,7 @@ def test_alpha_zero_multiple_envs(default_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero_assistant(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
@@ -388,6 +406,7 @@ def test_alpha_zero_assistant(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(6000)
 def test_alpha_zero_assistant_with_bc(default_config, default_alpha_zero_config):
     result = ex.run(
@@ -415,6 +434,7 @@ def test_alpha_zero_assistant_with_bc(default_config, default_alpha_zero_config)
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_lstm_alpha_zero_assistant(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
@@ -443,6 +463,7 @@ def test_lstm_alpha_zero_assistant(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_interleaved_lstm_alpha_zero_assistant(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
@@ -474,6 +495,7 @@ def test_interleaved_lstm_alpha_zero_assistant(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 @pytest.mark.limit_memory("600 MB")
 def test_lstm_alpha_zero_memory_usage(
@@ -512,6 +534,7 @@ def test_lstm_alpha_zero_memory_usage(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero_assistant_with_lowest_block_agent(
     default_config, default_alpha_zero_config
@@ -536,6 +559,7 @@ def test_alpha_zero_assistant_with_lowest_block_agent(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero_assistant_pretraining(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
@@ -561,6 +585,7 @@ def test_alpha_zero_assistant_pretraining(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
     default_config, default_alpha_zero_config
@@ -620,6 +645,7 @@ class PerfectGoalPredictorModel(MbagTransformerModel):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_predicted_rewards_equal_rewards_in_alpha_zero(
     default_config, default_alpha_zero_config
@@ -649,6 +675,7 @@ def test_predicted_rewards_equal_rewards_in_alpha_zero(
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_alpha_zero_goal_predictor_kl(default_config, default_alpha_zero_config):
     prev_goal_kls: Dict[float, float] = {}
@@ -674,6 +701,7 @@ def test_alpha_zero_goal_predictor_kl(default_config, default_alpha_zero_config)
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_bc(default_config, default_bc_config):
     result = ex.run(
@@ -691,6 +719,7 @@ def test_bc(default_config, default_bc_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_bc_with_value_loss(default_config, default_bc_config):
     result = ex.run(
@@ -708,6 +737,7 @@ def test_bc_with_value_loss(default_config, default_bc_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_bc_with_data_augmentation(default_config, default_bc_config):
     result = ex.run(
@@ -722,6 +752,7 @@ def test_bc_with_data_augmentation(default_config, default_bc_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_distill(default_config, default_bc_config, dummy_ppo_checkpoint_fname):
     rollout_result = rollout_ex.run(
@@ -756,6 +787,7 @@ def test_distill(default_config, default_bc_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(120)
 def test_pikl(default_config, default_bc_config, default_alpha_zero_config):
     env_configs = {
@@ -848,6 +880,7 @@ def test_pikl(default_config, default_bc_config, default_alpha_zero_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_create_mixture_model(default_config, default_bc_config):
     bc_checkpoints: List[str] = []
@@ -899,6 +932,7 @@ def test_create_mixture_model(default_config, default_bc_config):
 
 
 @pytest.mark.uses_rllib
+@pytest.mark.slow
 @pytest.mark.timeout(60)
 def test_gail(default_config):
     result = ex.run(

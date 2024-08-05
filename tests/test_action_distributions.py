@@ -5,7 +5,11 @@ from typing import cast
 
 import numpy as np
 import pytest
-import torch
+
+try:
+    import torch
+except ImportError:
+    torch = None
 
 from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction, MbagActionTuple
@@ -305,27 +309,29 @@ def test_to_flat():
         "inf_blocks": True,
     }
     flat = MbagActionDistribution.to_flat(config, probs).flatten().tolist()
-    flat_torch = (
-        MbagActionDistribution.to_flat_torch(config, torch.from_numpy(probs))
-        .flatten()
-        .tolist()
-    )
-    flat_torch_logits = (
-        MbagActionDistribution.to_flat_torch_logits(
-            config, torch.from_numpy(probs).log()
-        )
-        .exp()
-        .flatten()
-        .tolist()
-    )
     expected_flat = (
         [1 / c]  # NOOP
         + [1 / c / 8] * 8 * MinecraftBlocks.NUM_BLOCKS  # PLACE_BLOCK
         + [1 / c / 8] * 8  # BREAK_BLOCK
     )
     assert flat == pytest.approx(expected_flat)
-    assert flat_torch == pytest.approx(expected_flat)
-    assert flat_torch_logits == pytest.approx(expected_flat)
+
+    if torch is not None:
+        flat_torch = (
+            MbagActionDistribution.to_flat_torch(config, torch.from_numpy(probs))
+            .flatten()
+            .tolist()
+        )
+        flat_torch_logits = (
+            MbagActionDistribution.to_flat_torch_logits(
+                config, torch.from_numpy(probs).log()
+            )
+            .exp()
+            .flatten()
+            .tolist()
+        )
+        assert flat_torch == pytest.approx(expected_flat)
+        assert flat_torch_logits == pytest.approx(expected_flat)
 
     config["abilities"] = {
         "teleportation": False,
@@ -333,19 +339,6 @@ def test_to_flat():
         "inf_blocks": False,
     }
     flat = MbagActionDistribution.to_flat(config, probs).flatten().tolist()
-    flat_torch = (
-        MbagActionDistribution.to_flat_torch(config, torch.from_numpy(probs))
-        .flatten()
-        .tolist()
-    )
-    flat_torch_logits = (
-        MbagActionDistribution.to_flat_torch_logits(
-            config, torch.from_numpy(probs).log()
-        )
-        .exp()
-        .flatten()
-        .tolist()
-    )
     expected_flat = (
         [1 / c]  # NOOP
         + [1 / c / 8] * 8 * MinecraftBlocks.NUM_BLOCKS  # PLACE_BLOCK
@@ -354,5 +347,20 @@ def test_to_flat():
         + [1 / c / 8] * 8 * MinecraftBlocks.NUM_BLOCKS  # GIVE_BLOCK
     )
     assert flat == pytest.approx(expected_flat)
-    assert flat_torch == pytest.approx(expected_flat)
-    assert flat_torch_logits == pytest.approx(expected_flat)
+
+    if torch is not None:
+        flat_torch = (
+            MbagActionDistribution.to_flat_torch(config, torch.from_numpy(probs))
+            .flatten()
+            .tolist()
+        )
+        flat_torch_logits = (
+            MbagActionDistribution.to_flat_torch_logits(
+                config, torch.from_numpy(probs).log()
+            )
+            .exp()
+            .flatten()
+            .tolist()
+        )
+        assert flat_torch == pytest.approx(expected_flat)
+        assert flat_torch_logits == pytest.approx(expected_flat)
