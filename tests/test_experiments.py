@@ -248,7 +248,23 @@ def test_experiments(tmp_path):
         ).result
         assert evaluate_result is not None
 
-    # TODO: test alphazero_assistant
+    # Test alphazero_assistant
+    alphazero_assistant_result = train_ex.run(
+        named_configs=["alphazero_assistant"],
+        config_updates={
+            "experiment_dir": str(tmp_path / "alphazero_assistant"),
+            "checkpoint_to_load_policies": bc_human_results["rand_init_human_alone"][
+                "final_checkpoint"
+            ],
+            "checkpoint_name": "rand_init_human_alone",
+            **common_config_updates,
+        },
+    ).result
+    assert alphazero_assistant_result is not None
+    assert_config_matches(
+        glob.glob(str(tmp_path / "alphazero_assistant" / "[1-9]*"))[0],
+        "data/testing/reference_experiments/alphazero_assistant",
+    )
 
     # Test ppo_assistant
     ppo_assistant_result = train_ex.run(

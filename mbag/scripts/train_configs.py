@@ -323,3 +323,75 @@ def make_named_configs(ex: Experiment):
             f"ppo_assistant/infinite_blocks_{str(inf_blocks).lower()}/"
             f"human_{checkpoint_name}"
         )
+
+    @ex.named_config
+    def alphazero_assistant():
+        run = "MbagAlphaZero"
+        goal_generator = "craftassist"
+        width = 11
+        height = 10
+        depth = 10
+        num_players = 2
+        multiagent_mode = "cross_play"
+        randomize_first_episode_length = True
+        random_start_locations = True
+        num_training_iters = 100
+        sample_batch_size = 32768
+        horizon = 1500
+        noop_reward = 0
+        get_resources_reward = 0
+        per_player_action_reward = [0, 0]
+        teleportation = False
+        inf_blocks = True
+        train_batch_size = 4
+        replay_buffer_size = 4
+        num_workers = 8
+        num_envs_per_worker = 8
+        num_gpus = 0.5
+        num_gpus_per_worker = 0.08
+        use_replay_buffer = True
+        num_sgd_iter = 2
+        rollout_fragment_length = 512
+        batch_mode = "truncate_episodes"
+        model = "transformer_alpha_zero"
+        hidden_size = 64
+        max_seq_len = 511
+        sgd_minibatch_size = 512
+        use_separated_transformer = True
+        num_layers = 8
+        num_heads = 4
+        scale_obs = True
+        vf_share_layers = True
+        vf_scale = 1
+        num_simulations = 100
+        use_bilevel_action_selection = True
+        fix_bilevel_action_selection = True
+        temperature = 1.5
+        dirichlet_noise = 0.25
+        dirichlet_action_subtype_noise_multiplier = 10
+        dirichlet_epsilon = 0.25
+        prior_temperature = 1.0
+        init_q_with_max = False
+        gamma = 0.95
+        lr = 0.001
+        goal_loss_coeff = 3
+        prev_goal_kl_coeff = 3
+        puct_coefficient = 1.0
+        save_freq = 5
+        evaluation_num_workers = 0
+        evaluation_interval = None
+        interleave_lstm = True
+        use_goal_predictor = True
+        predict_goal_using_next_state = False
+        predict_goal_using_average = False
+        use_prev_blocks = False
+        mask_goal = True
+        pretrain = False
+        policies_to_train = ["assistant"]
+        checkpoint_path = None
+        checkpoint_name = ""
+        load_policies_mapping = {"human": "human"}
+        experiment_tag = (
+            f"alphazero_assistant/infinite_blocks_{str(inf_blocks).lower()}/"
+            f"human_{checkpoint_name}"
+        )
