@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Sequence, Union, cast
+from typing import Dict, List, Optional, Sequence, Tuple, Union, cast
 
 import gymnasium as gym
 import numpy as np
@@ -180,10 +180,12 @@ class MbagEnvModel(gym.Env):
             self._store_last_obs_dict(obs_dict)
             return obs_dict[self.agent_id]
 
-    def set_state_from_obs(self, obs: MbagObs) -> MbagStateDict:
-        state = mbag_obs_to_state(obs, self.player_index)
-        self.set_state(state)
-        return state
+    def set_state_from_obs(self, obs: MbagObs) -> Tuple[MbagStateDict, MbagObs]:
+        state = mbag_obs_to_state(
+            obs, self.player_index, num_players=self.config["num_players"]
+        )
+        obs = self.set_state(state)
+        return state, obs
 
     def get_reward_with_other_agent_actions(
         self,

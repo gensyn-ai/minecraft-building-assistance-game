@@ -1227,6 +1227,27 @@ class MbagEnv(object):
                 "to implement truncate_on_no_progress_timesteps=True."
             )
 
+        if len(state["player_locations"]) != self.config["num_players"]:
+            raise ValueError(
+                f"player_locations has length {len(state['player_locations'])} "
+                f"but expected {self.config['num_players']}"
+            )
+        if len(state["player_directions"]) != self.config["num_players"]:
+            raise ValueError(
+                f"player_directions has length {len(state['player_directions'])} "
+                f"but expected {self.config['num_players']}"
+            )
+        if len(state["player_inventories"]) != self.config["num_players"]:
+            raise ValueError(
+                f"player_inventories has length {len(state['player_inventories'])} "
+                f"but expected {self.config['num_players']}"
+            )
+        if state["last_interacted"].max() >= self.config["num_players"]:
+            raise ValueError(
+                f"last_interacted has maximum value {state['last_interacted'].max()} "
+                f"but expected at most {self.config['num_players'] - 1}"
+            )
+
         self.current_blocks = state["current_blocks"].copy()
         self.goal_blocks = state["goal_blocks"].copy()
         self.player_locations = list(state["player_locations"])

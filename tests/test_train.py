@@ -756,13 +756,15 @@ def test_distill(default_config, default_bc_config, dummy_ppo_checkpoint_fname):
 
 
 @pytest.mark.uses_rllib
-@pytest.mark.timeout(60)
-def test_pikl(default_config, default_bc_config):
+@pytest.mark.timeout(120)
+def test_pikl(default_config, default_bc_config, default_alpha_zero_config):
     env_configs = {
         "goal_generator": "tutorial",
         "width": 6,
         "depth": 6,
         "height": 6,
+        "teleportation": False,
+        "inf_blocks": False,
     }
 
     bc_result = ex.run(
@@ -788,6 +790,7 @@ def test_pikl(default_config, default_bc_config):
             "checkpoint_to_load_policies": bc_checkpoint,
             "overwrite_loaded_policy_type": True,
             "num_training_iters": 0,
+            "teleportation": False,
         }
     ).result
     assert alpha_zero_result is not None
@@ -821,6 +824,27 @@ def test_pikl(default_config, default_bc_config):
         }
     ).result
     assert pikl_result is not None
+
+    alpha_zero_assistant_result = ex.run(
+        config_updates={
+            **default_config,
+            **default_alpha_zero_config,
+            **env_configs,
+            "multiagent_mode": "cross_play",
+            "num_players": 2,
+            "randomize_first_episode_length": False,
+            "mask_goal": True,
+            "use_extra_features": False,
+            "checkpoint_to_load_policies": alpha_zero_checkpoint,
+            "load_policies_mapping": {"human": "human"},
+            "policies_to_train": ["assistant"],
+            "model": "transformer_alpha_zero",
+            "num_training_iters": 1,
+            "rollout_fragment_length": 5,
+            "pretrain": False,
+        },
+    ).result
+    assert alpha_zero_assistant_result is not None
 
 
 @pytest.mark.uses_rllib

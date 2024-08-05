@@ -244,7 +244,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         nodes: List[MbagMCTSNode] = []
         for env_index in range(num_envs):
             env_obs = tuple(obs_piece[env_index] for obs_piece in obs)
-            env_state = self.envs[env_index].set_state_from_obs(env_obs)
+            env_state, env_obs = self.envs[env_index].set_state_from_obs(env_obs)
             model_state = [
                 input_dict[f"state_in_{state_index}"][env_index]
                 for state_index in range(model_state_len)
