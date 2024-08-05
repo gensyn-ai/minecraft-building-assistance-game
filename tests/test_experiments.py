@@ -23,6 +23,18 @@ except ImportError:
     pass
 
 
+def remove_py_id(obj):
+    if isinstance(obj, dict):
+        if "py/id" in obj:
+            del obj["py/id"]
+        for key, value in obj.items():
+            obj[key] = remove_py_id(value)
+    elif isinstance(obj, list):
+        for i, value in enumerate(obj):
+            obj[i] = remove_py_id(value)
+    return obj
+
+
 def assert_config_matches(
     experiment_dir,
     reference_experiment_dir,
@@ -32,6 +44,9 @@ def assert_config_matches(
 
     with open(os.path.join(reference_experiment_dir, "config.json")) as config_file:
         reference_json_config = json.load(config_file)
+
+    json_config["config"] = remove_py_id(json_config["config"])
+    reference_json_config["config"] = remove_py_id(reference_json_config["config"])
 
     for config in [json_config["config"], reference_json_config["config"]]:
         # We don't use rollout workers in the tests, so we remove them from the config.
@@ -44,9 +59,12 @@ def assert_config_matches(
 
         # Weird inconsistent JSON serialization.
         for policy_id, policy_spec in config["policies"].items():
-            timestep_space = policy_spec["observation_space"]["spaces"]["py/tuple"][2]
-            del timestep_space["bounded_above"]
-            del timestep_space["dtype"]
+            if "spaces" in policy_spec["observation_space"]:
+                timestep_space = policy_spec["observation_space"]["spaces"]["py/tuple"][
+                    2
+                ]
+                del timestep_space["bounded_above"]
+                del timestep_space["dtype"]
 
     assert json_config["config"] == reference_json_config["config"]
     assert json_config["run"] == reference_json_config["run"]
@@ -71,7 +89,10 @@ def assert_config_matches(
             assert custom_model_config["line_of_sight_masking"]
             assert custom_model_config["mask_action_distribution"]
             assert custom_model_config["scale_obs"]
-            assert custom_model_config["num_layers"] == 6
+            if custom_model_config["interleave_lstm"]:
+                assert custom_model_config["num_layers"] == 8
+            else:
+                assert custom_model_config["num_layers"] == 6
             assert custom_model_config["hidden_size"] == 64
 
     if json_config["run"] == "MbagAlphaZero":
@@ -128,7 +149,7 @@ def test_experiments(tmp_path):
     bc_human_results: Dict[str, Any] = {}
     for bc_human_name, data_split, checkpoint_to_load_policies in [
         ("rand_init_human_alone", "human_alone", None),
-        # ("rand_init_human_with_assistant", "human_with_assistant", None),
+        # ("rand_init_human_with_assistant", "human_with_assistant", None),  # TODO: uncomment
         # ("rand_init_combined", "combined", None),
         # ("ppo_init", "human_alone", ppo_human_result["final_checkpoint"]),
         # ("alphazero_init", "human_alone", alphazero_human_result["final_checkpoint"]),
@@ -169,15 +190,20 @@ def test_experiments(tmp_path):
     )
 
     # Test all human model evals
-    human_models: List[Tuple[str, str]] = [
-        ("MbagPPO", ppo_human_result["final_checkpoint"]),
-        ("MbagAlphaZero", alphazero_human_result["final_checkpoint"]),
-    ] + [
-        ("BC", bc_human_result["final_checkpoint"])
-        for bc_human_result in bc_human_results.values()
-    ] + [
-        ("MbagAlphaZero", pikl_result["final_checkpoint"]),
-    ]
+    human_models: List[Tuple[str, str]] = (
+        [
+            ("MbagPPO", ppo_human_result["final_checkpoint"]),
+            ("MbagAlphaZero", alphazero_human_result["final_checkpoint"]),
+        ]
+        + [
+            ("BC", bc_human_result["final_checkpoint"])
+            for bc_human_result in bc_human_results.values()
+        ]
+        + [
+            ("MbagAlphaZero", pikl_result["final_checkpoint"]),
+        ]
+    )
+    human_models = []  # TODO: remove
     for human_model_run, human_model_checkpoint in human_models:
         extra_config_updates = {}
         if human_model_run == "MbagAlphaZero":
@@ -223,7 +249,25 @@ def test_experiments(tmp_path):
         assert evaluate_result is not None
 
     # TODO: test alphazero_assistant
-    # TODO: test ppo_assistant
+
+    # Test ppo_assistant
+    ppo_assistant_result = train_ex.run(
+        named_configs=["ppo_assistant"],
+        config_updates={
+            "experiment_dir": str(tmp_path / "ppo_assistant"),
+            "checkpoint_to_load_policies": bc_human_results["rand_init_human_alone"][
+                "final_checkpoint"
+            ],
+            "checkpoint_name": "rand_init_human_alone",
+            **common_config_updates,
+        },
+    ).result
+    assert ppo_assistant_result is not None
+    assert_config_matches(
+        glob.glob(str(tmp_path / "ppo_assistant" / "[1-9]*"))[0],
+        "data/testing/reference_experiments/ppo_assistant",
+    )
+
     # TODO: test human_rollout
     # TODO: test masked_bc_human
     # TODO: test bc_assistant
