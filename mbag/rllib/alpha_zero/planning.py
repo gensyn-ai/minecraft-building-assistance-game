@@ -72,7 +72,7 @@ class MbagEnvModel(gym.Env):
     def _store_last_obs_dict(self, obs_dict):
         self.last_obs_dict = obs_dict
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
         obs_dict, info_dict = self.env.reset()
         self._store_last_obs_dict(obs_dict)
         return cast(MbagObs, obs_dict[self.agent_id]), cast(
