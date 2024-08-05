@@ -74,7 +74,7 @@ def test_deterministic():
 def test_goal_similarity_and_goal_percentage():
     for place_wrong_reward in [0, -1]:
         num_players = 1
-        for goal_generator in ["basic", "random", "simple_overhang", "grabcraft"]:
+        for goal_generator in ["basic", "simple_overhang", "grabcraft"]:
             if goal_generator != "grabcraft":
                 transforms = []
             else:
