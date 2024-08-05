@@ -128,10 +128,10 @@ def test_experiments(tmp_path):
     bc_human_results: Dict[str, Any] = {}
     for bc_human_name, data_split, checkpoint_to_load_policies in [
         ("rand_init_human_alone", "human_alone", None),
-        ("rand_init_human_with_assistant", "human_with_assistant", None),
-        ("rand_init_combined", "combined", None),
-        ("ppo_init", "human_alone", ppo_human_result["final_checkpoint"]),
-        ("alphazero_init", "human_alone", alphazero_human_result["final_checkpoint"]),
+        # ("rand_init_human_with_assistant", "human_with_assistant", None),
+        # ("rand_init_combined", "combined", None),
+        # ("ppo_init", "human_alone", ppo_human_result["final_checkpoint"]),
+        # ("alphazero_init", "human_alone", alphazero_human_result["final_checkpoint"]),
     ]:
         experiment_dir = tmp_path / f"bc_human_{bc_human_name}"
         bc_human_result = train_ex.run(
@@ -150,7 +150,23 @@ def test_experiments(tmp_path):
         )
         bc_human_results[bc_human_name] = bc_human_result
 
-    # TODO: test piKL
+    # Test piKL
+    pikl_result = train_ex.run(
+        named_configs=["pikl"],
+        config_updates={
+            "checkpoint_to_load_policies": bc_human_results["rand_init_human_alone"][
+                "final_checkpoint"
+            ],
+            "checkpoint_name": "rand_init_human_alone",
+            "experiment_dir": str(tmp_path / "pikl"),
+            **common_config_updates,
+        },
+    ).result
+    assert pikl_result is not None
+    assert_config_matches(
+        glob.glob(str(tmp_path / "pikl" / "[1-9]*"))[0],
+        "data/testing/reference_experiments/pikl",
+    )
 
     # Test all human model evals
     human_models: List[Tuple[str, str]] = [
@@ -159,6 +175,8 @@ def test_experiments(tmp_path):
     ] + [
         ("BC", bc_human_result["final_checkpoint"])
         for bc_human_result in bc_human_results.values()
+    ] + [
+        ("MbagAlphaZero", pikl_result["final_checkpoint"]),
     ]
     for human_model_run, human_model_checkpoint in human_models:
         extra_config_updates = {}

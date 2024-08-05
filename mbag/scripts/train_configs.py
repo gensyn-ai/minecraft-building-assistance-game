@@ -208,3 +208,55 @@ def make_named_configs(ex: Experiment):
         experiment_tag = f"bc_human/lr_{lr_start}/infinite_blocks_{str(inf_blocks).lower()}/{data_split}"
         if checkpoint_to_load_policies is not None:
             experiment_tag += f"/init_{checkpoint_name}"
+
+    @ex.named_config
+    def pikl():
+        run = "MbagAlphaZero"
+        num_training_iters = 0
+        train_batch_size = 10000
+        use_extra_features = True
+        num_workers=0
+        overwrite_loaded_policy_type=True
+        goal_generator="craftassist"
+        width=11
+        height=10
+        depth=10
+        gamma=0.95
+        model="transformer"
+        hidden_channels=64
+        sgd_minibatch_size=128
+        use_separated_transformer=True
+        num_layers=6
+        vf_share_layers=True
+        num_sgd_iter=1
+        inf_blocks=True
+        teleportation=False
+        horizon=1500
+        mask_action_distribution=True
+        evaluation_explore=True
+        scale_obs=True
+        load_policies_mapping={"human": "human"}
+        is_human=[False]
+        checkpoint_to_load_policies=None
+        checkpoint_name = ""
+        load_config_from_checkpoint=False
+        num_simulations = 100
+        puct_coefficient = 10
+        add_dirichlet_noise=False
+        argmax_tree_policy=False
+        explore_noops=False
+        fix_bilevel_action_selection=True
+        goal_subset="test"
+        horizon=1500
+        init_q_with_max=False
+        prior_temperature=1
+        sample_from_full_support_policy=True
+        temperature=1
+        truncate_on_no_progress_timesteps=None
+        use_bilevel_action_selection=True
+        use_critic=False
+        use_goal_predictor=False
+        experiment_tag = (
+            f"pikl/infinite_blocks_{str(inf_blocks).lower()}/"
+            f"{checkpoint_name}/{num_simulations}_sims_puct_{puct_coefficient}"
+        )
