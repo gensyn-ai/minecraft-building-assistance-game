@@ -1,9 +1,10 @@
 import glob
 import os
 import tempfile
-from typing import Dict, List, cast
+from typing import Dict, Iterable, List, cast
 
 import pytest
+from ray.rllib.policy.sample_batch import MultiAgentBatch
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS
@@ -12,9 +13,11 @@ try:
     import torch
     import torch.nn.functional as F  # noqa: N812
     from ray.rllib.models.catalog import ModelCatalog
+    from ray.rllib.offline import JsonReader
     from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
     from torch import nn
 
+    from mbag.rllib.alpha_zero.alpha_zero_policy import C_PUCT
     from mbag.rllib.mixture_model import MixtureModel
     from mbag.rllib.torch_models import MbagTransformerModel
     from mbag.rllib.training_utils import load_trainer
@@ -877,6 +880,99 @@ def test_pikl(default_config, default_bc_config, default_alpha_zero_config):
         },
     ).result
     assert alpha_zero_assistant_result is not None
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.slow
+@pytest.mark.timeout(120)
+def test_dil_pikl(default_config, default_bc_config):
+    env_configs = {
+        "goal_generator": "tutorial",
+        "width": 6,
+        "depth": 6,
+        "height": 6,
+        "teleportation": False,
+        "inf_blocks": False,
+    }
+
+    bc_result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            **env_configs,
+            "goal_generator": "tutorial",
+            "validation_participant_ids": [4],
+        }
+    ).result
+    assert bc_result is not None
+    bc_checkpoint = bc_result["final_checkpoint"]
+
+    alpha_zero_result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            **env_configs,
+            "run": "MbagAlphaZero",
+            "load_policies_mapping": {"human": "human"},
+            "is_human": [False],
+            "checkpoint_to_load_policies": bc_checkpoint,
+            "overwrite_loaded_policy_type": True,
+            "num_training_iters": 0,
+            "teleportation": False,
+        }
+    ).result
+    assert alpha_zero_result is not None
+    alpha_zero_checkpoint = alpha_zero_result["final_checkpoint"]
+
+    for sample_c_puct_every_timestep in [False, True]:
+        pikl_result = rollout_ex.run(
+            config_updates={
+                "run": "MbagAlphaZero",
+                "num_episodes": 10,
+                "num_workers": 0,
+                "checkpoint": alpha_zero_checkpoint,
+                "save_samples": True,
+                "extra_config_updates": {
+                    "evaluation_config": {
+                        "explore": True,
+                        "line_of_sight_masking": True,
+                        "use_goal_predictor": False,
+                        "mcts_config": {
+                            "num_simulations": 5,
+                            "argmax_tree_policy": False,
+                            "temperature": 1,
+                            "dirichlet_epsilon": 0,
+                            "puct_coefficient": [1, 10],
+                            "sample_c_puct_every_timestep": sample_c_puct_every_timestep,
+                        },
+                        "env_config": {
+                            "players": [{"is_human": False}],
+                            "abilities": {
+                                "teleportation": False,
+                            },
+                        },
+                    }
+                },
+            }
+        ).result
+        assert pikl_result is not None
+        pikl_batches = list(
+            cast(
+                Iterable[MultiAgentBatch],
+                JsonReader(pikl_result["out_dir"]).read_all_files(),
+            ),
+        )
+
+        episode_c_pucts = [
+            batch.policy_batches["human"][C_PUCT] for batch in pikl_batches
+        ]
+        if sample_c_puct_every_timestep:
+            assert any(len(set(c_puct)) == 2 for c_puct in episode_c_pucts)
+        else:
+            assert all(len(set(c_puct)) == 1 for c_puct in episode_c_pucts)
+            assert len(set(c_puct[0] for c_puct in episode_c_pucts)) > 1
+
+    assert pikl_result is not None
 
 
 @pytest.mark.uses_rllib

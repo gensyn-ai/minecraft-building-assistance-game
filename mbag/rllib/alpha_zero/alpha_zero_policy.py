@@ -44,6 +44,8 @@ EXPECTED_OWN_REWARDS = "expected_own_rewards"
 VALUE_ESTIMATES = "value_estimates"
 GOAL_LOGITS = "goal_logits"
 FORCE_NOOP = "force_noop"
+C_PUCT = "c_puct"
+PREV_C_PUCT = "prev_c_puct"
 
 
 logger = logging.getLogger(__name__)
@@ -149,6 +151,17 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 )
             )
 
+        self.view_requirements[C_PUCT] = ViewRequirement(
+            space=np.nan,  # type: ignore
+        )
+        self.view_requirements[PREV_C_PUCT] = ViewRequirement(
+            C_PUCT,
+            space=spaces.Box(low=-np.inf, high=np.inf, shape=()),
+            shift=-1,
+            used_for_compute_actions=True,
+            batch_repeat_value=self.config.get("model", {}).get("max_seq_len", 1),
+        )
+
         EntropyCoeffSchedule.__init__(
             self, config["entropy_coeff"], config["entropy_coeff_schedule"]
         )
@@ -204,7 +217,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
     def _run_model_on_input_dict(self, input_dict):
         input_dict = self._lazy_tensor_dict(input_dict)
         state_batches = [
-            input_dict[k] for k in input_dict.keys() if "state_in" in k[:8]
+            input_dict[k] for k in input_dict.keys() if k[:8] == "state_in"
         ]
         seq_lens = (
             torch.tensor(
@@ -216,7 +229,13 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             else None
         )
         assert self.model is not None
-        return self.model(input_dict, state_batches, cast(torch.Tensor, seq_lens))
+        state_out: List[torch.Tensor]
+        model_out, state_out = self.model(
+            input_dict,
+            state_batches,
+            cast(torch.Tensor, seq_lens),
+        )
+        return model_out, state_out
 
     def _ensure_enough_envs(self, num_envs: int):
         while len(self.envs) < num_envs:
@@ -260,6 +279,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                     parent=MbagRootParentNode(env=self.envs[env_index]),
                     model_state_in=model_state,
                     mcts=self.mcts,
+                    c_puct=input_dict[PREV_C_PUCT][env_index],
                 )
             )
 
@@ -288,6 +308,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
 
         action_mask = np.stack([node.valid_actions for node in nodes], axis=0)
         value_estimates = np.array([node.value_estimate for node in nodes])
+        c_puct = np.array([node.c_puct for node in nodes])
 
         extra_out = {
             ACTION_MASK: action_mask,
@@ -295,6 +316,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_REWARDS: expected_rewards,
             EXPECTED_OWN_REWARDS: expected_own_rewards,
             VALUE_ESTIMATES: value_estimates,
+            C_PUCT: c_puct,
         }
 
         if self.mcts.use_goal_predictor:
@@ -339,6 +361,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_REWARDS: expected_rewards,
             EXPECTED_OWN_REWARDS: expected_own_rewards,
             VALUE_ESTIMATES: value_estimates,
+            C_PUCT: np.array([np.nan for _ in range(num_envs)]),
         }
 
         if self.mcts.use_goal_predictor:
@@ -453,6 +476,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             EXPECTED_REWARDS: compute_actions_extra_out[EXPECTED_REWARDS],
             EXPECTED_OWN_REWARDS: compute_actions_extra_out[EXPECTED_OWN_REWARDS],
             VALUE_ESTIMATES: compute_actions_extra_out[VALUE_ESTIMATES],
+            C_PUCT: compute_actions_extra_out[C_PUCT],
         }
         if GOAL_LOGITS in compute_actions_extra_out:
             extra_out[GOAL_LOGITS] = compute_actions_extra_out[GOAL_LOGITS]
