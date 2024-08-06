@@ -159,6 +159,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             space=spaces.Box(low=-np.inf, high=np.inf, shape=()),
             shift=-1,
             used_for_compute_actions=True,
+            used_for_training=False,
             batch_repeat_value=self.config.get("model", {}).get("max_seq_len", 1),
         )
 
@@ -279,7 +280,11 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                     parent=MbagRootParentNode(env=self.envs[env_index]),
                     model_state_in=model_state,
                     mcts=self.mcts,
-                    c_puct=input_dict[PREV_C_PUCT][env_index],
+                    c_puct=(
+                        input_dict[PREV_C_PUCT][env_index]
+                        if PREV_C_PUCT in input_dict
+                        else np.nan
+                    ),
                 )
             )
 

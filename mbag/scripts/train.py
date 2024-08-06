@@ -320,6 +320,7 @@ def sacred_config(_log):  # noqa
 
     # MCTS
     puct_coefficient = 1.0
+    sample_c_puct_every_timestep = True
     num_simulations = 30
     temperature = 1.5
     temperature_start = temperature
@@ -468,14 +469,12 @@ def sacred_config(_log):  # noqa
 
     # Multiagent
     heuristic: Optional[str] = None
-    multiagent_mode: Literal["self_play", "cross_play"] = "self_play"
     policy_ids: List[str]
     policy_mapping_fn: Callable[[str, Episode], str]
-    if multiagent_mode == "self_play":
+    if num_players == 1:
         policy_ids = ["human"]
         policy_mapping_fn = lambda agent_id, *args, **kwargs: "human"  # noqa: E731
-    elif multiagent_mode == "cross_play":
-        assert num_players == 2
+    elif num_players == 2:
         policy_ids = ["human", "assistant"]
         if heuristic is not None:
             policy_ids[0] = heuristic
@@ -586,7 +585,8 @@ def sacred_config(_log):  # noqa
     log_dir = "data/logs"  # noqa: F841
     experiment_tag = None
     size_str = f"{width}x{height}x{depth}"
-    experiment_name_parts = [run, multiagent_mode, size_str, goal_generator]
+    players_str = "1_player" if num_players == 1 else f"{num_players}_players"
+    experiment_name_parts = [run, players_str, size_str, goal_generator]
     if heuristic is not None:
         experiment_name_parts.append(heuristic)
     if experiment_tag is not None:
@@ -686,6 +686,7 @@ def sacred_config(_log):  # noqa
         assert reward_scale == 1.0, "Reward scaling not supported for AlphaZero"
         mcts_config: Dict[str, Any] = {
             "puct_coefficient": puct_coefficient,
+            "sample_c_puct_every_timestep": sample_c_puct_every_timestep,
             "num_simulations": num_simulations,
             "temperature": temperature,
             "temperature_schedule": None,
@@ -811,6 +812,7 @@ def sacred_config(_log):  # noqa
     checkpoint_name = None  # noqa: F841
     data_split = None  # noqa: F841
     lr_start = None  # noqa: F841
+    puct_str = None  # noqa: F841
 
 
 make_named_configs(ex)

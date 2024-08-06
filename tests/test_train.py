@@ -97,7 +97,7 @@ def dummy_ppo_checkpoint_fname(default_config):
     ex.run(config_updates={**default_config, "log_dir": checkpoint_dir})
 
     checkpoint_fname = glob.glob(
-        checkpoint_dir + "/MbagPPO/self_play/6x6x6/random/*/*/checkpoint_000002"
+        checkpoint_dir + "/MbagPPO/1_player/6x6x6/random/*/*/checkpoint_000002"
     )[0]
     assert os.path.exists(checkpoint_fname)
     return checkpoint_fname
@@ -245,7 +245,6 @@ def test_cross_play(default_config, dummy_ppo_checkpoint_fname):
     result = ex.run(
         config_updates={
             **default_config,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -283,7 +282,6 @@ def test_train_together(default_config, dummy_ppo_checkpoint_fname):
         config_updates={
             **default_config,
             "checkpoint_to_load_policies": dummy_ppo_checkpoint_fname,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "load_policies_mapping": {"human": "human"},
             "policies_to_train": ["human", "assistant"],
@@ -393,7 +391,6 @@ def test_alpha_zero_assistant(
         config_updates={
             **default_config,
             **default_alpha_zero_config,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -421,7 +418,6 @@ def test_alpha_zero_assistant_with_bc(default_config, default_alpha_zero_config)
             "depth": 10,
             "inf_blocks": True,
             "teleportation": False,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -446,7 +442,6 @@ def test_lstm_alpha_zero_assistant(
         config_updates={
             **default_config,
             **default_alpha_zero_config,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -475,7 +470,6 @@ def test_interleaved_lstm_alpha_zero_assistant(
         config_updates={
             **default_config,
             **default_alpha_zero_config,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -546,7 +540,6 @@ def test_alpha_zero_assistant_with_lowest_block_agent(
         config_updates={
             **default_config,
             **default_alpha_zero_config,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -571,7 +564,6 @@ def test_alpha_zero_assistant_pretraining(
         config_updates={
             **default_config,
             **default_alpha_zero_config,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "mask_goal": True,
             "use_extra_features": False,
@@ -611,7 +603,6 @@ def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
     config_updates = {
         **default_config,
         **default_alpha_zero_config,
-        "multiagent_mode": "cross_play",
         "num_players": 2,
         "randomize_first_episode_length": False,
         "mask_goal": True,
@@ -865,7 +856,6 @@ def test_pikl(default_config, default_bc_config, default_alpha_zero_config):
             **default_config,
             **default_alpha_zero_config,
             **env_configs,
-            "multiagent_mode": "cross_play",
             "num_players": 2,
             "randomize_first_episode_length": False,
             "mask_goal": True,

@@ -149,10 +149,10 @@ def test_experiments(tmp_path):
     bc_human_results: Dict[str, Any] = {}
     for bc_human_name, data_split, checkpoint_to_load_policies in [
         ("rand_init_human_alone", "human_alone", None),
-        # ("rand_init_human_with_assistant", "human_with_assistant", None),  # TODO: uncomment
-        # ("rand_init_combined", "combined", None),
-        # ("ppo_init", "human_alone", ppo_human_result["final_checkpoint"]),
-        # ("alphazero_init", "human_alone", alphazero_human_result["final_checkpoint"]),
+        ("rand_init_human_with_assistant", "human_with_assistant", None),
+        ("rand_init_combined", "combined", None),
+        ("ppo_init", "human_alone", ppo_human_result["final_checkpoint"]),
+        ("alphazero_init", "human_alone", alphazero_human_result["final_checkpoint"]),
     ]:
         experiment_dir = tmp_path / f"bc_human_{bc_human_name}"
         bc_human_result = train_ex.run(
@@ -203,7 +203,6 @@ def test_experiments(tmp_path):
             ("MbagAlphaZero", pikl_result["final_checkpoint"]),
         ]
     )
-    human_models = []  # TODO: remove
     for human_model_run, human_model_checkpoint in human_models:
         extra_config_updates = {}
         if human_model_run == "MbagAlphaZero":

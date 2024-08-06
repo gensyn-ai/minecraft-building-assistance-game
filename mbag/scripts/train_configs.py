@@ -216,6 +216,7 @@ def make_named_configs(ex: Experiment):
         train_batch_size = 10000
         use_extra_features = True
         num_workers = 0
+        evaluation_num_workers = 0
         overwrite_loaded_policy_type = True
         goal_generator = "craftassist"
         width = 11
@@ -242,6 +243,7 @@ def make_named_configs(ex: Experiment):
         load_config_from_checkpoint = False
         num_simulations = 100
         puct_coefficient = 10
+        sample_c_puct_every_timestep = True
         add_dirichlet_noise = False
         argmax_tree_policy = False
         explore_noops = False
@@ -256,9 +258,19 @@ def make_named_configs(ex: Experiment):
         use_bilevel_action_selection = True
         use_critic = False
         use_goal_predictor = False
+
+        if isinstance(puct_coefficient, (float, int)):
+            puct_str = str(puct_coefficient)
+        else:
+            puct_str = "_".join(map(str, puct_coefficient))
+            if sample_c_puct_every_timestep:
+                puct_str += "_per_timestep"
+            else:
+                puct_str += "_per_episode"
+
         experiment_tag = (
             f"pikl/infinite_blocks_{str(inf_blocks).lower()}/"
-            f"{checkpoint_name}/{num_simulations}_sims_puct_{puct_coefficient}"
+            f"{checkpoint_name}/{num_simulations}_sims_puct_{puct_str}"
         )
 
     @ex.named_config
@@ -269,7 +281,6 @@ def make_named_configs(ex: Experiment):
         height = 10
         depth = 10
         num_players = 2
-        multiagent_mode = "cross_play"
         randomize_first_episode_length = True
         random_start_locations = True
         num_training_iters = 100
@@ -332,7 +343,6 @@ def make_named_configs(ex: Experiment):
         height = 10
         depth = 10
         num_players = 2
-        multiagent_mode = "cross_play"
         randomize_first_episode_length = True
         random_start_locations = True
         num_training_iters = 100
