@@ -4,7 +4,6 @@ import tempfile
 from typing import Dict, Iterable, List, cast
 
 import pytest
-from ray.rllib.policy.sample_batch import MultiAgentBatch
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.types import GOAL_BLOCKS
@@ -14,6 +13,7 @@ try:
     import torch.nn.functional as F  # noqa: N812
     from ray.rllib.models.catalog import ModelCatalog
     from ray.rllib.offline import JsonReader
+    from ray.rllib.policy.sample_batch import MultiAgentBatch
     from ray.rllib.policy.torch_policy_v2 import TorchPolicyV2
     from torch import nn
 
