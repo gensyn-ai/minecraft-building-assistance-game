@@ -40,7 +40,7 @@ jobs:
       - name: Cache gradle
         uses: actions/cache@v3
         with:
-          path: ~/.gradle/cache 
+          path: ~/.gradle/caches
           key: ${{ runner.os }}-gradle-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-gradle-
