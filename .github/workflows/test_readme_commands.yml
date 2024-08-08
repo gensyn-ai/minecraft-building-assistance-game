@@ -28,6 +28,11 @@ jobs:
           distribution: 'temurin'
           java-version: '8'
 
+      - name: Install xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
       - name: Make test_command.sh script
         run: |
           cat <<EOF > test_command.sh
@@ -71,18 +76,16 @@ jobs:
           pip install -e .[rllib,malmo]
           
       - name: Running assistants in Minecraft
-        uses: GabrielBB/xvfb-action@v1
-        with:
-          run: |
-            python -m malmo.minecraft launch --num_instances 2 --goal_visibility True False &
-            MC_PID=$!
+        run: |
+          xvfb-run --auto-servernum --server-args="-screen 0 1024x768x24" python -m malmo.minecraft launch --num_instances 2 --goal_visibility True False &
+          MC_PID=$!
 
-            while ! netstat -tna | grep 'LISTEN\>' | grep -q ':'$((10001))'\>'; do
-              sleep 1
-            done
+          while ! netstat -tna | grep 'LISTEN\>' | grep -q ':'$((10001))'\>'; do
+            sleep 1
+          done
 
-            ./test_command.sh python -m mbag.scripts.evaluate with human_with_assistant assistant_checkpoint=data/example_assistant/checkpoint_000100
+          ./test_command.sh python -m mbag.scripts.evaluate with human_with_assistant assistant_checkpoint=data/example_assistant/checkpoint_000100
 
-            ./test_command.sh python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_000100
+          ./test_command.sh python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_000100
 
-            kill $MC_PID
+          kill $MC_PID
