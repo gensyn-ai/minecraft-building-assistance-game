@@ -58,3 +58,11 @@ To play an episode without an assistant, run:
     python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_000100
 
 The `assistant_checkpoint` argument is still needed in this case to load the environment configuration. The episode will automatically terminate when the house is completed, but if you want to end it sooner, use Ctrl+C. At the end of the episode, the episode data will be saved and metrics will be printed out.
+
+Once the episode starts, press <kbd>Return</kbd> (<kbd>Enter</kbd>) to enable movement and <kbd>Delete</kbd> (<kbd>fn</kbd> + <kbd>backspace</kbd> on Mac) to enable flying.
+
+### Ending an MBAG episode
+
+After reaching 100% goal completion, the episode ends end automatically. Episode metrics are printed to the terminal and saved in an evaluation directory in the assistant checkpoint directory.
+
+To start a new episode, simply re-run the start command from earlier. You do not need to restart the Minecraft instances.
