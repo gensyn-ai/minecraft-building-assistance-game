@@ -67,6 +67,9 @@ rllib = [
     "sacred==0.8.4",
     "tqdm",
 ]
+malmo = [
+    "mbag-malmo>=0.38.0",
+]
 
 [tool.black]
 line-length = 88

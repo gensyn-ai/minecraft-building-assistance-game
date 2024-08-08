@@ -67,6 +67,69 @@ def sacred_config():
     env_config_updates = {}  # noqa: F841
     algorithm_config_updates: List[dict] = [{}]  # noqa: F841
 
+    # Used by named configs
+    assistant_checkpoint = None  # noqa: F841
+    assistant_run = None  # noqa: F841
+    num_simulations = None  # noqa: F841
+    goal_set = None  # noqa: F841
+    house_id = None  # noqa: F841
+
+
+@ex.named_config
+def human_alone():
+    assistant_checkpoint = None
+    goal_set = "test"
+    house_id = None
+
+    runs = ["HumanAgent"]  # noqa: F841
+    checkpoints = [assistant_checkpoint]  # noqa: F841
+    policy_ids = [None]  # noqa: F841
+    num_episodes = 1  # noqa: F841
+    algorithm_config_updates: List[dict] = [{}]  # noqa: F841
+    env_config_updates = {  # noqa: F841
+        "goal_generator_config": {
+            "goal_generator_config": {"subset": goal_set, "house_id": house_id}
+        },
+        "malmo": {"action_delay": 0.8, "rotate_spectator": False},
+        "horizon": 10000,
+        "players": [{"player_name": "human"}],
+    }
+    min_action_interval = 0.8  # noqa: F841
+    use_malmo = True  # noqa: F841
+
+
+@ex.named_config
+def human_with_assistant():
+    assistant_checkpoint = None
+    assistant_run = "MbagAlphaZero"
+    num_simulations = 10
+    goal_set = "test"
+    house_id = None
+
+    runs = ["HumanAgent", assistant_run]  # noqa: F841
+    checkpoints = [None, assistant_checkpoint]  # noqa: F841
+    policy_ids = [None, "assistant"]  # noqa: F841
+    num_episodes = 1  # noqa: F841
+    algorithm_config_updates = [  # noqa: F841
+        {},
+        {
+            "num_gpus": 1 if torch.cuda.is_available() else 0,
+            "num_gpus_per_worker": 0,
+            "player_index": 1,
+            "mcts_config": {"num_simulations": num_simulations},
+        },
+    ]
+    env_config_updates = {  # noqa: F841
+        "goal_generator_config": {
+            "goal_generator_config": {"subset": goal_set, "house_id": house_id}
+        },
+        "malmo": {"action_delay": 0.8, "rotate_spectator": False},
+        "horizon": 10000,
+        "players": [{"player_name": "human"}, {"player_name": "assistant"}],
+    }
+    min_action_interval = 0.8  # noqa: F841
+    use_malmo = True  # noqa: F841
+
 
 def run_evaluation(
     *,
@@ -109,6 +172,7 @@ def run_evaluation(
         env_config["players"].append(copy.deepcopy(env_config["players"][0]))
         player_index = len(env_config["players"]) - 1
         env_config["players"][-1]["player_name"] = f"player_{player_index}"
+    env_config["players"] = env_config["players"][: env_config["num_players"]]
     for player_index, run in enumerate(runs):
         if run == "HumanAgent":
             env_config["players"][player_index]["is_human"] = True

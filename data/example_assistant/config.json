@@ -19,8 +19,8 @@
   "argmax_tree_policy": false,
   "batch_mode": "truncate_episodes",
   "checkpoint_name": null,
-  "checkpoint_path": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_True/2024-07-04_00-12-26/1/checkpoint_000025",
-  "checkpoint_to_load_policies": "/nas/ucb/cassidy/minecraft-building-assistance-game/data/logs/BC/self_play/11x10x10/craftassist/bc_human/lr_0.001/infinite_blocks_true/human_alone/2024-07-03_19-28-21/1/checkpoint_000020",
+  "checkpoint_path": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_True/2024-07-04_00-42-25/1/checkpoint_000025",
+  "checkpoint_to_load_policies": "/nas/ucb/cassidy/minecraft-building-assistance-game/data/logs/BC/self_play/11x10x10/craftassist/bc_human/lr_0.001/infinite_blocks_true/human_alone/init_ppo_6x64_20240528_150/2024-07-03_15-44-30/1/checkpoint_000020",
   "checkpoint_to_load_policies_config": {
     "_AlgorithmConfig__prior_exploration_config": null,
     "_disable_action_flattening": false,
@@ -509,7 +509,7 @@
           {
             "goal_loss_coeff": 0.5,
             "model": {
-              "custom_action_dist": "categorical_no_inf",
+              "custom_action_dist": "mbag_bilevel_categorical",
               "custom_model": "mbag_transformer_model",
               "custom_model_config": {
                 "py/id": 85
@@ -784,7 +784,6 @@
         "predict_goal_using_next_state": false,
         "prior_temperature": 1.0,
         "puct_coefficient": 1.0,
-        "sample_c_puct_every_timestep": true,
         "sample_from_full_support_policy": false,
         "temperature": 1.5,
         "temperature_schedule": null,
@@ -845,7 +844,6 @@
       "predict_goal_using_next_state": false,
       "prior_temperature": 1.0,
       "puct_coefficient": 1.0,
-      "sample_c_puct_every_timestep": true,
       "sample_from_full_support_policy": false,
       "temperature": 1.5,
       "temperature_schedule": null,
@@ -1169,7 +1167,7 @@
           "custom_evaluation_function": null,
           "custom_resources_per_worker": {},
           "data_augmentation": {
-            "py/function": "mbag.scripts.train.data_augmentation"
+            "py/function": "__main__.data_augmentation"
           },
           "delay_between_worker_restarts_s": 60.0,
           "disable_env_checking": false,
@@ -1231,9 +1229,9 @@
           },
           "evaluation_duration": 64,
           "evaluation_duration_unit": "episodes",
-          "evaluation_interval": 1,
+          "evaluation_interval": null,
           "evaluation_num_episodes": -1,
-          "evaluation_num_workers": 0,
+          "evaluation_num_workers": 8,
           "evaluation_parallel_to_training": false,
           "evaluation_sample_timeout_s": 180.0,
           "exploration_config": {
@@ -1306,7 +1304,7 @@
             "attention_use_n_prev_rewards": 0,
             "conv_activation": "relu",
             "conv_filters": null,
-            "custom_action_dist": "categorical_no_inf",
+            "custom_action_dist": "mbag_bilevel_categorical",
             "custom_model": "mbag_transformer_model",
             "custom_model_config": {
               "embedding_size": 8,
@@ -1400,8 +1398,8 @@
                 "randomize_first_episode_length": true,
                 "rewards": {
                   "action": 0,
-                  "get_resources": 0,
-                  "noop": 0,
+                  "get_resources": 0.0,
+                  "noop": 0.0,
                   "own_reward_prop": 0,
                   "place_wrong": -1
                 },
@@ -1702,7 +1700,7 @@
                 {
                   "goal_loss_coeff": 0.5,
                   "model": {
-                    "custom_action_dist": "categorical_no_inf",
+                    "custom_action_dist": "mbag_bilevel_categorical",
                     "custom_model": "mbag_transformer_model",
                     "custom_model_config": {
                       "embedding_size": 8,
@@ -1796,8 +1794,8 @@
                         "randomize_first_episode_length": true,
                         "rewards": {
                           "action": 0,
-                          "get_resources": 0,
-                          "noop": 0,
+                          "get_resources": 0.0,
+                          "noop": 0.0,
                           "own_reward_prop": 0,
                           "place_wrong": -1
                         },
@@ -2068,7 +2066,7 @@
     "policy_map_cache": -1,
     "policy_map_capacity": 100,
     "policy_mapping_fn": {
-      "py/function": "mbag.scripts.train.policy_mapping_fn"
+      "py/function": "__main__.policy_mapping_fn"
     },
     "policy_states_are_swappable": false,
     "postprocess_inputs": false,
@@ -2336,16 +2334,16 @@
     "use_bilevel_action_selection": true
   },
   "evaluation_num_workers": 0,
-  "experiment_dir": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False/2024-07-04_05-39-26",
+  "experiment_dir": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False/2024-07-04_05-40-26",
   "experiment_name_parts": [
     "MbagAlphaZero",
     "cross_play",
     "11x10x10",
     "craftassist",
-    "teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
-    "2024-07-04_05-39-26"
+    "teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
+    "2024-07-04_05-40-26"
   ],
-  "experiment_tag": "teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
+  "experiment_tag": "teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
   "explore_noops": true,
   "extract_largest_cc": true,
   "extract_largest_cc_connectivity": 18,
@@ -2652,7 +2650,7 @@
     "py/id": 47
   },
   "observer": {
-    "basedir": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False/2024-07-04_05-39-26",
+    "basedir": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False/2024-07-04_05-40-26",
     "config": {
       "py/id": 0
     },
@@ -2660,7 +2658,7 @@
     "copy_sources": true,
     "cout": "",
     "cout_write_cursor": 0,
-    "dir": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False/2024-07-04_05-39-26/1",
+    "dir": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False/2024-07-04_05-40-26/1",
     "info": {},
     "priority": 20,
     "py/object": "__main__.NoTypeAnnotationsFileStorageObserver",
@@ -2679,7 +2677,7 @@
             "craftassist",
             "teleportation_False",
             "inf_blocks_True",
-            "human_bc_human_alone_lr_1e-3_20240703_20",
+            "human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20",
             "batch_32768",
             "horizon_1500",
             "truncate_episodes",
@@ -2694,7 +2692,7 @@
             "interleave_lstm_residual",
             "model_8x64",
             "pretrain_False",
-            "2024-07-04_05-39-26",
+            "2024-07-04_05-40-26",
             "_resources"
           ]
         }
@@ -2772,15 +2770,15 @@
         "command": "main",
         "config_updates": {
           "batch_mode": "truncate_episodes",
-          "checkpoint_path": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_True/2024-07-04_00-12-26/1/checkpoint_000025",
-          "checkpoint_to_load_policies": "/nas/ucb/cassidy/minecraft-building-assistance-game/data/logs/BC/self_play/11x10x10/craftassist/bc_human/lr_0.001/infinite_blocks_true/human_alone/2024-07-03_19-28-21/1/checkpoint_000020",
+          "checkpoint_path": "data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_True/2024-07-04_00-42-25/1/checkpoint_000025",
+          "checkpoint_to_load_policies": "/nas/ucb/cassidy/minecraft-building-assistance-game/data/logs/BC/self_play/11x10x10/craftassist/bc_human/lr_0.001/infinite_blocks_true/human_alone/init_ppo_6x64_20240528_150/2024-07-03_15-44-30/1/checkpoint_000020",
           "depth": 10,
           "dirichlet_action_subtype_noise_multiplier": 10,
           "dirichlet_epsilon": 0.25,
           "dirichlet_noise": 0.25,
           "evaluation_interval": null,
           "evaluation_num_workers": 0,
-          "experiment_tag": "teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
+          "experiment_tag": "teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
           "fix_bilevel_action_selection": true,
           "gamma": 0.95,
           "get_resources_reward": 0,
@@ -2930,17 +2928,17 @@
             "mask_goal=True",
             "pretrain=False",
             "policies_to_train=[\"assistant\"]",
-            "experiment_tag=teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
-            "checkpoint_to_load_policies=/nas/ucb/cassidy/minecraft-building-assistance-game/data/logs/BC/self_play/11x10x10/craftassist/bc_human/lr_0.001/infinite_blocks_true/human_alone/2024-07-03_19-28-21/1/checkpoint_000020",
+            "experiment_tag=teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_False",
+            "checkpoint_to_load_policies=/nas/ucb/cassidy/minecraft-building-assistance-game/data/logs/BC/self_play/11x10x10/craftassist/bc_human/lr_0.001/infinite_blocks_true/human_alone/init_ppo_6x64_20240528_150/2024-07-03_15-44-30/1/checkpoint_000020",
             "load_policies_mapping={\"human\": \"human\"}",
-            "checkpoint_path=data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_True/2024-07-04_00-12-26/1/checkpoint_000025"
+            "checkpoint_path=data/logs/MbagAlphaZero/cross_play/11x10x10/craftassist/teleportation_False/inf_blocks_True/human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20/batch_32768/horizon_1500/truncate_episodes/rollout_512/replay_4/train_2x4/max_seq_len_511/gamma_0.95/lr_0.001/goal_loss_3/prev_goal_kl_3/interleave_lstm_residual/model_8x64/pretrain_True/2024-07-04_00-42-25/1/checkpoint_000025"
           ],
           "help": false,
           "with": true
         }
       },
       "resources": [],
-      "start_time": "2024-07-04T05:39:26.957894",
+      "start_time": "2024-07-04T05:40:26.582090",
       "status": "RUNNING"
     },
     "source_dir": {
@@ -2958,7 +2956,7 @@
             "craftassist",
             "teleportation_False",
             "inf_blocks_True",
-            "human_bc_human_alone_lr_1e-3_20240703_20",
+            "human_bc_human_alone_lr_1e-3_init_ppo_6x64_20240528_150_20240703_20",
             "batch_32768",
             "horizon_1500",
             "truncate_episodes",
@@ -2973,7 +2971,7 @@
             "interleave_lstm_residual",
             "model_8x64",
             "pretrain_False",
-            "2024-07-04_05-39-26",
+            "2024-07-04_05-40-26",
             "_sources"
           ]
         }
@@ -3445,7 +3443,7 @@
       {
         "goal_loss_coeff": 0.5,
         "model": {
-          "custom_action_dist": "categorical_no_inf",
+          "custom_action_dist": "mbag_bilevel_categorical",
           "custom_model": "mbag_transformer_model",
           "custom_model_config": {
             "embedding_size": 8,
@@ -3539,8 +3537,8 @@
               "randomize_first_episode_length": true,
               "rewards": {
                 "action": 0,
-                "get_resources": 0,
-                "noop": 0,
+                "get_resources": 0.0,
+                "noop": 0.0,
                 "own_reward_prop": 0,
                 "place_wrong": -1
               },
