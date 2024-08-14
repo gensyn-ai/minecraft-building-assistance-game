@@ -62,7 +62,7 @@ class RllibMbagAgent(MbagAgent):
         if not force_noop:
             self.last_action_time = time.time()
 
-        if isinstance(self.policy, MbagAlphaZeroPolicy):
+        if isinstance(self.policy, MbagAlphaZeroPolicy) and self.c_puct is not None:
             compute_actions_kwargs = {
                 **compute_actions_kwargs,
                 "prev_c_puct": np.array([self.c_puct]),
