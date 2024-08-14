@@ -461,6 +461,7 @@ class MbagEnv(object):
                 and action.block_location[0] == self.palette_x
                 and not self.config["abilities"]["inf_blocks"]
             ):
+                # Palette block was broken.
                 # TODO: shouldn't we check if the user actually broke the block?
                 # might be worth adding a test to make sure the reward only comes
                 # through if they did
@@ -474,6 +475,7 @@ class MbagEnv(object):
                     player_index, "get_resources", self.global_timestep
                 )
             else:
+                # Non-palette block was placed or broken.
                 new_block = self.current_blocks[action.block_location]
                 goal_block = self.goal_blocks[action.block_location]
                 prev_goal_similarity = self._get_goal_similarity(
@@ -496,6 +498,10 @@ class MbagEnv(object):
                     action.action_type == MbagAction.BREAK_BLOCK
                     and goal_dependent_reward >= 0
                 )
+                if not action_correct:
+                    goal_dependent_reward += self._get_reward(
+                        player_index, "incorrect_action", self.global_timestep
+                    )
         elif (
             action.action_type in MbagAction.MOVE_ACTION_TYPES
             and not self.config["abilities"]["teleportation"]

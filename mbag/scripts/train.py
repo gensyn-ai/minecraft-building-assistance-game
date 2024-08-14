@@ -120,6 +120,8 @@ def sacred_config(_log):  # noqa
     per_player_get_resources_reward: Optional[List[RewardSchedule]] = None
     action_reward: RewardSchedule = 0
     per_player_action_reward: Optional[List[RewardSchedule]] = None
+    incorrect_action_reward: RewardSchedule = 0
+    per_player_incorrect_action_reward: Optional[List[RewardSchedule]] = None
     place_wrong_reward: RewardSchedule = -1
     per_player_place_wrong_reward: Optional[List[RewardSchedule]] = None
     own_reward_prop: RewardSchedule = 0
@@ -223,6 +225,10 @@ def sacred_config(_log):  # noqa
             player_config["rewards"]["noop"] = per_player_noop_reward[player_index]
         if per_player_action_reward is not None:
             player_config["rewards"]["action"] = per_player_action_reward[player_index]
+        if per_player_incorrect_action_reward is not None:
+            player_config["rewards"]["incorrect_action"] = (
+                per_player_incorrect_action_reward[player_index]
+            )
         if per_player_place_wrong_reward is not None:
             player_config["rewards"]["place_wrong"] = per_player_place_wrong_reward[
                 player_index
@@ -253,6 +259,7 @@ def sacred_config(_log):  # noqa
         "rewards": {
             "noop": noop_reward,
             "action": action_reward,
+            "incorrect_action": incorrect_action_reward,
             "place_wrong": place_wrong_reward,
             "get_resources": get_resources_reward,
             "own_reward_prop": own_reward_prop,

@@ -303,6 +303,13 @@ class MbagEnvModel(gym.Env):
                 np.sum((new_similarity - prev_similarity) * goal_block_id_dist)
             )
 
+            correct = new_similarity > prev_similarity
+            reward += env._get_reward(
+                player_index,
+                "incorrect_action",
+                env.global_timestep,
+            ) * float(np.sum(~correct * goal_block_id_dist))
+
         return reward
 
     def get_all_rewards(

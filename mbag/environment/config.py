@@ -68,6 +68,12 @@ class RewardsConfigDict(TypedDict, total=False):
     introduce some cost for acting.
     """
 
+    incorrect_action: RewardSchedule
+    """
+    The reward for taking a place/break action which is not correct. This is usually
+    negative to discourage incorrect actions.
+    """
+
     place_wrong: RewardSchedule
     """
     The reward for placing a block which is not correct, but in a place where a block

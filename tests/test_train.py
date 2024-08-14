@@ -658,6 +658,7 @@ def test_predicted_rewards_equal_rewards_in_alpha_zero(
             "horizon": 100,
             "rollout_fragment_length": 100,
             "sample_batch_size": 1000,
+            "incorrect_action_reward": -0.3,
         }
     ).result
     assert result is not None
