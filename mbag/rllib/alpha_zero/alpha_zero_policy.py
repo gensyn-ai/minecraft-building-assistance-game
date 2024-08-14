@@ -198,6 +198,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         timestep: Optional[int] = None,
         *,
         force_noop=False,
+        prev_c_puct: Optional[np.ndarray] = None,
         **kwargs,
     ):
         input_dict = {"obs": obs_batch}
@@ -207,6 +208,8 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             input_dict["prev_rewards"] = prev_reward_batch
         for state_index, state_batch in enumerate(state_batches or []):
             input_dict[f"state_in_{state_index}"] = state_batch
+        if prev_c_puct is not None:
+            input_dict[PREV_C_PUCT] = prev_c_puct
 
         return self.compute_actions_from_input_dict(
             input_dict=input_dict,
