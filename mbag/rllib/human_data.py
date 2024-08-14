@@ -153,7 +153,9 @@ def convert_episode_to_sample_batch(  # noqa: C901
                             SampleBatch.ACTION_LOGP: 0.0,
                             SampleBatch.REWARDS: intermediate_rewards,
                             SampleBatch.DONES: False,
-                            SampleBatch.INFOS: {},
+                            SampleBatch.INFOS: {
+                                "timestamp": current_time,
+                            },
                             PARTICIPANT_ID: participant_id,
                             EPISODE_DIR: episode_dir,
                         }
@@ -173,7 +175,10 @@ def convert_episode_to_sample_batch(  # noqa: C901
                     SampleBatch.ACTION_LOGP: 0.0,
                     SampleBatch.REWARDS: intermediate_rewards,
                     SampleBatch.DONES: False,
-                    SampleBatch.INFOS: info,
+                    SampleBatch.INFOS: {
+                        **info,
+                        "timestamp": current_time,
+                    },
                     PARTICIPANT_ID: participant_id,
                     EPISODE_DIR: episode_dir,
                 }
