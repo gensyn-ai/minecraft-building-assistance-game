@@ -264,6 +264,7 @@ DEFAULT_CONFIG: MbagConfigDict = {
     "rewards": {
         "noop": 0.0,
         "action": 0.0,
+        "incorrect_action": 0.0,
         "place_wrong": 0.0,
         "own_reward_prop": 0.0,
         "get_resources": 0,
