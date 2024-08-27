@@ -51,6 +51,42 @@ ACTION_MASK = "action_mask"
 PREV_OBS = "prev_obs"
 
 
+class Conv3d1x1x1(nn.Module):
+    """
+    A 1x1x1 convolution layer.
+    """
+
+    bias: Optional[nn.Parameter]
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+
+        conv = nn.Conv3d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+        )
+        self.weight = nn.Parameter(conv.weight.data)
+        assert self.weight.size() == (out_channels, in_channels, 1, 1, 1)
+        if conv.bias is None:
+            self.bias = None
+        else:
+            self.bias = nn.Parameter(conv.bias.data)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        n, c_in, d, h, w = x.size()
+        c_out = self.weight.size()[0]
+        return (
+            F.linear(
+                x.permute(0, 2, 3, 4, 1).reshape(-1, c_in),
+                self.weight[:, :, 0, 0, 0],
+                self.bias,
+            )
+            .reshape(n, d, h, w, c_out)
+            .permute(0, 4, 1, 2, 3)
+        )
+
+
 class MbagModel(ABC, TorchModelV2):
     """
     A model to be used with MbagAutoregressiveActionDistribution.
@@ -282,7 +318,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         action_head_layers: List[nn.Module] = []
         for layer_index in range(self.num_action_layers):
             action_head_layers.append(
-                nn.Conv3d(
+                Conv3d1x1x1(
                     (
                         self._get_head_in_channels()
                         if layer_index == 0
@@ -293,7 +329,6 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
                         if layer_index == self.num_action_layers - 1
                         else self.hidden_size
                     ),
-                    kernel_size=1,
                 )
             )
             if layer_index < self.num_action_layers - 1:
@@ -333,9 +368,9 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         """
 
         return nn.Sequential(
-            nn.Conv3d(self._get_head_in_channels(), self.hidden_size, 1),
+            Conv3d1x1x1(self._get_head_in_channels(), self.hidden_size),
             nn.LeakyReLU(),
-            nn.Conv3d(self.hidden_size, MinecraftBlocks.NUM_BLOCKS, 1),
+            Conv3d1x1x1(self.hidden_size, MinecraftBlocks.NUM_BLOCKS),
         )
 
     def _get_embedded_obs(
@@ -582,9 +617,9 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
                 vf = self.value_head(self.value_backbone(self._embedded_obs)).squeeze(1)
         return vf.float() * self.vf_scale
 
-    def goal_predictor(self):
+    def goal_predictor(self) -> torch.Tensor:
         with self._amp_or_nothing:
-            goal_preds = self.goal_head(self._backbone_out)
+            goal_preds: torch.Tensor = self.goal_head(self._backbone_out)
         return goal_preds.float()
 
     def get_initial_state(self):
