@@ -366,6 +366,7 @@ def sacred_config(_log):  # noqa
     mask_goal = False
     mask_other_players = num_players == 1
     use_extra_features = not mask_goal
+    use_fc_after_embedding = False
     num_conv_1_layers = 1
     num_layers = 1
     filter_size = 3
@@ -385,6 +386,9 @@ def sacred_config(_log):  # noqa
     use_separated_transformer = False
     interleave_lstm = False
     use_prev_blocks = False
+    use_prev_action = False
+    use_prev_other_agent_action = False
+    assert not use_prev_other_agent_action
     use_resnet = False
     num_unet_layers = 0
     unet_grow_factor = 2
@@ -401,6 +405,7 @@ def sacred_config(_log):  # noqa
             "env_config": cast(MbagConfigDict, dict(environment_params)),
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
+            "use_fc_after_embedding": use_fc_after_embedding,
             "mask_goal": mask_goal,
             "mask_other_players": mask_other_players,
             "num_conv_1_layers": num_conv_1_layers,
@@ -414,6 +419,7 @@ def sacred_config(_log):  # noqa
             "lstm_depth": lstm_depth,
             "num_lstm_layers": num_lstm_layers,
             "use_prev_blocks": use_prev_blocks,
+            "use_prev_action": use_prev_action,
             "mask_action_distribution": mask_action_distribution,
             "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
@@ -429,6 +435,7 @@ def sacred_config(_log):  # noqa
             "env_config": cast(MbagConfigDict, dict(environment_params)),
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
+            "use_fc_after_embedding": use_fc_after_embedding,
             "mask_goal": mask_goal,
             "mask_other_players": mask_other_players,
             "position_embedding_size": position_embedding_size,
@@ -441,6 +448,7 @@ def sacred_config(_log):  # noqa
             "lstm_depth": lstm_depth,
             "num_lstm_layers": num_lstm_layers,
             "use_prev_blocks": use_prev_blocks,
+            "use_prev_action": use_prev_action,
             "use_separated_transformer": use_separated_transformer,
             "interleave_lstm": interleave_lstm,
             "mask_action_distribution": mask_action_distribution,

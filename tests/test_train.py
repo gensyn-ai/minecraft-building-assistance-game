@@ -22,6 +22,7 @@ try:
     from mbag.rllib.torch_models import MbagTransformerModel
     from mbag.rllib.training_utils import load_trainer
     from mbag.scripts.create_mixture_model import ex as create_mixture_model_ex
+    from mbag.scripts.evaluate import ex as evaluate_ex
     from mbag.scripts.rollout import ex as rollout_ex
     from mbag.scripts.train import ex
 except ImportError:
@@ -729,6 +730,50 @@ def test_bc_with_value_loss(default_config, default_bc_config):
 
     assert result["info"]["learner"]["human"]["validation"]["vf_explained_var"] > 0.3
     assert result["info"]["learner"]["human"]["validation"]["vf_loss"] < 5
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.slow
+@pytest.mark.timeout(60)
+def test_bc_and_evaluate_with_prev_action_input(default_config, default_bc_config):
+    bc_result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            "validation_participant_ids": [4],
+            "use_prev_action": True,
+            "use_fc_after_embedding": True,
+        }
+    ).result
+    assert bc_result is not None
+
+    evaluate_result = evaluate_ex.run(
+        config_updates={
+            "runs": ["BC"],
+            "checkpoints": [bc_result["final_checkpoint"]],
+            "policy_ids": ["human"],
+            "num_episodes": 1,
+        },
+    ).result
+    assert evaluate_result is not None
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.slow
+@pytest.mark.timeout(60)
+def test_bc_with_lstm(default_config, default_bc_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            "validation_participant_ids": [4],
+            "interleave_lstm": True,
+            "num_layers": 4,
+            "input": "data/human_data/sample_tutorial_rllib_seq_5",
+            "max_seq_len": 5,
+        }
+    ).result
+    assert result is not None
 
 
 @pytest.mark.uses_rllib
