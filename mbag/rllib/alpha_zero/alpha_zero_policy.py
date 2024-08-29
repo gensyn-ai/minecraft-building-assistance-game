@@ -668,7 +668,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             )
 
             model.tower_stats["other_agent_action_predictor_loss"] = (
-                other_agent_action_predictor_loss
+                other_agent_action_predictor_loss.detach()
             )
             total_loss = (
                 total_loss
@@ -687,21 +687,24 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             )
 
             anchor_policy_kl = action_dist.kl(anchor_policy_action_dist).mean()
-            model.tower_stats["anchor_policy_kl"] = anchor_policy_kl
+            model.tower_stats["anchor_policy_kl"] = anchor_policy_kl.detach()
             total_loss = (
                 total_loss + self.config["anchor_policy_kl_coeff"] * anchor_policy_kl
             )
 
-        model.tower_stats["total_loss"] = total_loss
-        model.tower_stats["policy_loss"] = policy_loss
-        model.tower_stats["vf_loss"] = value_loss
-        model.tower_stats["vf_explained_var"] = explained_variance(
-            train_batch[Postprocessing.VALUE_TARGETS], values
+        model.tower_stats["total_loss"] = total_loss.detach()
+        model.tower_stats["policy_loss"] = policy_loss.detach()
+        model.tower_stats["vf_loss"] = value_loss.detach()
+        model.tower_stats["vf_explained_var"] = cast(
+            torch.Tensor,
+            explained_variance(train_batch[Postprocessing.VALUE_TARGETS], values),
+        ).detach()
+        model.tower_stats["goal_loss"] = goal_loss.detach()
+        model.tower_stats["prev_goal_kl"] = prev_goal_kl.detach()
+        model.tower_stats["unplaced_blocks_goal_loss"] = (
+            unplaced_blocks_goal_loss.detach()
         )
-        model.tower_stats["goal_loss"] = goal_loss
-        model.tower_stats["prev_goal_kl"] = prev_goal_kl
-        model.tower_stats["unplaced_blocks_goal_loss"] = unplaced_blocks_goal_loss
-        model.tower_stats["entropy"] = entropy
+        model.tower_stats["entropy"] = entropy.detach()
 
         return total_loss
 

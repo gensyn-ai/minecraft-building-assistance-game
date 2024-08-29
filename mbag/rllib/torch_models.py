@@ -1285,7 +1285,7 @@ class SeparatedTransformerEncoder(nn.Module):
         if isinstance(layer, nn.LSTM):
             lstm_index = layer_index // (self.n_spatial_dims + 1)
             lstm_state = state[2 * lstm_index : 2 * (lstm_index + 1)]
-            return self._run_lstm(layer, x, lstm_state, seq_lens)
+            x, state = self._run_lstm(layer, x, lstm_state, seq_lens)
         else:
             spatial_dim = layer_index % self.n_spatial_dims
             permutation = (
@@ -1312,11 +1312,17 @@ class SeparatedTransformerEncoder(nn.Module):
             else:
                 layer_output = self._batched_layer_forward(layer, layer_input)
             x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
-            return x, []
+            state = []
+
+        if x.device.type == "cuda" and torch.cuda.is_bf16_supported():
+            x = x.bfloat16()
+
+        return x, state
 
     def _run_lstm(
         self, lstm: nn.LSTM, x: torch.Tensor, state_in: List[torch.Tensor], seq_lens
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        x = x.float()
         world_size = x.size()[2:]
         flat_x = x.flatten(start_dim=1)
         flat_backone_out_with_time: torch.Tensor = add_time_dimension(
