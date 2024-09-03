@@ -122,6 +122,8 @@ class RllibMbagAgent(MbagAgent):
         if force_noop:
             assert action_type == MbagAction.NOOP
 
+        self.prev_action = action
+
         return action
 
     def get_state(self) -> List[np.ndarray]:

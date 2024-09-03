@@ -183,7 +183,9 @@ def main(  # noqa: C901
                         seq_lens.append(min(remaining_length, max_seq_len))
                         remaining_length -= max_seq_len
                     sample_batch[SampleBatch.SEQ_LENS] = np.array(seq_lens)
-                _log.debug(f"saving with seq_lens={sample_batch[SampleBatch.SEQ_LENS]}")
+                    _log.debug(
+                        f"saving with seq_lens={sample_batch[SampleBatch.SEQ_LENS]}"
+                    )
 
                 if policy_id is not None:
                     multi_agent_batch = MultiAgentBatch(
