@@ -369,7 +369,7 @@ def sacred_config(_log):  # noqa
     num_inventory_obs = num_players
     mask_other_players = num_players == 1
     use_extra_features = not mask_goal
-    use_fc_after_embedding = False
+    use_fc_after_embedding = True
     num_conv_1_layers = 1
     num_layers = 1
     filter_size = 3
