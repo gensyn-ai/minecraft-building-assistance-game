@@ -14,7 +14,6 @@ from logging import Logger
 from typing import Any, Generator, List, Optional, Type, Union
 
 import numpy as np
-import ray
 import torch
 import tqdm
 from ray.rllib.utils.typing import PolicyID
@@ -33,7 +32,6 @@ from mbag.evaluation.metrics import (
     calculate_metrics,
 )
 from mbag.rllib.agents import RllibAlphaZeroAgent, RllibMbagAgent
-from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.training_utils import load_policy, load_trainer_config
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -145,12 +143,6 @@ def run_evaluation(
     use_malmo: bool,
     out_dir: str,
 ) -> Generator[MbagEpisode, Any, Any]:
-    ray.init(
-        num_cpus=available_cpu_count(),
-        ignore_reinit_error=True,
-        include_dashboard=False,
-    )
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

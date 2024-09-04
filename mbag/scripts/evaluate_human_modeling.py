@@ -4,7 +4,6 @@ from logging import Logger
 from typing import Iterable, List, Optional, TypedDict, cast
 
 import numpy as np
-import ray
 import torch
 import tqdm
 from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
@@ -22,7 +21,6 @@ import mbag
 from mbag.rllib.alpha_zero import MbagAlphaZeroPolicy
 from mbag.rllib.human_data import EPISODE_DIR, PARTICIPANT_ID
 from mbag.rllib.mixture_model import MixtureModel
-from mbag.rllib.os_utils import available_cpu_count
 from mbag.rllib.torch_models import MbagTorchModel
 from mbag.rllib.training_utils import load_policy
 
@@ -99,11 +97,6 @@ def main(  # noqa: C901
     observer,
     _log: Logger,
 ):
-    ray.init(
-        num_cpus=available_cpu_count(),
-        ignore_reinit_error=True,
-        include_dashboard=False,
-    )
     mbag.logger.setLevel(_log.getEffectiveLevel())
 
     episode_results: List[EpisodeHumanModelingEvaluationResults] = []
