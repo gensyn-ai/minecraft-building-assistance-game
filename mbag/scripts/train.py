@@ -102,6 +102,7 @@ def sacred_config(_log):  # noqa
     randomize_first_episode_length = True
     truncate_on_no_progress_timesteps: Optional[int] = None
     num_players = 1
+    evaluation_num_players = num_players
     width = 11
     height = 10
     depth = 10
@@ -286,6 +287,7 @@ def sacred_config(_log):  # noqa
     assert num_envs % max(num_workers, 1) == 0
     num_envs_per_worker = num_envs // max(num_workers, 1)
     input = "sampler"
+    output = None
     seed = 0
     num_gpus = 1.0 if torch.cuda.is_available() else 0.0
     num_gpus_per_worker = 0.0
@@ -364,6 +366,7 @@ def sacred_config(_log):  # noqa
     embedding_size = 8
     position_embedding_size = 18
     mask_goal = False
+    num_inventory_obs = num_players
     mask_other_players = num_players == 1
     use_extra_features = not mask_goal
     use_fc_after_embedding = False
@@ -383,8 +386,10 @@ def sacred_config(_log):  # noqa
     scale_obs = False
     vf_scale = 1.0
     num_heads = 4
+    norm_first = False
     use_separated_transformer = False
     interleave_lstm = False
+    fix_interleave_lstm = True
     use_prev_blocks = False
     use_prev_action = False
     use_prev_other_agent_action = False
@@ -403,6 +408,7 @@ def sacred_config(_log):  # noqa
     if "convolutional" in model:
         conv_config: MbagRecurrentConvolutionalModelConfig = {
             "env_config": cast(MbagConfigDict, dict(environment_params)),
+            "num_inventory_obs": num_inventory_obs,
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
             "use_fc_after_embedding": use_fc_after_embedding,
@@ -433,6 +439,7 @@ def sacred_config(_log):  # noqa
     elif "transformer" in model:
         transformer_config: MbagTransformerModelConfig = {
             "env_config": cast(MbagConfigDict, dict(environment_params)),
+            "num_inventory_obs": num_inventory_obs,
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
             "use_fc_after_embedding": use_fc_after_embedding,
@@ -441,6 +448,7 @@ def sacred_config(_log):  # noqa
             "position_embedding_size": position_embedding_size,
             "num_layers": num_layers,
             "num_heads": num_heads,
+            "norm_first": norm_first,
             "hidden_size": hidden_size,
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
@@ -451,6 +459,7 @@ def sacred_config(_log):  # noqa
             "use_prev_action": use_prev_action,
             "use_separated_transformer": use_separated_transformer,
             "interleave_lstm": interleave_lstm,
+            "fix_interleave_lstm": fix_interleave_lstm,
             "mask_action_distribution": mask_action_distribution,
             "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
@@ -592,6 +601,8 @@ def sacred_config(_log):  # noqa
         "explore": evaluation_explore,
         "env_config": {
             "randomize_first_episode_length": False,
+            "num_players": evaluation_num_players,
+            "players": player_configs[:evaluation_num_players],
         },
     }
 
@@ -637,6 +648,7 @@ def sacred_config(_log):  # noqa
     config.offline_data(
         input_=input,
         actions_in_input_normalized=input != "sampler",
+        output=output,
     )
     config.evaluation(
         evaluation_interval=evaluation_interval,

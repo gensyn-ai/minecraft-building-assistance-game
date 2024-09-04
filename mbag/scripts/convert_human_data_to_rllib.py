@@ -60,6 +60,7 @@ def sacred_config():
         f"_place_wrong_reward_{place_wrong_reward}" if place_wrong_reward != 0 else ""
     )
     experiment_name += f"_repaired_player_{'_'.join(map(str, player_indices))}"
+    experiment_name += f"_inventory_{'_'.join(map(str, inventory_player_indices))}"
     experiment_name += f"_seq_{max_seq_len}" if max_seq_len is not None else ""
     experiment_name += f"_overlap_{sequence_overlap}" if sequence_overlap > 1 else ""
     out_dir = os.path.join(data_dir, experiment_name)  # noqa: F841

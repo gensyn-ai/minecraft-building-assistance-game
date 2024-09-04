@@ -103,6 +103,8 @@ class MbagModel(ABC, TorchModelV2):
 class MbagModelConfig(TypedDict, total=False):
     env_config: MbagConfigDict
     """Environment configuration."""
+    num_inventory_obs: int
+    """Number of inventory observations to input to the model."""
     embedding_size: int
     """Block ID embedding size."""
     use_extra_features: bool
@@ -151,6 +153,7 @@ class MbagModelConfig(TypedDict, total=False):
 
 DEFAULT_CONFIG: MbagModelConfig = {
     "env_config": DEFAULT_ENV_CONFIG,
+    "num_inventory_obs": 1,
     "embedding_size": 8,
     "use_extra_features": False,
     "use_fc_after_embedding": False,
@@ -212,6 +215,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         extra_config = copy.deepcopy(DEFAULT_CONFIG)
         extra_config.update(cast(MbagModelConfig, kwargs))
         self.env_config = extra_config["env_config"]
+        self.num_inventory_obs = extra_config["num_inventory_obs"]
         self.embedding_size = extra_config["embedding_size"]
         self.use_extra_features = extra_config["use_extra_features"]
         self.use_fc_after_embedding = extra_config["use_fc_after_embedding"]
@@ -302,10 +306,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         """Get the number of channels in the embedded observation."""
         in_channels = self._get_embedding_planes() * self.embedding_size
         # Add inventory observation as extra input channels.
-        num_players_in_inventory_obs = (
-            1 if self.mask_other_players else self.env_config["num_players"]
-        )
-        in_channels += MinecraftBlocks.NUM_BLOCKS * num_players_in_inventory_obs
+        in_channels += MinecraftBlocks.NUM_BLOCKS * self.num_inventory_obs
         # Timestep observation
         in_channels += 1
         if self.use_extra_features:
@@ -485,10 +486,18 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         embedded_obs_pieces.append(embedded_player_locations)
 
         if self.mask_other_players and inventory_obs.ndim > 2:
-            inventory_obs = inventory_obs[:, 0]
+            assert self.num_inventory_obs == 1
+            flat_inventory_obs = inventory_obs[:, 0]
         else:
             inventory_obs = inventory_obs.flatten(start_dim=1)
-        inventory_piece = inventory_obs[:, None, None, None, :].expand(
+            flat_inventory_obs = torch.zeros(
+                inventory_obs.size()[0],
+                MinecraftBlocks.NUM_BLOCKS * self.num_inventory_obs,
+                device=inventory_obs.device,
+            )
+            flat_inventory_obs[:, : inventory_obs.size()[1]] = inventory_obs
+
+        inventory_piece = flat_inventory_obs[:, None, None, None, :].expand(
             *embedded_obs_pieces[0].size()[:-1], -1
         )
         if self.scale_obs:
@@ -1221,15 +1230,20 @@ class SeparatedTransformerEncoder(nn.Module):
         d_model: int,
         nhead: int,
         dim_feedforward: int,
+        norm_first: bool = False,
         n_spatial_dims: int = 3,
         interleave_lstm: bool = False,
+        fix_interleave_lstm: bool = False,
     ):
         super().__init__()
 
         self.d_model = d_model
+        self.norm_first = norm_first
         self.n_spatial_dims = n_spatial_dims
         self.interleave_lstm = interleave_lstm
+        self.fix_interleave_lstm = fix_interleave_lstm
 
+        self.pre_lstm_layer_norms = nn.ModuleList()
         self.layers: List[Union[nn.TransformerEncoderLayer, nn.LSTM]] = []
         for layer_index in range(num_layers):
             layer: Union[nn.TransformerEncoderLayer, nn.LSTM]
@@ -1243,15 +1257,22 @@ class SeparatedTransformerEncoder(nn.Module):
                     num_layers=1,
                     batch_first=True,
                 )
+                if self.norm_first:
+                    pre_lstm_layer_norm = nn.LayerNorm(d_model)
+                    self.pre_lstm_layer_norms.append(pre_lstm_layer_norm)
             else:
                 layer = nn.TransformerEncoderLayer(
                     d_model=d_model,
                     nhead=nhead,
                     dim_feedforward=dim_feedforward,
                     batch_first=True,
+                    norm_first=norm_first,
                 )
             self.add_module(f"layer_{layer_index}", layer)
             self.layers.append(layer)
+
+        if self.norm_first:
+            self.post_layer_norm = nn.LayerNorm(d_model)
 
     def _layer_forward(self, layer: nn.TransformerEncoderLayer, x: torch.Tensor):
         return layer(x)
@@ -1285,9 +1306,21 @@ class SeparatedTransformerEncoder(nn.Module):
         if isinstance(layer, nn.LSTM):
             lstm_index = layer_index // (self.n_spatial_dims + 1)
             lstm_state = state[2 * lstm_index : 2 * (lstm_index + 1)]
-            x, state = self._run_lstm(layer, x, lstm_state, seq_lens)
+            x, state = self._run_lstm(
+                layer,
+                x,
+                lstm_state,
+                seq_lens,
+                pre_layer_norm=(
+                    self.pre_lstm_layer_norms[lstm_index] if self.norm_first else None
+                ),
+            )
         else:
-            spatial_dim = layer_index % self.n_spatial_dims
+            if self.interleave_lstm and self.fix_interleave_lstm:
+                spatial_dim = layer_index % (self.n_spatial_dims + 1)
+            else:
+                # This is now incorrect with interleaved LSTMs.
+                spatial_dim = layer_index % self.n_spatial_dims
             permutation = (
                 (0,)
                 + tuple(
@@ -1320,7 +1353,12 @@ class SeparatedTransformerEncoder(nn.Module):
         return x, state
 
     def _run_lstm(
-        self, lstm: nn.LSTM, x: torch.Tensor, state_in: List[torch.Tensor], seq_lens
+        self,
+        lstm: nn.LSTM,
+        x: torch.Tensor,
+        state_in: List[torch.Tensor],
+        seq_lens,
+        pre_layer_norm: Optional[nn.LayerNorm] = None,
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         x = x.float()
         world_size = x.size()[2:]
@@ -1338,7 +1376,10 @@ class SeparatedTransformerEncoder(nn.Module):
         )
         batch_size, max_seq_len = x_with_time.size()[:2]
         assert x_with_time.size()[2:] == (self.d_model,) + world_size
+        # Should be of size (batch_size * width * height * depth, max_seq_len, hidden_size).
         x_per_location = x_with_time.permute(0, 3, 4, 5, 1, 2).flatten(end_dim=3)
+        if pre_layer_norm:
+            x_per_location = pre_layer_norm(x_per_location)
         # State in should be of size (batch_size, hidden_size, width, height, depth).
         state_in_per_location = tuple(
             state.permute(0, 2, 3, 4, 1).flatten(end_dim=3)[None].contiguous()
@@ -1397,6 +1438,9 @@ class SeparatedTransformerEncoder(nn.Module):
                 x, layer_state = self._run_layer(layer_index, x, state, seq_lens)
             state_out.extend(layer_state)
 
+        if self.norm_first:
+            x = self.post_layer_norm(x.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3)
+
         if self.interleave_lstm:
             return x, state_out
         else:
@@ -1418,8 +1462,10 @@ class MbagTransformerModelConfig(MbagModelConfig, total=False):
     position_embedding_size: int
     num_layers: int
     num_heads: int
+    norm_first: bool
     use_separated_transformer: bool
     interleave_lstm: bool
+    fix_interleave_lstm: bool
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
@@ -1434,8 +1480,10 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
     "position_embedding_size": 12,
     "num_layers": 3,
     "num_heads": 2,
+    "norm_first": False,
     "use_separated_transformer": False,
     "interleave_lstm": False,
+    "fix_interleave_lstm": False,
 }
 
 
@@ -1460,8 +1508,10 @@ class MbagTransformerModel(MbagTorchModel):
         self.position_embedding_size = extra_config["position_embedding_size"]
         self.num_layers = extra_config["num_layers"]
         self.num_heads = extra_config["num_heads"]
+        self.norm_first = extra_config["norm_first"]
         self.use_separated_transformer = extra_config["use_separated_transformer"]
         self.interleave_lstm = extra_config["interleave_lstm"]
+        self.fix_interleave_lstm = extra_config["fix_interleave_lstm"]
 
         super().__init__(
             obs_space, action_space, num_outputs, model_config, name, **kwargs
@@ -1508,6 +1558,7 @@ class MbagTransformerModel(MbagTorchModel):
 
         embedding = torch.zeros(seq_len, size)
         position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+        # TODO: improve position embedding?
         div_term = torch.exp(
             torch.arange(0, size, 2).float() * (-np.log(10000.0) / size)
         )
@@ -1529,7 +1580,9 @@ class MbagTransformerModel(MbagTorchModel):
                 d_model=self.hidden_size,
                 nhead=self.num_heads,
                 dim_feedforward=self.hidden_size,
+                norm_first=self.norm_first,
                 interleave_lstm=self.interleave_lstm,
+                fix_interleave_lstm=self.fix_interleave_lstm,
             )
         else:
             assert self.interleave_lstm is False
@@ -1540,6 +1593,7 @@ class MbagTransformerModel(MbagTorchModel):
                         nhead=self.num_heads,
                         dim_feedforward=self.hidden_size,
                         batch_first=True,
+                        norm_first=self.norm_first,
                     ),
                     self.num_layers,
                 ),
@@ -1742,7 +1796,7 @@ class MbagTransformerModelWithDiscriminator(MbagTransformerModel, DiscriminatorM
         )
 
         self.discriminator_first_layer = nn.Conv3d(
-            in_channels=self._get_in_channels()
+            in_channels=self._get_embedding_channels()
             - self.embedding_size
             + MbagActionDistribution.NUM_CHANNELS,
             out_channels=self.hidden_size,

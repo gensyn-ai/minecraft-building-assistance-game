@@ -17,7 +17,6 @@ import numpy as np
 import ray
 import torch
 import tqdm
-from ray.rllib.algorithms import Algorithm
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
 
@@ -35,7 +34,7 @@ from mbag.evaluation.metrics import (
 )
 from mbag.rllib.agents import RllibAlphaZeroAgent, RllibMbagAgent
 from mbag.rllib.os_utils import available_cpu_count
-from mbag.rllib.training_utils import load_trainer, load_trainer_config
+from mbag.rllib.training_utils import load_policy, load_trainer_config
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
@@ -184,7 +183,6 @@ def run_evaluation(
     observation_space = MbagEnv(env_config).observation_space
 
     agent_configs: List[MbagAgentConfig] = []
-    trainers: List[Algorithm] = []
     for player_index, (run, checkpoint, policy_id, config_updates) in enumerate(
         zip(runs, checkpoints, policy_ids, algorithm_config_updates)
     ):
@@ -201,13 +199,13 @@ def run_evaluation(
             config_updates.setdefault("evaluation_num_workers", 0)
             config_updates["env_config"] = copy.deepcopy(env_config)
 
-            trainer = load_trainer(
+            policy = load_policy(
                 checkpoint,
-                run,
-                copy.deepcopy(config_updates),
+                policy_id,
+                config_updates=copy.deepcopy(config_updates),
+                observation_space=observation_space,
             )
-            policy = trainer.get_policy(policy_id)
-            policy.observation_space = observation_space
+            # policy = trainer.get_policy(policy_id)
 
             mbag_agent_class: Type[RllibMbagAgent] = RllibMbagAgent
             agent_config = {
@@ -229,7 +227,6 @@ def run_evaluation(
                     agent_config,
                 )
             )
-            trainers.append(trainer)
 
     env_config.setdefault("malmo", {})
     env_config["malmo"]["use_malmo"] = use_malmo
