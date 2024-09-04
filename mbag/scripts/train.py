@@ -385,6 +385,7 @@ def sacred_config(_log):  # noqa
     line_of_sight_masking = not teleportation
     scale_obs = False
     vf_scale = 1.0
+    dim_feedforward = hidden_size
     num_heads = 4
     norm_first = False
     use_separated_transformer = False
@@ -447,6 +448,7 @@ def sacred_config(_log):  # noqa
             "mask_other_players": mask_other_players,
             "position_embedding_size": position_embedding_size,
             "num_layers": num_layers,
+            "dim_feedforward": dim_feedforward,
             "num_heads": num_heads,
             "norm_first": norm_first,
             "hidden_size": hidden_size,
@@ -507,11 +509,13 @@ def sacred_config(_log):  # noqa
             agent_id: str,
             episode=None,
             worker=None,
-            policy_ids=policy_ids,
+            policy_ids=convert_dogmatics_to_standard(policy_ids),
             *args,
             **kwargs,
         ):
             agent_index = int(agent_id[len("player_") :])
+            if agent_index >= len(policy_ids):
+                breakpoint()
             return policy_ids[agent_index]
 
     for player_index, policy_id in enumerate(policy_ids):
@@ -876,6 +880,7 @@ def main(
         logger_creator=build_logger_creator(observer.dir),
     )
 
+    # Limit CUDA memory usage based on num_gpus and num_gpus_per_worker.
     if torch.cuda.is_available():
         num_gpus_per_worker: float = config["num_gpus_per_worker"]
         if trainer.workers is not None and num_gpus_per_worker > 0:

@@ -213,6 +213,8 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         self.world_size = cast(WorldSize, self.world_obs_space.shape[-3:])
 
         extra_config = copy.deepcopy(DEFAULT_CONFIG)
+        if "env_config" in kwargs:
+            extra_config["num_inventory_obs"] = kwargs["env_config"]["num_players"]
         extra_config.update(cast(MbagModelConfig, kwargs))
         self.env_config = extra_config["env_config"]
         self.num_inventory_obs = extra_config["num_inventory_obs"]
@@ -1461,6 +1463,7 @@ class SeparatedTransformerEncoder(nn.Module):
 class MbagTransformerModelConfig(MbagModelConfig, total=False):
     position_embedding_size: int
     num_layers: int
+    dim_feedforward: int
     num_heads: int
     norm_first: bool
     use_separated_transformer: bool
@@ -1479,6 +1482,7 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
     "fake_state": DEFAULT_CONFIG["fake_state"],
     "position_embedding_size": 12,
     "num_layers": 3,
+    "dim_feedforward": DEFAULT_CONFIG["hidden_size"],
     "num_heads": 2,
     "norm_first": False,
     "use_separated_transformer": False,
@@ -1501,12 +1505,15 @@ class MbagTransformerModel(MbagTorchModel):
         name,
         **kwargs,
     ):
+        if "hidden_size" in kwargs:
+            kwargs.setdefault("dim_feedforward", kwargs["hidden_size"])
         extra_config: MbagTransformerModelConfig = copy.deepcopy(
             TRANSFORMER_DEFAULT_CONFIG
         )
         extra_config.update(cast(MbagTransformerModelConfig, kwargs))
         self.position_embedding_size = extra_config["position_embedding_size"]
         self.num_layers = extra_config["num_layers"]
+        self.dim_feedforward = extra_config["dim_feedforward"]
         self.num_heads = extra_config["num_heads"]
         self.norm_first = extra_config["norm_first"]
         self.use_separated_transformer = extra_config["use_separated_transformer"]
@@ -1579,7 +1586,7 @@ class MbagTransformerModel(MbagTorchModel):
                 num_layers=self.num_layers,
                 d_model=self.hidden_size,
                 nhead=self.num_heads,
-                dim_feedforward=self.hidden_size,
+                dim_feedforward=self.dim_feedforward,
                 norm_first=self.norm_first,
                 interleave_lstm=self.interleave_lstm,
                 fix_interleave_lstm=self.fix_interleave_lstm,
@@ -1591,7 +1598,7 @@ class MbagTransformerModel(MbagTorchModel):
                     nn.TransformerEncoderLayer(
                         d_model=self.hidden_size,
                         nhead=self.num_heads,
-                        dim_feedforward=self.hidden_size,
+                        dim_feedforward=self.dim_feedforward,
                         batch_first=True,
                         norm_first=self.norm_first,
                     ),

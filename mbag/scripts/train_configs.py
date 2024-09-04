@@ -170,9 +170,9 @@ def make_named_configs(ex: Experiment):
         width = 11
         height = 10
         depth = 10
+        policy_ids = ["human"]
         if data_split != "human_alone":
             num_players = 2
-            policy_ids = ["human"]
         evaluation_num_players = 1
         model = "transformer"
         line_of_sight_masking = True
