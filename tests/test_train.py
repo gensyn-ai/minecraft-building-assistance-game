@@ -730,7 +730,9 @@ def test_bc_with_value_loss(default_config, default_bc_config):
     ).result
     assert result is not None
 
-    assert result["info"]["learner"]["human"]["learner_stats"]["vf_explained_var"] > 0.15
+    assert (
+        result["info"]["learner"]["human"]["learner_stats"]["vf_explained_var"] > 0.15
+    )
     assert result["info"]["learner"]["human"]["learner_stats"]["vf_loss"] < 6
 
 
