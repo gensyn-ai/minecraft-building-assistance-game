@@ -32,7 +32,12 @@ from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict, Wo
 
 from ..kl_regularization import ANCHOR_POLICY_ACTION_DIST_INPUTS
 from ..rllib_env import unwrap_mbag_env
-from ..torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictorMixin
+from ..torch_models import (
+    ACTION_MASK,
+    MbagTorchModel,
+    OptimizerMixin,
+    OtherAgentActionPredictorMixin,
+)
 from .mcts import MbagMCTS, MbagMCTSNode, MbagRootParentNode
 from .planning import MbagEnvModel
 
@@ -51,7 +56,9 @@ PREV_C_PUCT = "prev_c_puct"
 logger = logging.getLogger(__name__)
 
 
-class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroPolicy):
+class MbagAlphaZeroPolicy(
+    EntropyCoeffSchedule, LearningRateSchedule, OptimizerMixin, AlphaZeroPolicy
+):
     mcts: MbagMCTS
     envs: List[MbagEnvModel]
     config: Dict[str, Any]
