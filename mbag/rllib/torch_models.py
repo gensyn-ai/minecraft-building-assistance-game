@@ -256,7 +256,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         )
 
         if self.use_fc_after_embedding:
-            self.fc_after_embedding = Conv3d1x1x1(
+            self.fc_after_embedding: nn.Module = Conv3d1x1x1(
                 self._get_embedding_channels(), self.hidden_size
             )
 
@@ -776,6 +776,14 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         input_dict = {
             SampleBatch.OBS: restore_original_dimensions(obs, self.obs_space, "torch"),
         }
+        tensor_state_in = [
+            (
+                torch.from_numpy(state).to(self.device)
+                if isinstance(state, np.ndarray)
+                else state
+            )
+            for state in state_in
+        ]
 
         if action_mask is not None:
             action_mask = convert_to_torch_tensor(action_mask)
@@ -784,7 +792,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         with torch.no_grad():
             logits, state_out = self.forward(
                 input_dict,
-                state_in,
+                tensor_state_in,
                 np.ones(batch_size, dtype=int),
                 mask_logits=False,
             )
@@ -1562,6 +1570,11 @@ class MbagTransformerModel(MbagTorchModel):
         )[
             None, None, :
         ]
+
+        if not self.use_separated_transformer:
+            self.fc_after_embedding = nn.Linear(
+                self._get_embedding_channels(), self.hidden_size
+            )
 
     def _get_embedding_channels(self) -> int:
         return super()._get_embedding_channels() + self.position_embedding_size
