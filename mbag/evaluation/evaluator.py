@@ -12,7 +12,7 @@ from .episode import MbagEpisode
 
 logger = logging.getLogger(__name__)
 
-MbagAgentConfig = Tuple[Type[MbagAgent], Any]
+MbagAgentConfig = Tuple[Type[MbagAgent], dict]
 """
 An MbagAgent subclass together with the agent config for that agent.
 """
