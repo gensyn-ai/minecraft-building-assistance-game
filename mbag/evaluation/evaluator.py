@@ -1,7 +1,7 @@
 import copy
 import logging
 import traceback
-from typing import Any, List, Optional, Tuple, Type
+from typing import List, Optional, Tuple, Type
 
 from mbag.agents.mbag_agent import MbagAgent
 from mbag.environment.actions import MbagActionTuple
