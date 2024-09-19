@@ -113,7 +113,6 @@ class MbagAlphaZeroPolicy(
             # the goal is completed because that leaks information about the goal.
             if self.mcts.use_goal_predictor:
                 env_config["terminate_on_goal_completion"] = False
-            env_config["rewards"]["incorrect_action"] = -1
             env = env_creator(env_config)
             env_model = MbagEnvModel(
                 env,
