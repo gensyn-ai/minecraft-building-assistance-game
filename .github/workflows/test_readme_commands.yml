@@ -101,8 +101,8 @@ jobs:
             sleep 1
           done
 
-          ./test_command.sh python -m mbag.scripts.evaluate with human_with_assistant assistant_checkpoint=data/example_assistant/checkpoint_000100
+          ./test_command.sh python -m mbag.scripts.evaluate with human_with_assistant assistant_checkpoint=data/example_assistant/checkpoint_001700
 
-          ./test_command.sh python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_000100
+          ./test_command.sh python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_001700
 
           kill $MC_PID
