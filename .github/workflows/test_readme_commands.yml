@@ -54,6 +54,7 @@ jobs:
         run: |
           cat <<EOF > test_command.sh
           #!/bin/bash
+          set -x
 
           # Run the command in the background
           echo "\$@"
