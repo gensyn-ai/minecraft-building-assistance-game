@@ -42,7 +42,10 @@ from mbag.environment.goals.transforms import (
     CropTransformConfig,
 )
 from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
-from mbag.rllib.alpha_zero.replay_buffer import PartialReplayBuffer
+from mbag.rllib.alpha_zero.replay_buffer import (
+    FixedMultiAgentReplayBuffer,
+    PartialReplayBuffer,
+)
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
 from mbag.rllib.callbacks import MbagCallbacks
 from mbag.rllib.data_augmentation import randomly_permute_block_types
@@ -783,18 +786,21 @@ def sacred_config(_log):  # noqa
             other_agent_action_predictor_loss_coeff=other_agent_action_predictor_loss_coeff,
             use_replay_buffer=use_replay_buffer,
             replay_buffer_config={
-                "type": "MultiAgentReplayBuffer",
+                "type": FixedMultiAgentReplayBuffer,
                 "capacity": replay_buffer_size,
                 "storage_unit": replay_buffer_storage_unit,
                 "replay_sequence_override": False,
                 "replay_sequence_length": 0,
+                "replay_zero_init_states": False,
             },
             use_model_replay_buffer=use_model_replay_buffer,
             model_replay_buffer_config={
+                "type": FixedMultiAgentReplayBuffer,
                 "capacity": model_replay_buffer_size,
                 "storage_unit": replay_buffer_storage_unit,
                 "replay_sequence_override": False,
                 "replay_sequence_length": 0,
+                "replay_zero_init_states": False,
                 "underlying_buffer_config": {
                     "type": PartialReplayBuffer,
                     "storage_probability": model_replay_buffer_storage_probability,
