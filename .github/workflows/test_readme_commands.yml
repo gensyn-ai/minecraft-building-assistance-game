@@ -54,7 +54,6 @@ jobs:
         run: |
           cat <<EOF > test_command.sh
           #!/bin/bash
-          set -x
 
           # Run the command in the background
           echo "\$@"
@@ -70,6 +69,8 @@ jobs:
           if kill -0 \$CMD_PID 2>/dev/null; then
               # Command is still running, terminate it
               kill \$CMD_PID
+              sleep 10
+              kill -9 \$CMD_PID 2>/dev/null
               wait \$CMD_PID # Capture the exit code of the command
               EXIT_CODE=\$?
               echo "Command terminated after 60 seconds."
