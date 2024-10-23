@@ -103,11 +103,13 @@ def main(  # noqa: C901
         }
         results_list.append(results)
 
-        if not out_fname:
+        if out_fname:
+            curr_out_fname = out_fname
+        else:
             out_dir = os.path.dirname(file)
-            out_fname = _make_filename(out_dir, "metrics.json", overwrite=overwrite)
-        _log.info(f"Saving metrics to {out_fname}")
-        with open(out_fname, "w") as out_file:
+            curr_out_fname = _make_filename(out_dir, "metrics.json", overwrite=overwrite)
+        _log.info(f"Saving metrics to {curr_out_fname}")
+        with open(curr_out_fname, "w") as out_file:
             json.dump(results, out_file)
 
     return results_list
