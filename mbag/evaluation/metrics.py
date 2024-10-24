@@ -178,12 +178,10 @@ def calculate_metrics(episode: MbagEpisode) -> MbagEpisodeMetrics:
             ]
         goal_similarity_key = f"goal_similarity_{rounded_minutes}_min"
         if goal_similarity_key not in metrics:
-            metrics[goal_similarity_key] = info_dict["goal_similarity"]
+            metrics[goal_similarity_key] = info_dict["goal_similarity"]  # type: ignore[literal-required]
         goal_distance_key = f"goal_distance_{rounded_minutes}_min"
         if goal_distance_key not in metrics:
-            metrics[goal_distance_key] = (
-                width * height * depth - info_dict["goal_similarity"]
-            )
+            metrics[goal_distance_key] = width * height * depth - info_dict["goal_similarity"]  # type: ignore[literal-required]
         reward_key = f"reward_{rounded_minutes}_min"
         if reward_key not in metrics:
             metrics[reward_key] = cumulative_reward  # type: ignore[literal-required]
