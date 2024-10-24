@@ -21,7 +21,8 @@ ex = Experiment()
 
 @ex.config
 def sacred_config():
-    evaluate_dir = ""  # Path to directory containing episodes.
+    # Path to directory containing episodes.
+    evaluate_dir = ""  # noqa: F841
     # Path to output file containing metrics. Can only be provided if there is one episodes file in evaluate_dir and recursive=False.
     out_fname = ""  # noqa: F841
     # Flag to recursively search for episodes in subdirectories.
@@ -30,7 +31,20 @@ def sacred_config():
     overwrite: bool = False  # noqa: F841
 
 
-def _make_filename(directory, filename, overwrite: bool) -> str:
+def _make_filename(directory: str, filename: str, overwrite: bool) -> str:
+    """Create a filename for the metrics in the directory.
+
+    If overwrite is False and the file already exists, a unique filename is created by
+    appending a counter to the filename. Otherwise, the filename is returned as is.
+
+    Args:
+        directory: The directory to save the file in.
+        filename: The filename to save the metrics to.
+        overwrite: Flag to overwrite existing files.
+
+    Returns:
+        The full path to the file.
+    """
     # Create the full path for the file
     full_path = os.path.join(directory, filename)
     if overwrite:
@@ -107,7 +121,9 @@ def main(  # noqa: C901
             curr_out_fname = out_fname
         else:
             out_dir = os.path.dirname(file)
-            curr_out_fname = _make_filename(out_dir, "metrics.json", overwrite=overwrite)
+            curr_out_fname = _make_filename(
+                out_dir, "metrics.json", overwrite=overwrite
+            )
         _log.info(f"Saving metrics to {curr_out_fname}")
         with open(curr_out_fname, "w") as out_file:
             json.dump(results, out_file)
