@@ -368,6 +368,7 @@ def sacred_config(_log):  # noqa
     place_block_loss_coeff_schedule = None
     predict_goal_using_next_state = False
     predict_goal_using_average = False
+    predict_goal_using_future_states = False
     expected_own_reward_scale = 1.0
     expected_reward_shift = 0.0
     store_model_state_in_torch = False
@@ -751,6 +752,7 @@ def sacred_config(_log):  # noqa
             "explore_noops": explore_noops,
             "predict_goal_using_next_state": predict_goal_using_next_state,
             "predict_goal_using_average": predict_goal_using_average,
+            "predict_goal_using_future_states": predict_goal_using_future_states,
             "store_model_state_in_torch": store_model_state_in_torch,
         }
         if temperature_start != temperature_end:
