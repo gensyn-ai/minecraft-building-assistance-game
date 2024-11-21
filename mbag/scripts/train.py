@@ -315,6 +315,10 @@ def sacred_config(_log):  # noqa
     entropy_coeff_start = 0 if "AlphaZero" in run else 0.01
     entropy_coeff_end = 0
     entropy_coeff_horizon = 1e5
+    entropy_coeff_schedule = [
+        [0, entropy_coeff_start],
+        [entropy_coeff_horizon, entropy_coeff_end],
+    ]
     kl_coeff = 0.2
     kl_target = 0.01
     clip_param = 0.05
@@ -393,8 +397,6 @@ def sacred_config(_log):  # noqa
     hidden_size = hidden_channels
     num_action_layers = 2
     num_value_layers = 2
-    use_per_location_lstm = False
-    lstm_depth = None
     num_lstm_layers = 1
     mask_action_distribution = True
     # Line-of-sight masking is super slow with teleportation=True.
@@ -406,7 +408,6 @@ def sacred_config(_log):  # noqa
     norm_first = False
     use_separated_transformer = False
     interleave_lstm = False
-    fix_interleave_lstm = True
     use_prev_blocks = False
     use_prev_action = False
     use_prev_other_agent_action = False
@@ -438,8 +439,6 @@ def sacred_config(_log):  # noqa
             "hidden_channels": hidden_channels,
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
-            "use_per_location_lstm": use_per_location_lstm,
-            "lstm_depth": lstm_depth,
             "num_lstm_layers": num_lstm_layers,
             "use_prev_blocks": use_prev_blocks,
             "use_prev_action": use_prev_action,
@@ -471,14 +470,11 @@ def sacred_config(_log):  # noqa
             "hidden_size": hidden_size,
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
-            "use_per_location_lstm": use_per_location_lstm,
-            "lstm_depth": lstm_depth,
             "num_lstm_layers": num_lstm_layers,
             "use_prev_blocks": use_prev_blocks,
             "use_prev_action": use_prev_action,
             "use_separated_transformer": use_separated_transformer,
             "interleave_lstm": interleave_lstm,
-            "fix_interleave_lstm": fix_interleave_lstm,
             "mask_action_distribution": mask_action_distribution,
             "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
@@ -696,10 +692,9 @@ def sacred_config(_log):  # noqa
             num_sgd_iter=num_sgd_iter,
             vf_loss_coeff=vf_loss_coeff,
             vf_clip_param=float("inf"),
-            entropy_coeff_schedule=[
-                [0, entropy_coeff_start],
-                [entropy_coeff_horizon, entropy_coeff_end],
-            ],
+            entropy_coeff_schedule=convert_dogmatics_to_standard(
+                entropy_coeff_schedule
+            ),
             grad_clip=grad_clip,
             lambda_=gae_lambda,
             kl_coeff=kl_coeff,
@@ -772,10 +767,9 @@ def sacred_config(_log):  # noqa
             policy_loss_coeff=policy_loss_coeff,
             vf_loss_coeff=vf_loss_coeff,
             prev_goal_kl_coeff=prev_goal_kl_coeff,
-            entropy_coeff_schedule=[
-                (0, entropy_coeff_start),
-                (entropy_coeff_horizon, entropy_coeff_end),
-            ],
+            entropy_coeff_schedule=convert_dogmatics_to_standard(
+                entropy_coeff_schedule
+            ),
             sample_freq=sample_freq,
             sample_batch_size=sample_batch_size,
             ranked_rewards={"enable": False},

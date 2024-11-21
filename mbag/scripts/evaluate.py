@@ -63,8 +63,8 @@ def sacred_config():
     save_episodes = use_malmo  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
-    algorithm_config_updates: List[dict] = [{}]  # noqa: F841
-    agent_config_updates: List[dict] = [{}]  # noqa: F841
+    algorithm_config_updates = [{}]  # type: ignore # noqa: F841
+    agent_config_updates = [{}]  # type: ignore # noqa: F841
 
     # Used by named configs
     assistant_checkpoint = None  # noqa: F841

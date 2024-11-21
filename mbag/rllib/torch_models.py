@@ -4,12 +4,12 @@ import warnings
 from abc import ABC, abstractmethod
 from typing import (
     Any,
+    Callable,
     ContextManager,
     Dict,
     List,
     Mapping,
     Optional,
-    Sequence,
     Tuple,
     Union,
     cast,
@@ -129,10 +129,6 @@ class MbagModelConfig(TypedDict, total=False):
     """Number of extra layers for the action head."""
     num_value_layers: int
     """Number of extra layers for the value head."""
-    use_per_location_lstm: bool
-    """Include a LSTM operating per-location."""
-    lstm_depth: Optional[int]
-    """How many layers into the backbone to run the LSTM; default is at the end."""
     num_lstm_layers: int
     """Number of LSTM layers."""
     mask_action_distribution: bool
@@ -166,8 +162,6 @@ DEFAULT_CONFIG: MbagModelConfig = {
     "hidden_size": 16,
     "num_action_layers": 1,
     "num_value_layers": 1,
-    "use_per_location_lstm": False,
-    "lstm_depth": None,
     "num_lstm_layers": 1,
     "mask_action_distribution": True,
     "line_of_sight_masking": False,
@@ -666,35 +660,11 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         with self._amp_or_nothing:
             backbone = self.backbone if self.vf_share_layers else self.action_backbone
 
-            if self.lstm_depth is not None:
-                assert self.use_per_location_lstm
-                assert not (
-                    isinstance(backbone, SeparatedTransformerEncoder)
-                    and backbone.interleave_lstm
-                )
-                lstm_in = backbone(
-                    self._backbone_in, layer_indices=range(0, self.lstm_depth)
-                )
-                lstm_out, state = self._run_lstm(lstm_in, state, seq_lens)
-                num_layers: int = self.num_layers
-                self._backbone_out = backbone(
-                    lstm_out, layer_indices=range(self.lstm_depth, num_layers)
-                )
+            if isinstance(backbone, InterleavedBackbone):
+                assert not self.use_per_location_lstm
+                self._backbone_out, state = backbone(self._backbone_in, state, seq_lens)
             else:
-                if (
-                    isinstance(backbone, SeparatedTransformerEncoder)
-                    and backbone.interleave_lstm
-                ):
-                    assert not self.use_per_location_lstm
-                    self._backbone_out, state = backbone(
-                        self._backbone_in, state, seq_lens
-                    )
-                else:
-                    self._backbone_out = backbone(self._backbone_in)
-                    if self.use_per_location_lstm:
-                        self._backbone_out, state = self._run_lstm(
-                            self._backbone_out.float(), state, seq_lens
-                        )
+                self._backbone_out = backbone(self._backbone_in)
 
             self._backbone_out_shape = self._backbone_out.size()[1:]
             assert self._backbone_out_shape[0] == self._get_head_in_channels()
@@ -1236,88 +1206,152 @@ class Permute(nn.Module):
         return x.permute(*self.dims)
 
 
-class SeparatedTransformerEncoder(nn.Module):
+class SeparatedTransformerEncoderLayer(nn.TransformerEncoderLayer):
     def __init__(
         self,
-        num_layers: int,
         d_model: int,
         nhead: int,
-        dim_feedforward: int,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+        activation: Union[str, Callable[[torch.Tensor], torch.Tensor]] = F.relu,
+        layer_norm_eps: float = 1e-5,
+        batch_first: bool = True,
         norm_first: bool = False,
-        n_spatial_dims: int = 3,
-        interleave_lstm: bool = False,
-        fix_interleave_lstm: bool = False,
-    ):
-        super().__init__()
-
-        self.d_model = d_model
-        self.norm_first = norm_first
+        bias: bool = True,
+        device=None,
+        dtype=None,
+        *,
+        n_spatial_dims,
+        spatial_dim,
+    ) -> None:
+        super().__init__(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation=activation,
+            layer_norm_eps=layer_norm_eps,
+            batch_first=batch_first,
+            norm_first=norm_first,
+            bias=bias,
+            device=device,
+            dtype=dtype,
+        )
         self.n_spatial_dims = n_spatial_dims
-        self.interleave_lstm = interleave_lstm
-        self.fix_interleave_lstm = fix_interleave_lstm
+        self.spatial_dim = spatial_dim
 
-        self.pre_lstm_layer_norms = nn.ModuleList()
-        self.layers: List[Union[nn.TransformerEncoderLayer, nn.LSTM]] = []
-        for layer_index in range(num_layers):
-            layer: Union[nn.TransformerEncoderLayer, nn.LSTM]
-            if (
-                self.interleave_lstm
-                and (layer_index + 1) % (self.n_spatial_dims + 1) == 0
-            ):
-                layer = nn.LSTM(
-                    input_size=d_model,
-                    hidden_size=d_model,
-                    num_layers=1,
-                    batch_first=True,
-                )
-                if self.norm_first:
-                    pre_lstm_layer_norm = nn.LayerNorm(d_model)
-                    self.pre_lstm_layer_norms.append(pre_lstm_layer_norm)
-            else:
-                layer = nn.TransformerEncoderLayer(
-                    d_model=d_model,
-                    nhead=nhead,
-                    dim_feedforward=dim_feedforward,
-                    batch_first=True,
-                    norm_first=norm_first,
-                )
-            self.add_module(f"layer_{layer_index}", layer)
-            self.layers.append(layer)
-
-        if self.norm_first:
-            self.post_layer_norm = nn.LayerNorm(d_model)
-
-    def _layer_forward(self, layer: nn.TransformerEncoderLayer, x: torch.Tensor):
-        return layer(x)
-
-    def _batched_layer_forward(
-        self, layer: nn.TransformerEncoderLayer, x: torch.Tensor
-    ):
+    def _batched_forward(self, x: torch.Tensor) -> torch.Tensor:
         # PyTorch only supports batch sizes up to 2 ** 16 - 1, so we need to split
         # the batch into smaller chunks.
         batch_size = x.size()[0]
         if batch_size <= 2**16 - 1:
-            return self._layer_forward(layer, x)
+            return super().forward(x)
         else:
             minibatch_size = 2**15
             num_minibatches = (batch_size + minibatch_size - 1) // minibatch_size
             minibatch_outputs = []
             for i in range(num_minibatches):
                 minibatch_outputs.append(
-                    self._layer_forward(
-                        layer, x[i * minibatch_size : (i + 1) * minibatch_size]
-                    )
+                    super().forward(x[i * minibatch_size : (i + 1) * minibatch_size])
                 )
             return torch.cat(minibatch_outputs, dim=0)
+
+    def forward(
+        self,
+        src: torch.Tensor,
+        src_mask: Optional[torch.Tensor] = None,
+        src_key_padding_mask: Optional[torch.Tensor] = None,
+        is_causal: bool = False,
+    ) -> torch.Tensor:
+        assert src_mask is None
+        assert src_key_padding_mask is None
+        assert not is_causal
+        x = src
+
+        permutation = (
+            (0,)
+            + tuple(
+                other_spatial_dim + 2
+                for other_spatial_dim in range(self.n_spatial_dims)
+                if other_spatial_dim != self.spatial_dim
+            )
+            + (self.spatial_dim + 2, 1)
+        )
+        inverse_permutation = tuple(
+            permutation.index(dim) for dim in range(len(x.size()))
+        )
+        x_permuted = x.permute(*permutation)
+        layer_input = x_permuted.flatten(end_dim=-3)
+        # We use the default (math) kernel for attention b/c the sequence lengths are
+        # super short, so it ends up being faster.
+        if hasattr(torch.backends.cuda, "sdp_kernel"):
+            with torch.backends.cuda.sdp_kernel(
+                enable_flash=False, enable_mem_efficient=False
+            ):
+                layer_output = self._batched_forward(layer_input)
+        else:
+            layer_output = self._batched_forward(layer_input)
+        x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+        return x
+
+
+class InterleavedBackbone(nn.Module):
+    def __init__(
+        self,
+        num_layers: int,
+        layer_creator: Callable[[int], nn.Module],
+        interleave_lstm_every: int = -1,
+        lstm_size: int = 64,
+        norm_first: bool = False,
+    ):
+        super().__init__()
+
+        self.num_layers = num_layers
+        self.lstm_size = lstm_size
+        self.norm_first = norm_first
+        self.interleave_lstm_every = interleave_lstm_every
+
+        self.pre_lstm_layer_norms = nn.ModuleList()
+        self.layers: List[nn.Module] = []
+        num_non_lstm_layers = 0
+        for layer_index in range(num_layers):
+            layer: nn.Module
+            if (
+                self.interleave_lstm_every > 0
+                and (layer_index + 1) % self.interleave_lstm_every == 0
+            ):
+                layer = nn.LSTM(
+                    input_size=self.lstm_size,
+                    hidden_size=self.lstm_size,
+                    num_layers=1,
+                    batch_first=True,
+                )
+                if self.norm_first:
+                    pre_lstm_layer_norm = nn.LayerNorm(self.lstm_size)
+                    self.pre_lstm_layer_norms.append(pre_lstm_layer_norm)
+            else:
+                # layer = nn.TransformerEncoderLayer(
+                #     d_model=d_model,
+                #     nhead=nhead,
+                #     dim_feedforward=dim_feedforward,
+                #     batch_first=True,
+                #     norm_first=norm_first,
+                # )
+                layer = layer_creator(num_non_lstm_layers)
+                num_non_lstm_layers += 1
+            self.add_module(f"layer_{layer_index}", layer)
+            self.layers.append(layer)
+
+        if self.norm_first:
+            self.post_layer_norm = nn.LayerNorm(self.lstm_size)
 
     def _run_layer(
         self, layer_index: int, x: torch.Tensor, state: List[torch.Tensor], seq_lens
     ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        assert len(x.size()) - 2 == self.n_spatial_dims
         layer = self.layers[layer_index]
 
         if isinstance(layer, nn.LSTM):
-            lstm_index = layer_index // (self.n_spatial_dims + 1)
+            lstm_index = layer_index // self.interleave_lstm_every
             lstm_state = state[2 * lstm_index : 2 * (lstm_index + 1)]
             x, state = self._run_lstm(
                 layer,
@@ -1331,35 +1365,7 @@ class SeparatedTransformerEncoder(nn.Module):
                 ),
             )
         else:
-            if self.interleave_lstm and self.fix_interleave_lstm:
-                spatial_dim = layer_index % (self.n_spatial_dims + 1)
-            else:
-                # This is now incorrect with interleaved LSTMs.
-                spatial_dim = layer_index % self.n_spatial_dims
-            permutation = (
-                (0,)
-                + tuple(
-                    other_spatial_dim + 2
-                    for other_spatial_dim in range(self.n_spatial_dims)
-                    if other_spatial_dim != spatial_dim
-                )
-                + (spatial_dim + 2, 1)
-            )
-            inverse_permutation = tuple(
-                permutation.index(dim) for dim in range(len(x.size()))
-            )
-            x_permuted = x.permute(*permutation)
-            layer_input = x_permuted.flatten(end_dim=-3)
-            # We use the default (math) kernel for attention b/c the sequence lengths are
-            # super short, so it ends up being faster.
-            if hasattr(torch.backends.cuda, "sdp_kernel"):
-                with torch.backends.cuda.sdp_kernel(
-                    enable_flash=False, enable_mem_efficient=False
-                ):
-                    layer_output = self._batched_layer_forward(layer, layer_input)
-            else:
-                layer_output = self._batched_layer_forward(layer, layer_input)
-            x = layer_output.reshape(x_permuted.size()).permute(*inverse_permutation)
+            x = layer(x)
             state = []
 
         if x.device.type == "cuda" and torch.cuda.is_bf16_supported():
@@ -1390,7 +1396,7 @@ class SeparatedTransformerEncoder(nn.Module):
             *x.size()[1:],
         )
         batch_size, max_seq_len = x_with_time.size()[:2]
-        assert x_with_time.size()[2:] == (self.d_model,) + world_size
+        assert x_with_time.size()[2:] == (self.lstm_size,) + world_size
         # Should be of size (batch_size * width * height * depth, max_seq_len, hidden_size).
         x_per_location = x_with_time.permute(0, 3, 4, 5, 1, 2).flatten(end_dim=3)
         if pre_layer_norm:
@@ -1410,10 +1416,12 @@ class SeparatedTransformerEncoder(nn.Module):
             batch_size,
             *world_size,
             max_seq_len,
-            self.d_model,
+            self.lstm_size,
         ).permute(0, 4, 5, 1, 2, 3)
         state_out = [
-            state.reshape(batch_size, *world_size, self.d_model).permute(0, 4, 1, 2, 3)
+            state.reshape(batch_size, *world_size, self.lstm_size).permute(
+                0, 4, 1, 2, 3
+            )
             for state in state_out_per_location
         ]
 
@@ -1428,16 +1436,11 @@ class SeparatedTransformerEncoder(nn.Module):
         x: torch.Tensor,
         state: List[torch.Tensor] = [],
         seq_lens=None,
-        *,
-        layer_indices: Optional[Sequence[int]] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, List[torch.Tensor]]]:
         # input shape: (batch_size, channels, spatial_dim_1, spatial_dim_2...)
 
-        if layer_indices is None:
-            layer_indices = range(len(self.layers))
-
         state_out: List[torch.Tensor] = []
-        for layer_index in layer_indices:
+        for layer_index in range(self.num_layers):
             if self.training:
                 from torch.utils.checkpoint import checkpoint
 
@@ -1456,17 +1459,13 @@ class SeparatedTransformerEncoder(nn.Module):
         if self.norm_first:
             x = self.post_layer_norm(x.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3)
 
-        if self.interleave_lstm:
-            return x, state_out
-        else:
-            assert state_out == []
-            return x
+        return x, state_out
 
     def get_initial_state(self, world_size: WorldSize) -> List[torch.Tensor]:
-        if self.interleave_lstm:
-            num_lstm_layers = len(self.layers) // (self.n_spatial_dims + 1)
+        if self.interleave_lstm_every > 0:
+            num_lstm_layers = len(self.layers) // self.interleave_lstm_every
             return [
-                torch.zeros((self.d_model, *world_size))
+                torch.zeros((self.lstm_size, *world_size))
                 for _ in range(2 * num_lstm_layers)
             ]
         else:
@@ -1482,7 +1481,6 @@ class MbagTransformerModelConfig(MbagModelConfig, total=False):
     norm_first: bool
     use_separated_transformer: bool
     interleave_lstm: bool
-    fix_interleave_lstm: bool
 
 
 TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
@@ -1502,7 +1500,6 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
     "norm_first": False,
     "use_separated_transformer": False,
     "interleave_lstm": False,
-    "fix_interleave_lstm": False,
 }
 
 
@@ -1534,7 +1531,6 @@ class MbagTransformerModel(MbagTorchModel):
         self.norm_first = extra_config["norm_first"]
         self.use_separated_transformer = extra_config["use_separated_transformer"]
         self.interleave_lstm = extra_config["interleave_lstm"]
-        self.fix_interleave_lstm = extra_config["fix_interleave_lstm"]
 
         super().__init__(
             obs_space, action_space, num_outputs, model_config, name, **kwargs
@@ -1573,11 +1569,6 @@ class MbagTransformerModel(MbagTorchModel):
             None, None, :
         ]
 
-        if not self.use_separated_transformer:
-            self.fc_after_embedding = nn.Linear(
-                self._get_embedding_channels(), self.hidden_size
-            )
-
     def _get_embedding_channels(self) -> int:
         return super()._get_embedding_channels() + self.position_embedding_size
 
@@ -1605,19 +1596,24 @@ class MbagTransformerModel(MbagTorchModel):
 
     def _construct_backbone(self, is_value_network=False) -> nn.Module:
         if self.use_separated_transformer:
-            return SeparatedTransformerEncoder(
-                num_layers=self.num_layers,
-                d_model=self.hidden_size,
-                nhead=self.num_heads,
-                dim_feedforward=self.dim_feedforward,
-                norm_first=self.norm_first,
-                interleave_lstm=self.interleave_lstm,
-                fix_interleave_lstm=self.fix_interleave_lstm,
-            )
+
+            def layer_creator(layer_index: int) -> nn.Module:
+                return SeparatedTransformerEncoderLayer(
+                    d_model=self.hidden_size,
+                    nhead=self.num_heads,
+                    dim_feedforward=self.dim_feedforward,
+                    batch_first=True,
+                    norm_first=self.norm_first,
+                    n_spatial_dims=3,
+                    spatial_dim=layer_index % 3,
+                )
+
         else:
-            assert self.interleave_lstm is False
-            return nn.Sequential(
-                nn.TransformerEncoder(
+
+            def layer_creator(layer_index: int) -> nn.Module:
+                return nn.Sequential(
+                    View(-1, self.hidden_size, np.prod(self.world_size)),
+                    Permute(0, 2, 1),
                     nn.TransformerEncoderLayer(
                         d_model=self.hidden_size,
                         nhead=self.num_heads,
@@ -1625,11 +1621,17 @@ class MbagTransformerModel(MbagTorchModel):
                         batch_first=True,
                         norm_first=self.norm_first,
                     ),
-                    self.num_layers,
-                ),
-                View(-1, *self.world_size, self.hidden_size),
-                Permute(0, 4, 1, 2, 3),
-            )
+                    View(-1, *self.world_size, self.hidden_size),
+                    Permute(0, 4, 1, 2, 3),
+                )
+
+        return InterleavedBackbone(
+            num_layers=self.num_layers,
+            layer_creator=layer_creator,
+            interleave_lstm_every=4 if self.interleave_lstm else -1,
+            lstm_size=self.hidden_size,
+            norm_first=self.norm_first,
+        )
 
     def _get_embedded_obs(
         self,
@@ -1663,14 +1665,11 @@ class MbagTransformerModel(MbagTorchModel):
 
         embedded_obs = embedded_obs.permute(0, 4, 1, 2, 3)
 
-        if self.use_separated_transformer:
-            return embedded_obs
-        else:
-            return embedded_obs.flatten(start_dim=2).transpose(1, 2)
+        return embedded_obs
 
     def get_initial_state(self):
         if self.interleave_lstm:
-            assert isinstance(self.backbone, SeparatedTransformerEncoder)
+            assert isinstance(self.backbone, InterleavedBackbone)
             state = self.backbone.get_initial_state(world_size=self.world_size)
             if self.use_prev_blocks:
                 state.append(self._get_prev_blocks_initial_state())
@@ -1791,7 +1790,11 @@ class DiscriminatorMixin(MbagTorchModel, ModelWithDiscriminator):
         )
 
         with self._amp_or_nothing:
-            backbone_out: torch.Tensor = self.discriminator_backbone(embedded_obs)
+            backbone_out: torch.Tensor
+            if isinstance(self.discriminator_backbone, InterleavedBackbone):
+                backbone_out, _ = self.discriminator_backbone(embedded_obs)
+            else:
+                backbone_out = self.discriminator_backbone(embedded_obs)
             logits: torch.Tensor = self.discriminator_head(backbone_out).squeeze(1)
 
         return logits.float()
