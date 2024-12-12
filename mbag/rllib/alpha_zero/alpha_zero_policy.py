@@ -335,8 +335,8 @@ class MbagAlphaZeroPolicy(
         else:
             mcts_policies_batches: List[np.ndarray] = []
             actions_batches: List[np.ndarray] = []
-            for batch_start in range(0, num_envs, mcts_batch_size):
-                batch_nodes = nodes[batch_start : batch_start + mcts_batch_size]
+            while len(nodes) > 0:
+                batch_nodes, nodes = nodes[:mcts_batch_size], nodes[mcts_batch_size:]
                 mcts_policies_batch, actions_batch = self.mcts.compute_actions(
                     batch_nodes
                 )
