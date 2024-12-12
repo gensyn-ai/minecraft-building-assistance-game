@@ -19,8 +19,8 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.checkpoint import checkpoint as pt_checkpoint
 from einops import repeat
+from torch.utils.checkpoint import checkpoint as pt_checkpoint
 
 
 def instantiate_from_config(config):
