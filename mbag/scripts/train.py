@@ -343,6 +343,7 @@ def sacred_config(_log):  # noqa
     permute_block_types: bool = False
 
     # MCTS
+    mcts_batch_size = None
     puct_coefficient = 1.0
     sample_c_puct_every_timestep = True
     num_simulations = 30
@@ -815,6 +816,7 @@ def sacred_config(_log):  # noqa
             ranked_rewards={"enable": False},
             num_steps_sampled_before_learning_starts=0,
             mcts_config=convert_dogmatics_to_standard(mcts_config),
+            mcts_batch_size=mcts_batch_size,
             use_critic=use_critic,
             use_goal_predictor=use_goal_predictor,
             expected_own_reward_scale=expected_own_reward_scale,

@@ -329,7 +329,21 @@ class MbagAlphaZeroPolicy(
                 )
             )
 
-        mcts_policies, actions = self.mcts.compute_actions(nodes)
+        mcts_batch_size = self.config.get("mcts_batch_size")
+        if mcts_batch_size is None:
+            mcts_policies, actions = self.mcts.compute_actions(nodes)
+        else:
+            mcts_policies_batches: List[np.ndarray] = []
+            actions_batches: List[np.ndarray] = []
+            for batch_start in range(0, num_envs, mcts_batch_size):
+                batch_nodes = nodes[batch_start : batch_start + mcts_batch_size]
+                mcts_policies_batch, actions_batch = self.mcts.compute_actions(
+                    batch_nodes
+                )
+                mcts_policies_batches.append(mcts_policies_batch)
+                actions_batches.append(actions_batch)
+            mcts_policies = np.concatenate(mcts_policies_batches, axis=0)
+            actions = np.concatenate(actions_batches, axis=0)
 
         expected_rewards_list: List[float] = []
         expected_own_rewards_list: List[float] = []
