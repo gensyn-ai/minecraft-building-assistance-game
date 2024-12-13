@@ -12,6 +12,7 @@ from mbag.agents.action_distributions import MbagActionDistribution
 from mbag.environment.actions import MbagAction, MbagActionTuple
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.schedule import PiecewiseSchedule, Schedule
+from mbag.environment.types import MbagObs
 
 from ..rllib_env import unwrap_mbag_env
 from ..torch_models import MbagTorchModel, OtherAgentActionPredictorMixin
@@ -51,8 +52,8 @@ class MbagMCTSNode:
     goal_logits: Optional[np.ndarray]
     other_agent_action_dist: Optional[np.ndarray]
     other_reward: float
-    model_state_in: List[torch.Tensor]
-    model_state_out: List[torch.Tensor]
+    model_state_in: Sequence[Union[np.ndarray, torch.Tensor]]
+    model_state_out: Sequence[Union[np.ndarray, torch.Tensor]]
     action_type_priors: np.ndarray
     noop_probability: float
 
@@ -65,9 +66,10 @@ class MbagMCTSNode:
         reward,
         state,
         mcts: "MbagMCTS",
-        model_state_in: Union[List[np.ndarray], List[torch.Tensor]],
+        model_state_in: Sequence[Union[np.ndarray, torch.Tensor]],
         parent: Union["MbagMCTSNode", MbagRootParentNode],
         c_puct: float = np.nan,
+        obs_for_computing_valid_actions: Optional[MbagObs] = None,
     ):
         self.env = parent.env
         self.action = action  # Action used to go to this state
@@ -109,7 +111,12 @@ class MbagMCTSNode:
             [self.action_space_size], dtype=np.int64
         )  # N
 
-        self.valid_actions = self.env.get_valid_actions(self.obs)
+        if obs_for_computing_valid_actions is not None:
+            self.valid_actions = self.env.get_valid_actions(
+                obs_for_computing_valid_actions
+            )
+        else:
+            self.valid_actions = self.env.get_valid_actions(self.obs)
         self.valid_action_types = np.array(
             [
                 np.any(self.valid_actions[self.action_type_slices[action_type]])
@@ -124,6 +131,10 @@ class MbagMCTSNode:
             MbagAction.NUM_ACTION_TYPES, dtype=np.int64
         )
 
+        self.total_expected_reward = 0.0
+        self.total_expected_own_reward = 0.0
+        self.total_expected_reward_visits = 0
+
         self.action_type_dirichlet_noise = None
         self.dirichlet_noise = None
 
@@ -135,13 +146,16 @@ class MbagMCTSNode:
 
         assert isinstance(self.mcts.model, MbagTorchModel)
         if model_state_in:
-            tensor_model_state_in = [
-                torch.from_numpy(state) if isinstance(state, np.ndarray) else state
-                for state in model_state_in
-            ]
-            self.model_state_in = [
-                state.to(self.mcts.model.device) for state in tensor_model_state_in
-            ]
+            if self.mcts.store_model_state_in_torch:
+                tensor_model_state_in = [
+                    torch.from_numpy(state) if isinstance(state, np.ndarray) else state
+                    for state in model_state_in
+                ]
+                self.model_state_in = [
+                    state.to(self.mcts.model.device) for state in tensor_model_state_in
+                ]
+            else:
+                self.model_state_in = model_state_in
         else:
             self.model_state_in = []
 
@@ -500,7 +514,9 @@ class MbagMCTSNode:
         (expected_reward, expected_own_reward).
         """
 
-        if not self.mcts.use_goal_predictor and self.other_agent_action_dist is None:
+        if self.mcts.act_greedily_on_own_reward or (
+            not self.mcts.use_goal_predictor and self.other_agent_action_dist is None
+        ):
             child = self.get_child(action)
             assert child.info is not None
             return child.reward, child.info["own_reward"]
@@ -508,27 +524,44 @@ class MbagMCTSNode:
         action_children = [
             child for actions, child in self.children.items() if actions[0] == action
         ]
-        total_reward = 0
+        total_reward = 0.0
         total_visits = 0
-        total_own_reward = 0
+        total_own_reward = 0.0
         total_own_reward_visits = 0
         for child in action_children:
-            if (not self.mcts.use_goal_predictor) or child.is_expanded or child.done:
-                total_reward += child.number_visits * child.reward
-                total_visits += child.number_visits
             assert child.info is not None
-            total_own_reward += child.number_visits * child.info["own_reward"]
-            total_own_reward_visits += child.number_visits
+            total_reward += child.total_expected_reward
+            total_visits += child.total_expected_reward_visits
+            total_own_reward += child.total_expected_own_reward
+            total_own_reward_visits += child.total_expected_reward_visits
         expected_own_reward = total_own_reward / total_own_reward_visits
         expected_reward = total_reward / total_visits
         return expected_reward, expected_own_reward
 
-    def backup(self, value):
-        current = self
+    def backup(self, value, goal_logits: Optional[np.ndarray] = None):
+        current: MbagMCTSNode = self
         value = float(value)
         while True:
+            if goal_logits is not None and isinstance(current.parent, MbagMCTSNode):
+                assert current.info is not None
+                reward = self.env.get_reward_with_other_agent_actions(
+                    current.parent.obs,
+                    current.info,
+                    goal_logits,
+                    update_own_reward=True,
+                )
+            else:
+                reward = current.reward
+
+            current.total_expected_reward += reward
+            if current.info is not None:
+                current.total_expected_own_reward += current.info["own_reward"]
+            else:
+                current.total_expected_own_reward += 0
+            current.total_expected_reward_visits += 1
+
             value *= self.mcts.gamma
-            value += current.reward
+            value += reward
             current._number_visits += 1
             current._total_value += value
 
@@ -640,11 +673,23 @@ class MbagMCTS(MCTS):
         self.predict_goal_using_average = mcts_param.get(
             "predict_goal_using_average", False
         )
-        if self.predict_goal_using_next_state and self.predict_goal_using_average:
+        self.predict_goal_using_future_states = mcts_param.get(
+            "predict_goal_using_future_states", False
+        )
+        if (
+            int(self.predict_goal_using_next_state)
+            + int(self.predict_goal_using_average)
+            + int(self.predict_goal_using_future_states)
+        ) > 1:
             raise ValueError(
-                "predict_goal_using_next_state and predict_goal_using_average "
-                "cannot both be True"
+                "No more than one of predict_goal_using_next_state, "
+                "predict_goal_using_average, and predict_goal_using_future_states "
+                "can be True."
             )
+        self.expected_own_reward_scale: float = mcts_param.get(
+            "expected_own_reward_scale", 1
+        )
+        self.expected_reward_shift: float = mcts_param.get("expected_reward_shift", 0)
 
         # Previously, we used a version of bilevel action selection that wasn't
         # quite accurate. It used the number of visits to the whole state rather than
@@ -658,6 +703,16 @@ class MbagMCTS(MCTS):
         self.sample_c_puct_every_timestep: bool = mcts_param.get(
             "sample_c_puct_every_timestep", True
         )
+
+        self.store_model_state_in_torch: bool = mcts_param.get(
+            "store_model_state_in_torch", True
+        )
+
+        self.act_greedily_on_own_reward: bool = mcts_param.get(
+            "act_greedily_on_own_reward", False
+        )
+        if self.act_greedily_on_own_reward:
+            self.num_sims = 1
 
     @property
     def persist_c_puct(self):
@@ -682,20 +737,32 @@ class MbagMCTS(MCTS):
     def compute_actions(  # noqa: C901
         self, nodes: List[MbagMCTSNode]
     ) -> Tuple[np.ndarray, np.ndarray]:
+
         for _ in range(self.num_sims):
             leaves: List[MbagMCTSNode] = [node.select() for node in nodes]
             obs = [leaf.obs for leaf in leaves]
             model_state_len = len(leaves[0].model_state_in)
-            model_state_in = [
-                torch.stack(
-                    [leaf.model_state_in[state_index] for leaf in leaves], dim=0
-                )
-                for state_index in range(model_state_len)
-            ]
+            model_state_in: Sequence[Union[np.ndarray, torch.Tensor]]
+            if self.store_model_state_in_torch:
+                model_state_in = []
+                for state_index in range(model_state_len):
+                    leaf_states: List[torch.Tensor] = []
+                    for leaf in leaves:
+                        state = leaf.model_state_in[state_index]
+                        assert isinstance(state, torch.Tensor)
+                        leaf_states.append(state)
+                    model_state_in.append(torch.stack(leaf_states, dim=0))
+            else:
+                model_state_in = [
+                    np.stack(
+                        [leaf.model_state_in[state_index] for leaf in leaves], axis=0
+                    )
+                    for state_index in range(model_state_len)
+                ]
             action_mask = np.stack([leaf.valid_actions for leaf in leaves])
             child_priors: np.ndarray
             values: np.ndarray
-            model_state_out: List[torch.Tensor]
+            model_state_out: List[Union[np.ndarray, torch.Tensor]]
 
             child_priors, values, model_state_out = self.model.compute_priors_and_value(
                 obs, model_state_in, action_mask=action_mask
@@ -704,6 +771,11 @@ class MbagMCTS(MCTS):
             child_priors /= child_priors.sum(axis=1, keepdims=True)
             if not self.use_critic:
                 values[:] = 0
+            if not self.store_model_state_in_torch:
+                model_state_out = [
+                    state.cpu().numpy() if isinstance(state, torch.Tensor) else state
+                    for state in model_state_out
+                ]
 
             goal_logits: Optional[np.ndarray]
             if self.use_goal_predictor:
@@ -737,7 +809,15 @@ class MbagMCTS(MCTS):
                         and leaf == nodes[env_index],
                         model_state_out=[state[env_index] for state in model_state_out],
                     )
-                leaf.backup(value)
+                leaf.backup(
+                    value,
+                    goal_logits=(
+                        goal_logits[env_index]
+                        if self.predict_goal_using_future_states
+                        and goal_logits is not None
+                        else None
+                    ),
+                )
 
         # Tree policy target (TPT)
         if self.sample_from_full_support_policy:
@@ -764,7 +844,21 @@ class MbagMCTS(MCTS):
         tree_policies = np.power(tree_policies, self.temperature)
         tree_policies = tree_policies / np.sum(tree_policies, axis=1, keepdims=True)
 
-        if self.exploit:
+        if self.act_greedily_on_own_reward:
+            actions_list: List[int] = []
+            for node in nodes:
+                node.other_agent_action_dist = None
+                actions_expected_rewards = []
+                for action in np.nonzero(node.valid_actions)[0]:
+                    child = node.get_child(action)
+                    actions_expected_rewards.append(
+                        (action, child.reward),
+                    )
+                np.random.shuffle(actions_expected_rewards)
+                action, _ = max(actions_expected_rewards, key=lambda x: x[1])
+                actions_list.append(action)
+            actions = np.array(actions_list)
+        elif self.exploit:
             # if exploit then choose action that has the maximum
             # tree policy probability
             actions = np.argmax(tree_policies, axis=1)

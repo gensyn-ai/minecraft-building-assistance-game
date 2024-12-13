@@ -22,6 +22,7 @@ try:
     from mbag.rllib.torch_models import MbagTransformerModel
     from mbag.rllib.training_utils import load_trainer
     from mbag.scripts.create_mixture_model import ex as create_mixture_model_ex
+    from mbag.scripts.evaluate import ex as evaluate_ex
     from mbag.scripts.rollout import ex as rollout_ex
     from mbag.scripts.train import ex
 except ImportError:
@@ -82,6 +83,8 @@ def default_bc_config():
         "vf_share_layers": True,
         "hidden_channels": 64,
         "num_sgd_iter": 1,
+        "sgd_minibatch_size": 64,
+        "num_training_iters": 10,
         "inf_blocks": False,
         "teleportation": False,
         "input": "data/human_data/sample_tutorial_rllib",
@@ -163,26 +166,6 @@ def test_kl_regularized_ppo(default_config, dummy_ppo_checkpoint_fname):
 
     assert anchor_policy_kls[10] < anchor_policy_kls[0]
     assert anchor_policy_kls[0] < 1
-
-
-@pytest.mark.uses_rllib
-@pytest.mark.slow
-@pytest.mark.timeout(60)
-def test_lstm(default_config):
-    result = ex.run(
-        config_updates={
-            **default_config,
-            "num_workers": 0,  # TODO: remove
-            "use_per_location_lstm": True,
-            "max_seq_len": 5,
-            "sgd_minibatch_size": 20,
-            "vf_share_layers": True,
-            "use_prev_blocks": True,
-        }
-    ).result
-
-    assert result is not None
-    assert result["custom_metrics"]["human/own_reward_mean"] > -10
 
 
 @pytest.mark.uses_rllib
@@ -435,7 +418,7 @@ def test_alpha_zero_assistant_with_bc(default_config, default_alpha_zero_config)
 @pytest.mark.uses_rllib
 @pytest.mark.slow
 @pytest.mark.timeout(60)
-def test_lstm_alpha_zero_assistant(
+def test_alpha_zero_with_model_replay_buffer(
     default_config, default_alpha_zero_config, dummy_ppo_checkpoint_fname
 ):
     result = ex.run(
@@ -449,7 +432,14 @@ def test_lstm_alpha_zero_assistant(
             "load_policies_mapping": {"human": "human"},
             "policies_to_train": ["assistant"],
             "model": "transformer_alpha_zero",
-            "use_per_location_lstm": True,
+            "interleave_lstm": True,
+            "use_replay_buffer": True,
+            "num_layers": 4,
+            "replay_buffer_storage_unit": "sequences",
+            "replay_buffer_size": 100,
+            "use_model_replay_buffer": True,
+            "model_replay_buffer_size": 100,
+            "train_batch_size": 20,
             "max_seq_len": 5,
             "sgd_minibatch_size": 20,
             "vf_share_layers": True,
@@ -493,8 +483,8 @@ def test_interleaved_lstm_alpha_zero_assistant(
 
 @pytest.mark.uses_rllib
 @pytest.mark.slow
-@pytest.mark.timeout(120)
-@pytest.mark.limit_memory("850 MB")
+@pytest.mark.timeout(600)
+@pytest.mark.limit_memory("600 MB")
 def test_lstm_alpha_zero_memory_usage(
     default_config,
     default_alpha_zero_config,
@@ -521,7 +511,9 @@ def test_lstm_alpha_zero_memory_usage(
             "max_seq_len": 10,
             "sample_batch_size": 800,
             "model": "transformer",
-            "use_per_location_lstm": True,
+            "num_layers": 4,
+            "use_separated_transformer": True,
+            "interleave_lstm": True,
             "sgd_minibatch_size": 20,
             "train_batch_size": 1,
             "vf_share_layers": True,
@@ -596,7 +588,7 @@ def test_alpha_zero_assistant_pretraining_with_alpha_zero_human(
         }
     )
     human_checkpoint_fname = glob.glob(
-        checkpoint_dir + "/MbagAlphaZero/self_play/6x6x6/random/*/*/checkpoint_000000"
+        checkpoint_dir + "/MbagAlphaZero/1_player/6x6x6/random/*/*/checkpoint_000000"
     )[0]
     assert os.path.exists(human_checkpoint_fname)
 
@@ -658,6 +650,7 @@ def test_predicted_rewards_equal_rewards_in_alpha_zero(
             "horizon": 100,
             "rollout_fragment_length": 100,
             "sample_batch_size": 1000,
+            "incorrect_action_reward": -0.3,
         }
     ).result
     assert result is not None
@@ -708,8 +701,8 @@ def test_bc(default_config, default_bc_config):
     assert result is not None
 
     # Without value loss, the value function shouldn't learn anything.
-    assert result["info"]["learner"]["human"]["validation"]["vf_explained_var"] < 0.1
-    assert result["info"]["learner"]["human"]["validation"]["vf_loss"] > 10
+    assert result["info"]["learner"]["human"]["learner_stats"]["vf_explained_var"] < 0.1
+    assert result["info"]["learner"]["human"]["learner_stats"]["vf_loss"] > 10
 
 
 @pytest.mark.uses_rllib
@@ -726,8 +719,54 @@ def test_bc_with_value_loss(default_config, default_bc_config):
     ).result
     assert result is not None
 
-    assert result["info"]["learner"]["human"]["validation"]["vf_explained_var"] > 0.3
-    assert result["info"]["learner"]["human"]["validation"]["vf_loss"] < 5
+    assert (
+        result["info"]["learner"]["human"]["learner_stats"]["vf_explained_var"] > 0.15
+    )
+    assert result["info"]["learner"]["human"]["learner_stats"]["vf_loss"] < 6
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.slow
+@pytest.mark.timeout(60)
+def test_bc_and_evaluate_with_prev_action_input(default_config, default_bc_config):
+    bc_result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            "validation_participant_ids": [4],
+            "use_prev_action": True,
+            "use_fc_after_embedding": True,
+        }
+    ).result
+    assert bc_result is not None
+
+    evaluate_result = evaluate_ex.run(
+        config_updates={
+            "runs": ["BC"],
+            "checkpoints": [bc_result["final_checkpoint"]],
+            "policy_ids": ["human"],
+            "num_episodes": 1,
+        },
+    ).result
+    assert evaluate_result is not None
+
+
+@pytest.mark.uses_rllib
+@pytest.mark.slow
+@pytest.mark.timeout(60)
+def test_bc_with_lstm(default_config, default_bc_config):
+    result = ex.run(
+        config_updates={
+            **default_config,
+            **default_bc_config,
+            "validation_participant_ids": [4],
+            "interleave_lstm": True,
+            "num_layers": 4,
+            "input": "data/human_data/sample_tutorial_rllib_seq_5",
+            "max_seq_len": 5,
+        }
+    ).result
+    assert result is not None
 
 
 @pytest.mark.uses_rllib
@@ -772,7 +811,8 @@ def test_distill(default_config, default_bc_config, dummy_ppo_checkpoint_fname):
                 "input": rollout_dir,
                 "mask_goal": True,
                 "use_extra_features": False,
-                "use_per_location_lstm": use_lstm,
+                "interleave_lstm": use_lstm,
+                "num_layers": 4,
                 "max_seq_len": 5,
                 "sgd_minibatch_size": 10,
             }

@@ -47,15 +47,17 @@ Set the number of Minecraft instances to launch with the `--num_instances` optio
 
 The `--goal_visibility` argument controls which instances show the goal house as a transparent blueprint within the game. Generally you should set this to True for the first instances and False for additional instances (e.g., `--goal_visibility True False False` for three instances).
 
+TODO when is Minecraft ready?
+
 ### Running an MBAG episode
 
 Once the Minecraft instances are running, you can use the following command to start an episode playing with an assistant:
 
-    python -m mbag.scripts.evaluate with human_with_assistant assistant_checkpoint=data/example_assistant/checkpoint_000100
+    python -m mbag.scripts.evaluate with human_with_assistant assistant_checkpoint=data/example_assistant/checkpoint_001700
 
 To play an episode without an assistant, run:
 
-    python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_000100
+    python -m mbag.scripts.evaluate with human_alone assistant_checkpoint=data/example_assistant/checkpoint_001700
 
 The `assistant_checkpoint` argument is still needed in this case to load the environment configuration.
 
@@ -63,4 +65,4 @@ Once the episode starts, press <kbd>Return</kbd> (<kbd>Enter</kbd>) to enable mo
 
 The episode will automatically terminate when the house is completed, but if you want to end it sooner, use <kbd>Ctrl</kbd>+<kbd>C</kbd>. At the end of the episode, the episode data will be saved and metrics will be printed out.
 
-To start a new episode, simply re-run the start command from earlier. You do not need to restart the Minecraft instances.
+TODO: add other options (seed, house_id, num_simulations, etc.)

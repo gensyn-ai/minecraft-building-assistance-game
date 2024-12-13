@@ -24,7 +24,6 @@ from sacred import SETTINGS as SACRED_SETTINGS
 from sacred import Experiment
 from sacred.config.custom_containers import DogmaticDict
 from sacred.observers import FileStorageObserver
-from typing_extensions import Literal
 
 import mbag
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
@@ -42,6 +41,10 @@ from mbag.environment.goals.transforms import (
     CropTransformConfig,
 )
 from mbag.rllib.alpha_zero import MbagAlphaZeroConfig, MbagAlphaZeroPolicy
+from mbag.rllib.alpha_zero.replay_buffer import (
+    FixedMultiAgentReplayBuffer,
+    PartialReplayBuffer,
+)
 from mbag.rllib.bc import BCConfig, BCTorchPolicy
 from mbag.rllib.callbacks import MbagCallbacks
 from mbag.rllib.data_augmentation import randomly_permute_block_types
@@ -51,8 +54,9 @@ from mbag.rllib.policies import MbagAgentPolicy
 from mbag.rllib.ppo import MbagPPOConfig, MbagPPOTorchPolicy
 from mbag.rllib.sacred_utils import convert_dogmatics_to_standard
 from mbag.rllib.torch_models import (
-    MbagRecurrentConvolutionalModelConfig,
+    MbagConvolutionalModelConfig,
     MbagTransformerModelConfig,
+    MbagUNetModelConfig,
 )
 from mbag.rllib.training_utils import (
     build_logger_creator,
@@ -102,6 +106,7 @@ def sacred_config(_log):  # noqa
     randomize_first_episode_length = True
     truncate_on_no_progress_timesteps: Optional[int] = None
     num_players = 1
+    evaluation_num_players = num_players
     width = 11
     height = 10
     depth = 10
@@ -120,6 +125,8 @@ def sacred_config(_log):  # noqa
     per_player_get_resources_reward: Optional[List[RewardSchedule]] = None
     action_reward: RewardSchedule = 0
     per_player_action_reward: Optional[List[RewardSchedule]] = None
+    incorrect_action_reward: RewardSchedule = 0
+    per_player_incorrect_action_reward: Optional[List[RewardSchedule]] = None
     place_wrong_reward: RewardSchedule = -1
     per_player_place_wrong_reward: Optional[List[RewardSchedule]] = None
     own_reward_prop: RewardSchedule = 0
@@ -223,6 +230,10 @@ def sacred_config(_log):  # noqa
             player_config["rewards"]["noop"] = per_player_noop_reward[player_index]
         if per_player_action_reward is not None:
             player_config["rewards"]["action"] = per_player_action_reward[player_index]
+        if per_player_incorrect_action_reward is not None:
+            player_config["rewards"]["incorrect_action"] = (
+                per_player_incorrect_action_reward[player_index]
+            )
         if per_player_place_wrong_reward is not None:
             player_config["rewards"]["place_wrong"] = per_player_place_wrong_reward[
                 player_index
@@ -253,6 +264,7 @@ def sacred_config(_log):  # noqa
         "rewards": {
             "noop": noop_reward,
             "action": action_reward,
+            "incorrect_action": incorrect_action_reward,
             "place_wrong": place_wrong_reward,
             "get_resources": get_resources_reward,
             "own_reward_prop": own_reward_prop,
@@ -279,10 +291,12 @@ def sacred_config(_log):  # noqa
     assert num_envs % max(num_workers, 1) == 0
     num_envs_per_worker = num_envs // max(num_workers, 1)
     input = "sampler"
+    output = None
     seed = 0
     num_gpus = 1.0 if torch.cuda.is_available() else 0.0
     num_gpus_per_worker = 0.0
     ray_init_options = {}  # noqa: F841
+    sample_freq = 1
     sample_batch_size = 5000
     train_batch_size = 5000
     sgd_minibatch_size = 512
@@ -292,6 +306,7 @@ def sacred_config(_log):  # noqa
     num_training_iters = 500  # noqa: F841
     lr = 1e-3
     lr_schedule = None
+    weight_decay = 0
     grad_clip = 10
     gamma = 0.95
     gae_lambda = 0.98
@@ -300,6 +315,10 @@ def sacred_config(_log):  # noqa
     entropy_coeff_start = 0 if "AlphaZero" in run else 0.01
     entropy_coeff_end = 0
     entropy_coeff_horizon = 1e5
+    entropy_coeff_schedule = [
+        [0, entropy_coeff_start],
+        [entropy_coeff_horizon, entropy_coeff_end],
+    ]
     kl_coeff = 0.2
     kl_target = 0.01
     clip_param = 0.05
@@ -309,6 +328,11 @@ def sacred_config(_log):  # noqa
     compress_observations = True
     use_replay_buffer = True
     replay_buffer_size = 10
+    replay_buffer_storage_unit = StorageUnit.FRAGMENTS
+    use_model_replay_buffer = False
+    model_replay_buffer_size = replay_buffer_size
+    model_replay_buffer_storage_probability = 0.1
+    model_train_batch_size = train_batch_size
     use_critic = True
     use_goal_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
@@ -319,6 +343,7 @@ def sacred_config(_log):  # noqa
     permute_block_types: bool = False
 
     # MCTS
+    mcts_batch_size = None
     puct_coefficient = 1.0
     sample_c_puct_every_timestep = True
     num_simulations = 30
@@ -344,21 +369,27 @@ def sacred_config(_log):  # noqa
     policy_loss_coeff = 1
     goal_loss_coeff = 0.5
     prev_goal_kl_coeff = 0
+    prev_goal_kl_coeff_schedule = None
     place_block_loss_coeff = 1
     place_block_loss_coeff_schedule = None
     predict_goal_using_next_state = False
     predict_goal_using_average = False
+    predict_goal_using_future_states = False
+    expected_own_reward_scale = 1.0
+    expected_reward_shift = 0.0
+    store_model_state_in_torch = False
 
     # Model
-    model: Literal["convolutional", "recurrent_convolutional", "transformer"] = (
-        "convolutional"
-    )
+    model: str = "convolutional"
     max_seq_len = horizon
-    embedding_size = 8
-    position_embedding_size = 18
+    embedding_size = 16
+    position_embedding_size = 48
+    position_embedding_angle = 10
     mask_goal = False
+    num_inventory_obs = num_players
     mask_other_players = num_players == 1
     use_extra_features = not mask_goal
+    use_fc_after_embedding = True
     num_conv_1_layers = 1
     num_layers = 1
     filter_size = 3
@@ -366,22 +397,32 @@ def sacred_config(_log):  # noqa
     hidden_size = hidden_channels
     num_action_layers = 2
     num_value_layers = 2
-    use_per_location_lstm = False
-    lstm_depth = None
     num_lstm_layers = 1
     mask_action_distribution = True
     # Line-of-sight masking is super slow with teleportation=True.
     line_of_sight_masking = not teleportation
     scale_obs = False
     vf_scale = 1.0
+    dim_feedforward = hidden_size
     num_heads = 4
+    norm_first = False
     use_separated_transformer = False
     interleave_lstm = False
+    interleave_lstm_every = -1
+    lstm_size = hidden_size
     use_prev_blocks = False
+    use_prev_action = False
+    use_prev_other_agent_action = False
+    assert not use_prev_other_agent_action
     use_resnet = False
-    num_unet_layers = 0
-    unet_grow_factor = 2
-    unet_use_bn = False
+    use_groupnorm = False
+    dropout = 0.0
+    attention_resolutions = ()
+    num_res_blocks = 1
+    channel_mult = (1, 2, 4)
+    use_scale_shift_norm = True
+    resblock_updown = True
+    use_lstm = False
     custom_action_dist = "categorical_no_inf"
     model_config = {
         "custom_model": f"mbag_{model}_model",
@@ -390,50 +431,56 @@ def sacred_config(_log):  # noqa
         "vf_share_layers": vf_share_layers,
     }
     if "convolutional" in model:
-        conv_config: MbagRecurrentConvolutionalModelConfig = {
+        conv_config: MbagConvolutionalModelConfig = {
             "env_config": cast(MbagConfigDict, dict(environment_params)),
+            "num_inventory_obs": num_inventory_obs,
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
+            "use_fc_after_embedding": use_fc_after_embedding,
             "mask_goal": mask_goal,
             "mask_other_players": mask_other_players,
             "num_conv_1_layers": num_conv_1_layers,
             "num_layers": num_layers,
             "use_resnet": use_resnet,
+            "use_groupnorm": use_groupnorm,
+            "dropout": dropout,
             "filter_size": filter_size,
+            "hidden_size": hidden_size,
             "hidden_channels": hidden_channels,
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
-            "use_per_location_lstm": use_per_location_lstm,
-            "lstm_depth": lstm_depth,
-            "num_lstm_layers": num_lstm_layers,
             "use_prev_blocks": use_prev_blocks,
+            "use_prev_action": use_prev_action,
             "mask_action_distribution": mask_action_distribution,
             "line_of_sight_masking": line_of_sight_masking,
             "scale_obs": scale_obs,
             "vf_scale": vf_scale,
-            "num_unet_layers": num_unet_layers,
-            "unet_grow_factor": unet_grow_factor,
-            "unet_use_bn": unet_use_bn,
             "num_value_layers": num_value_layers,
+            "interleave_lstm_every": interleave_lstm_every,
+            "lstm_size": lstm_size,
         }
         model_config["custom_model_config"] = conv_config
     elif "transformer" in model:
         transformer_config: MbagTransformerModelConfig = {
             "env_config": cast(MbagConfigDict, dict(environment_params)),
+            "num_inventory_obs": num_inventory_obs,
             "embedding_size": embedding_size,
             "use_extra_features": use_extra_features,
+            "use_fc_after_embedding": use_fc_after_embedding,
             "mask_goal": mask_goal,
             "mask_other_players": mask_other_players,
             "position_embedding_size": position_embedding_size,
+            "position_embedding_angle": position_embedding_angle,
             "num_layers": num_layers,
+            "dim_feedforward": dim_feedforward,
             "num_heads": num_heads,
+            "norm_first": norm_first,
             "hidden_size": hidden_size,
             "num_action_layers": num_action_layers,
             "num_value_layers": num_value_layers,
-            "use_per_location_lstm": use_per_location_lstm,
-            "lstm_depth": lstm_depth,
             "num_lstm_layers": num_lstm_layers,
             "use_prev_blocks": use_prev_blocks,
+            "use_prev_action": use_prev_action,
             "use_separated_transformer": use_separated_transformer,
             "interleave_lstm": interleave_lstm,
             "mask_action_distribution": mask_action_distribution,
@@ -442,6 +489,36 @@ def sacred_config(_log):  # noqa
             "vf_scale": vf_scale,
         }
         model_config["custom_model_config"] = transformer_config
+    elif "unet" in model:
+        unet_config: MbagUNetModelConfig = {
+            "env_config": cast(MbagConfigDict, dict(environment_params)),
+            "num_inventory_obs": num_inventory_obs,
+            "embedding_size": embedding_size,
+            "use_extra_features": use_extra_features,
+            "use_fc_after_embedding": use_fc_after_embedding,
+            "mask_goal": mask_goal,
+            "mask_other_players": mask_other_players,
+            "hidden_size": hidden_size,
+            "hidden_channels": hidden_channels,
+            "attention_resolutions": attention_resolutions,
+            "num_res_blocks": num_res_blocks,
+            "channel_mult": channel_mult,
+            "num_heads": num_heads,
+            "use_scale_shift_norm": use_scale_shift_norm,
+            "resblock_updown": resblock_updown,
+            "num_action_layers": num_action_layers,
+            "num_value_layers": num_value_layers,
+            "use_prev_blocks": use_prev_blocks,
+            "use_prev_action": use_prev_action,
+            "mask_action_distribution": mask_action_distribution,
+            "line_of_sight_masking": line_of_sight_masking,
+            "scale_obs": scale_obs,
+            "vf_scale": vf_scale,
+            "num_value_layers": num_value_layers,
+            "use_lstm": use_lstm,
+            "lstm_size": lstm_size,
+        }
+        model_config["custom_model_config"] = unet_config
 
     # Resume from checkpoint
     checkpoint_path = None  # noqa: F841
@@ -483,11 +560,13 @@ def sacred_config(_log):  # noqa
             agent_id: str,
             episode=None,
             worker=None,
-            policy_ids=policy_ids,
+            policy_ids=convert_dogmatics_to_standard(policy_ids),
             *args,
             **kwargs,
         ):
             agent_index = int(agent_id[len("player_") :])
+            if agent_index >= len(policy_ids):
+                breakpoint()
             return policy_ids[agent_index]
 
     for player_index, policy_id in enumerate(policy_ids):
@@ -577,6 +656,8 @@ def sacred_config(_log):  # noqa
         "explore": evaluation_explore,
         "env_config": {
             "randomize_first_episode_length": False,
+            "num_players": evaluation_num_players,
+            "players": player_configs[:evaluation_num_players],
         },
     }
 
@@ -622,6 +703,7 @@ def sacred_config(_log):  # noqa
     config.offline_data(
         input_=input,
         actions_in_input_normalized=input != "sampler",
+        output=output,
     )
     config.evaluation(
         evaluation_interval=evaluation_interval,
@@ -632,6 +714,7 @@ def sacred_config(_log):  # noqa
     )
     config.rl_module(_enable_rl_module_api=False)
     config.training(
+        optimizer=dict(weight_decay=weight_decay),
         _enable_learner_api=False,
     )
     config.simple_optimizer = simple_optimizer
@@ -647,10 +730,9 @@ def sacred_config(_log):  # noqa
             num_sgd_iter=num_sgd_iter,
             vf_loss_coeff=vf_loss_coeff,
             vf_clip_param=float("inf"),
-            entropy_coeff_schedule=[
-                [0, entropy_coeff_start],
-                [entropy_coeff_horizon, entropy_coeff_end],
-            ],
+            entropy_coeff_schedule=convert_dogmatics_to_standard(
+                entropy_coeff_schedule
+            ),
             grad_clip=grad_clip,
             lambda_=gae_lambda,
             kl_coeff=kl_coeff,
@@ -703,6 +785,8 @@ def sacred_config(_log):  # noqa
             "explore_noops": explore_noops,
             "predict_goal_using_next_state": predict_goal_using_next_state,
             "predict_goal_using_average": predict_goal_using_average,
+            "predict_goal_using_future_states": predict_goal_using_future_states,
+            "store_model_state_in_torch": store_model_state_in_torch,
         }
         if temperature_start != temperature_end:
             mcts_config["temperature_schedule"] = [
@@ -715,27 +799,50 @@ def sacred_config(_log):  # noqa
             grad_clip=grad_clip,
             gamma=gamma,
             train_batch_size=train_batch_size,
+            model_train_batch_size=model_train_batch_size,
             sgd_minibatch_size=sgd_minibatch_size,
             num_sgd_iter=num_sgd_iter,
             policy_loss_coeff=policy_loss_coeff,
             vf_loss_coeff=vf_loss_coeff,
             prev_goal_kl_coeff=prev_goal_kl_coeff,
-            entropy_coeff_schedule=[
-                (0, entropy_coeff_start),
-                (entropy_coeff_horizon, entropy_coeff_end),
-            ],
+            prev_goal_kl_coeff_schedule=convert_dogmatics_to_standard(
+                prev_goal_kl_coeff_schedule
+            ),
+            entropy_coeff_schedule=convert_dogmatics_to_standard(
+                entropy_coeff_schedule
+            ),
+            sample_freq=sample_freq,
             sample_batch_size=sample_batch_size,
             ranked_rewards={"enable": False},
             num_steps_sampled_before_learning_starts=0,
             mcts_config=convert_dogmatics_to_standard(mcts_config),
+            mcts_batch_size=mcts_batch_size,
             use_critic=use_critic,
             use_goal_predictor=use_goal_predictor,
+            expected_own_reward_scale=expected_own_reward_scale,
+            expected_reward_shift=expected_reward_shift,
             other_agent_action_predictor_loss_coeff=other_agent_action_predictor_loss_coeff,
             use_replay_buffer=use_replay_buffer,
             replay_buffer_config={
-                "type": "MultiAgentReplayBuffer",
+                "type": FixedMultiAgentReplayBuffer,
                 "capacity": replay_buffer_size,
-                "storage_unit": StorageUnit.FRAGMENTS,
+                "storage_unit": replay_buffer_storage_unit,
+                "replay_sequence_override": False,
+                "replay_sequence_length": 0,
+                "replay_zero_init_states": False,
+            },
+            use_model_replay_buffer=use_model_replay_buffer,
+            model_replay_buffer_config={
+                "type": FixedMultiAgentReplayBuffer,
+                "capacity": model_replay_buffer_size,
+                "storage_unit": replay_buffer_storage_unit,
+                "replay_sequence_override": False,
+                "replay_sequence_length": 0,
+                "replay_zero_init_states": False,
+                "underlying_buffer_config": {
+                    "type": PartialReplayBuffer,
+                    "storage_probability": model_replay_buffer_storage_probability,
+                },
             },
             pretrain=pretrain,
             anchor_policy_mapping=anchor_policy_mapping,
@@ -808,6 +915,9 @@ def sacred_config(_log):  # noqa
     observer = NoTypeAnnotationsFileStorageObserver(experiment_dir)
     ex.observers.append(observer)
 
+    # For testing
+    _no_train = False  # noqa: F841
+
     # Extra args that are ignored here but used in some of the named configs.
     checkpoint_name = None  # noqa: F841
     data_split = None  # noqa: F841
@@ -829,6 +939,7 @@ def main(
     load_policies_mapping: Dict[str, str],
     observer,
     ray_init_options,
+    _no_train: bool,
     _log: Logger,
 ):
     temp_dir = tempfile.mkdtemp()
@@ -849,6 +960,7 @@ def main(
         logger_creator=build_logger_creator(observer.dir),
     )
 
+    # Limit CUDA memory usage based on num_gpus and num_gpus_per_worker.
     if torch.cuda.is_available():
         num_gpus_per_worker: float = config["num_gpus_per_worker"]
         if trainer.workers is not None and num_gpus_per_worker > 0:
@@ -895,13 +1007,14 @@ def main(
         trainer.restore(checkpoint_path)
 
     result = None
-    for train_iter in range(num_training_iters):
-        _log.info(f"Starting training iteration {train_iter}")
-        result = trainer.train()
+    if not _no_train:
+        for train_iter in range(num_training_iters):
+            _log.info(f"Starting training iteration {train_iter}")
+            result = trainer.train()
 
-        if trainer.iteration % save_freq == 0:
-            checkpoint = trainer.save()
-            _log.info(f"Saved checkpoint to {checkpoint}")
+            if trainer.iteration % save_freq == 0:
+                checkpoint = trainer.save()
+                _log.info(f"Saved checkpoint to {checkpoint}")
 
     checkpoint = trainer.save()
     _log.info(f"Saved final checkpoint to {checkpoint}")

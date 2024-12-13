@@ -17,6 +17,7 @@ from ray.rllib.policy.torch_mixins import EntropyCoeffSchedule, LearningRateSche
 from ray.rllib.policy.torch_policy import TorchPolicy
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.utils.schedules import ConstantSchedule, PiecewiseSchedule, Schedule
 from ray.rllib.utils.torch_utils import (
     apply_grad_clipping,
     explained_variance,
@@ -28,14 +29,21 @@ from torch import nn
 
 from mbag.environment.blocks import MinecraftBlocks
 from mbag.environment.config import MbagConfigDict
+from mbag.environment.state import MbagStateDict
 from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS, MbagInfoDict, WorldSize
 
 from ..kl_regularization import ANCHOR_POLICY_ACTION_DIST_INPUTS
 from ..rllib_env import unwrap_mbag_env
-from ..torch_models import ACTION_MASK, MbagTorchModel, OtherAgentActionPredictorMixin
+from ..torch_models import (
+    ACTION_MASK,
+    MbagTorchModel,
+    OptimizerMixin,
+    OtherAgentActionPredictorMixin,
+)
 from .mcts import MbagMCTS, MbagMCTSNode, MbagRootParentNode
 from .planning import MbagEnvModel
 
+ENV_STATES = "env_states"
 MCTS_POLICIES = "mcts_policies"
 OTHER_AGENT_ACTION_DIST_INPUTS = "other_agent_action_dist_inputs"
 OWN_REWARDS = "own_rewards"
@@ -43,15 +51,19 @@ EXPECTED_REWARDS = "expected_rewards"
 EXPECTED_OWN_REWARDS = "expected_own_rewards"
 VALUE_ESTIMATES = "value_estimates"
 GOAL_LOGITS = "goal_logits"
+PREV_GOAL_KL_COEFF = "prev_goal_kl_coeff"
 FORCE_NOOP = "force_noop"
 C_PUCT = "c_puct"
 PREV_C_PUCT = "prev_c_puct"
+FOR_TRAINING_MODEL = "for_training_model"
 
 
 logger = logging.getLogger(__name__)
 
 
-class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroPolicy):
+class MbagAlphaZeroPolicy(
+    EntropyCoeffSchedule, LearningRateSchedule, OptimizerMixin, AlphaZeroPolicy
+):
     mcts: MbagMCTS
     envs: List[MbagEnvModel]
     config: Dict[str, Any]
@@ -105,7 +117,11 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 env_config["terminate_on_goal_completion"] = False
             env = env_creator(env_config)
             env_model = MbagEnvModel(
-                env, env_config, line_of_sight_masking=line_of_sight_masking
+                env,
+                env_config,
+                line_of_sight_masking=line_of_sight_masking,
+                expected_own_reward_scale=config.get("expected_own_reward_scale", 1.0),
+                expected_reward_shift=config.get("expected_reward_shift", 0.0),
             )
             unwrap_mbag_env(env_model).update_global_timestep(
                 self.global_timestep_for_envs
@@ -172,6 +188,20 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             config["lr_schedule"],
         )
 
+        self._prev_goal_kl_coeff_schedule: Schedule
+        prev_goal_kl_coeff_schedule = config.get("prev_goal_kl_coeff_schedule")
+        if isinstance(prev_goal_kl_coeff_schedule, list):
+            self._prev_goal_kl_coeff_schedule = PiecewiseSchedule(
+                prev_goal_kl_coeff_schedule,
+                outside_value=prev_goal_kl_coeff_schedule[-1][-1],
+                framework=None,
+            )
+        else:
+            self._prev_goal_kl_coeff_schedule = ConstantSchedule(
+                config["prev_goal_kl_coeff"]
+            )
+        self.prev_goal_kl_coeff = self._prev_goal_kl_coeff_schedule.value(0)
+
     def set_training(self, training: bool):
         self._training = training
 
@@ -198,15 +228,21 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         timestep: Optional[int] = None,
         *,
         force_noop=False,
+        prev_c_puct: Optional[np.ndarray] = None,
+        env_states: Optional[List[MbagStateDict]] = None,
         **kwargs,
     ):
-        input_dict = {"obs": obs_batch}
+        input_dict: Dict[str, Any] = {"obs": obs_batch}
         if prev_action_batch is not None:
             input_dict["prev_actions"] = prev_action_batch
         if prev_reward_batch is not None:
             input_dict["prev_rewards"] = prev_reward_batch
         for state_index, state_batch in enumerate(state_batches or []):
             input_dict[f"state_in_{state_index}"] = state_batch
+        if prev_c_puct is not None:
+            input_dict[PREV_C_PUCT] = prev_c_puct
+        if env_states is not None:
+            input_dict[ENV_STATES] = env_states
 
         return self.compute_actions_from_input_dict(
             input_dict=input_dict,
@@ -264,7 +300,11 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         nodes: List[MbagMCTSNode] = []
         for env_index in range(num_envs):
             env_obs = tuple(obs_piece[env_index] for obs_piece in obs)
-            env_state, env_obs = self.envs[env_index].set_state_from_obs(env_obs)
+            if ENV_STATES in input_dict:
+                env_state = input_dict[ENV_STATES][env_index]
+                env_obs = self.envs[env_index].set_state(env_state)
+            else:
+                env_state, env_obs = self.envs[env_index].set_state_from_obs(env_obs)
             model_state = [
                 input_dict[f"state_in_{state_index}"][env_index]
                 for state_index in range(model_state_len)
@@ -272,7 +312,8 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             nodes.append(
                 MbagMCTSNode(
                     state=env_state,
-                    obs=env_obs,
+                    obs=tuple(obs_piece[env_index] for obs_piece in obs),
+                    obs_for_computing_valid_actions=env_obs,
                     reward=0,
                     done=False,
                     info=None,
@@ -288,7 +329,21 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 )
             )
 
-        mcts_policies, actions = self.mcts.compute_actions(nodes)
+        mcts_batch_size = self.config.get("mcts_batch_size")
+        if mcts_batch_size is None:
+            mcts_policies, actions = self.mcts.compute_actions(nodes)
+        else:
+            mcts_policies_batches: List[np.ndarray] = []
+            actions_batches: List[np.ndarray] = []
+            while len(nodes) > 0:
+                batch_nodes, nodes = nodes[:mcts_batch_size], nodes[mcts_batch_size:]
+                mcts_policies_batch, actions_batch = self.mcts.compute_actions(
+                    batch_nodes
+                )
+                mcts_policies_batches.append(mcts_policies_batch)
+                actions_batches.append(actions_batch)
+            mcts_policies = np.concatenate(mcts_policies_batches, axis=0)
+            actions = np.concatenate(actions_batches, axis=0)
 
         expected_rewards_list: List[float] = []
         expected_own_rewards_list: List[float] = []
@@ -306,7 +361,10 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         for state_index in range(model_state_len):
             state_out.append(
                 np.stack(
-                    [node.model_state_out[state_index].cpu().numpy() for node in nodes],
+                    [
+                        convert_to_numpy(node.model_state_out[state_index])
+                        for node in nodes
+                    ],
                     axis=0,
                 )
             )
@@ -546,6 +604,10 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         infos.append(last_info)
         sample_batch[OWN_REWARDS] = np.array([info["own_reward"] for info in infos])
 
+        sample_batch[PREV_GOAL_KL_COEFF] = np.full(
+            len(sample_batch), self.prev_goal_kl_coeff
+        )
+
         # Remove state_out_* entries from the sample batch since they aren't needed
         # for training and they take up a lot of space.
         for key in list(sample_batch.keys()):
@@ -583,25 +645,40 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             )
             assert isinstance(mask, torch.Tensor)
             mask = torch.reshape(mask, [-1])
-            num_valid = torch.sum(mask)
-
-            def reduce_mean_valid(t):
-                return torch.sum(t[mask]) / num_valid
 
         # non-RNN case: No masking.
         else:
             mask = None
-            reduce_mean_valid = torch.mean
+
+        policy_mask: torch.Tensor
+        model_mask: torch.Tensor
+        if FOR_TRAINING_MODEL in train_batch:
+            policy_mask = cast(torch.Tensor, ~train_batch[FOR_TRAINING_MODEL])
+            model_mask = cast(torch.Tensor, train_batch[FOR_TRAINING_MODEL])
+        else:
+            policy_mask = torch.ones_like(values, dtype=torch.bool)
+            model_mask = torch.ones_like(values, dtype=torch.bool)
+        if mask is not None:
+            policy_mask = policy_mask & mask
+            model_mask = model_mask & mask
+        num_policy = torch.sum(policy_mask)
+        num_model = torch.sum(model_mask)
+
+        def reduce_mean_policy(t):
+            return torch.sum(t[policy_mask]) / num_policy
+
+        def reduce_mean_model(t):
+            return torch.sum(t[model_mask]) / num_model
 
         # Compute actor and critic losses.
-        policy_loss = reduce_mean_valid(
+        policy_loss = reduce_mean_policy(
             -torch.sum(train_batch[MCTS_POLICIES] * dist.dist.logits, dim=-1)
         )
-        value_loss = reduce_mean_valid(
+        value_loss = reduce_mean_policy(
             (values - train_batch[Postprocessing.VALUE_TARGETS]) ** 2
         )
 
-        entropy = reduce_mean_valid(dist.entropy())
+        entropy = reduce_mean_policy(dist.entropy())
 
         # Compute goal prediction loss.
         goal_logits: torch.Tensor = model.goal_predictor()
@@ -613,7 +690,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         goal = world_obs[:, GOAL_BLOCKS].long()
         ce = nn.CrossEntropyLoss(reduction="none")
         goal_ce: torch.Tensor = ce(goal_logits, goal)
-        goal_loss = reduce_mean_valid(goal_ce.flatten(start_dim=1).mean(dim=1))
+        goal_loss = reduce_mean_model(goal_ce.flatten(start_dim=1).mean(dim=1))
 
         unplaced_blocks = (goal != MinecraftBlocks.AIR) & (
             world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR
@@ -621,24 +698,36 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
         unplaced_blocks_goal_loss = goal_ce[unplaced_blocks].mean()
 
         prev_goal_kl: torch.Tensor = torch.tensor(0.0, device=policy_loss.device)
+        weighted_prev_goal_kl: torch.Tensor = torch.tensor(
+            0.0, device=policy_loss.device
+        )
         if GOAL_LOGITS in train_batch:
             prev_goal_logits = cast(torch.Tensor, train_batch[GOAL_LOGITS])
             prev_goal_logits = prev_goal_logits.permute(0, 2, 3, 4, 1).flatten(
                 end_dim=3
             )
             flat_goal_logits = goal_logits.permute(0, 2, 3, 4, 1).flatten(end_dim=3)
-            prev_goal_kl = F.kl_div(
-                F.log_softmax(flat_goal_logits, dim=1),
-                F.log_softmax(prev_goal_logits, dim=1),
-                reduction="batchmean",
-                log_target=True,
+            prev_goal_kl = (
+                F.kl_div(
+                    F.log_softmax(flat_goal_logits, dim=1),
+                    F.log_softmax(prev_goal_logits, dim=1),
+                    reduction="none",
+                    log_target=True,
+                )
+                .sum(dim=1)
+                .reshape_as(goal_ce)
+                .flatten(start_dim=1)
+                .mean(dim=1)
             )
+            weighted_prev_goal_kl = prev_goal_kl * train_batch[PREV_GOAL_KL_COEFF]
+            prev_goal_kl = reduce_mean_model(prev_goal_kl)
+            weighted_prev_goal_kl = reduce_mean_model(weighted_prev_goal_kl)
 
         # Compute total loss.
         total_loss: torch.Tensor = (
             self.config["vf_loss_coeff"] * value_loss
             + self.config["goal_loss_coeff"] * goal_loss
-            + self.config["prev_goal_kl_coeff"] * prev_goal_kl
+            + weighted_prev_goal_kl
             - self.entropy_coeff * entropy
         )
         if not self.config["pretrain"]:
@@ -660,12 +749,12 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 other_agent_action_dist_inputs,  # type: ignore
                 model=model,
             )
-            other_agent_action_predictor_loss = reduce_mean_valid(
+            other_agent_action_predictor_loss = reduce_mean_model(
                 actual_other_agent_action_dist.kl(predicted_other_agent_action_dist)
             )
 
             model.tower_stats["other_agent_action_predictor_loss"] = (
-                other_agent_action_predictor_loss
+                other_agent_action_predictor_loss.detach()
             )
             total_loss = (
                 total_loss
@@ -683,22 +772,28 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
                 cast(Any, anchor_policy_action_dist_inputs), model
             )
 
-            anchor_policy_kl = action_dist.kl(anchor_policy_action_dist).mean()
-            model.tower_stats["anchor_policy_kl"] = anchor_policy_kl
+            anchor_policy_kl = reduce_mean_policy(
+                action_dist.kl(anchor_policy_action_dist)
+            )
+            model.tower_stats["anchor_policy_kl"] = anchor_policy_kl.detach()
             total_loss = (
                 total_loss + self.config["anchor_policy_kl_coeff"] * anchor_policy_kl
             )
 
-        model.tower_stats["total_loss"] = total_loss
-        model.tower_stats["policy_loss"] = policy_loss
-        model.tower_stats["vf_loss"] = value_loss
-        model.tower_stats["vf_explained_var"] = explained_variance(
-            train_batch[Postprocessing.VALUE_TARGETS], values
+        model.tower_stats["total_loss"] = total_loss.detach()
+        model.tower_stats["policy_loss"] = policy_loss.detach()
+        model.tower_stats["vf_loss"] = value_loss.detach()
+        model.tower_stats["vf_explained_var"] = cast(
+            torch.Tensor,
+            explained_variance(train_batch[Postprocessing.VALUE_TARGETS], values),
+        ).detach()
+        model.tower_stats["goal_loss"] = goal_loss.detach()
+        model.tower_stats["prev_goal_kl"] = prev_goal_kl.detach()
+        model.tower_stats["weighted_prev_goal_kl"] = weighted_prev_goal_kl.detach()
+        model.tower_stats["unplaced_blocks_goal_loss"] = (
+            unplaced_blocks_goal_loss.detach()
         )
-        model.tower_stats["goal_loss"] = goal_loss
-        model.tower_stats["prev_goal_kl"] = prev_goal_kl
-        model.tower_stats["unplaced_blocks_goal_loss"] = unplaced_blocks_goal_loss
-        model.tower_stats["entropy"] = entropy
+        model.tower_stats["entropy"] = entropy.detach()
 
         return total_loss
 
@@ -718,6 +813,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             "vf_explained_var",
             "goal_loss",
             "prev_goal_kl",
+            "weighted_prev_goal_kl",
             "unplaced_blocks_goal_loss",
             "entropy",
             "other_agent_action_predictor_loss",
@@ -738,3 +834,7 @@ class MbagAlphaZeroPolicy(EntropyCoeffSchedule, LearningRateSchedule, AlphaZeroP
             self.global_timestep_for_envs = global_vars["timestep"]
         for env in self.envs:
             unwrap_mbag_env(env).update_global_timestep(self.global_timestep_for_envs)
+
+        self.prev_goal_kl_coeff = self._prev_goal_kl_coeff_schedule.value(
+            global_vars["timestep"]
+        )

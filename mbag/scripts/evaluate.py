@@ -14,12 +14,11 @@ from logging import Logger
 from typing import Any, Generator, List, Optional, Type, Union
 
 import numpy as np
-import ray
 import torch
 import tqdm
-from ray.rllib.algorithms import Algorithm
 from ray.rllib.utils.typing import PolicyID
 from sacred import SETTINGS, Experiment
+from sacred.observers import FileStorageObserver
 
 import mbag
 from mbag.agents.heuristic_agents import ALL_HEURISTIC_AGENTS
@@ -34,8 +33,7 @@ from mbag.evaluation.metrics import (
     calculate_metrics,
 )
 from mbag.rllib.agents import RllibAlphaZeroAgent, RllibMbagAgent
-from mbag.rllib.os_utils import available_cpu_count
-from mbag.rllib.training_utils import load_trainer, load_trainer_config
+from mbag.rllib.training_utils import load_policy, load_trainer_config
 
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
@@ -65,7 +63,8 @@ def sacred_config():
     save_episodes = use_malmo  # noqa: F841
 
     env_config_updates = {}  # noqa: F841
-    algorithm_config_updates: List[dict] = [{}]  # noqa: F841
+    algorithm_config_updates = [{}]  # type: ignore # noqa: F841
+    agent_config_updates = [{}]  # type: ignore # noqa: F841
 
     # Used by named configs
     assistant_checkpoint = None  # noqa: F841
@@ -73,6 +72,24 @@ def sacred_config():
     num_simulations = None  # noqa: F841
     goal_set = None  # noqa: F841
     house_id = None  # noqa: F841
+
+    # Output directory/logging
+    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if not experiment_tag.endswith("_") and experiment_tag != "":
+        experiment_tag += "_"
+    if out_dir is None:
+        for checkpoint in checkpoints:
+            if checkpoint is not None:
+                out_dir = os.path.join(
+                    checkpoint,
+                    f"evaluate_{experiment_tag}{time_str}",
+                )
+                break
+    if out_dir is None:
+        raise ValueError("out_dir must be set if no checkpoints are provided")
+
+    observer = FileStorageObserver(out_dir)
+    ex.observers.append(observer)
 
 
 @ex.named_config
@@ -85,7 +102,7 @@ def human_alone():
     checkpoints = [assistant_checkpoint]  # noqa: F841
     policy_ids = [None]  # noqa: F841
     num_episodes = 1  # noqa: F841
-    algorithm_config_updates: List[dict] = [{}]  # noqa: F841
+    algorithm_config_updates = [{}]  # type: ignore # noqa: F841
     env_config_updates = {  # noqa: F841
         "goal_generator_config": {
             "goal_generator_config": {"subset": goal_set, "house_id": house_id}
@@ -120,12 +137,20 @@ def human_with_assistant():
         },
     ]
     env_config_updates = {  # noqa: F841
+        "num_players": 2,
         "goal_generator_config": {
             "goal_generator_config": {"subset": goal_set, "house_id": house_id}
         },
         "malmo": {"action_delay": 0.8, "rotate_spectator": False},
         "horizon": 10000,
-        "players": [{"player_name": "human"}, {"player_name": "assistant"}],
+        "players": [
+            {
+                "player_name": "human",
+            },
+            {
+                "player_name": "assistant",
+            },
+        ],
     }
     min_action_interval = 0.8  # noqa: F841
     use_malmo = True  # noqa: F841
@@ -141,17 +166,12 @@ def run_evaluation(
     confidence_thresholds: Optional[List[Optional[float]]],
     env_config_updates: MbagConfigDict,
     algorithm_config_updates: List[dict],
+    agent_config_updates: List[dict],
     seed: int,
     record_video: bool,
     use_malmo: bool,
     out_dir: str,
 ) -> Generator[MbagEpisode, Any, Any]:
-    ray.init(
-        num_cpus=available_cpu_count(),
-        ignore_reinit_error=True,
-        include_dashboard=False,
-    )
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -184,7 +204,6 @@ def run_evaluation(
     observation_space = MbagEnv(env_config).observation_space
 
     agent_configs: List[MbagAgentConfig] = []
-    trainers: List[Algorithm] = []
     for player_index, (run, checkpoint, policy_id, config_updates) in enumerate(
         zip(runs, checkpoints, policy_ids, algorithm_config_updates)
     ):
@@ -201,13 +220,13 @@ def run_evaluation(
             config_updates.setdefault("evaluation_num_workers", 0)
             config_updates["env_config"] = copy.deepcopy(env_config)
 
-            trainer = load_trainer(
+            policy = load_policy(
                 checkpoint,
-                run,
-                copy.deepcopy(config_updates),
+                policy_id,
+                config_updates=copy.deepcopy(config_updates),
+                observation_space=observation_space,
             )
-            policy = trainer.get_policy(policy_id)
-            policy.observation_space = observation_space
+            # policy = trainer.get_policy(policy_id)
 
             mbag_agent_class: Type[RllibMbagAgent] = RllibMbagAgent
             agent_config = {
@@ -229,7 +248,11 @@ def run_evaluation(
                     agent_config,
                 )
             )
-            trainers.append(trainer)
+
+    for (agent_cls, agent_config), agent_config_update in zip(
+        agent_configs, agent_config_updates
+    ):
+        agent_config.update(agent_config_update)
 
     env_config.setdefault("malmo", {})
     env_config["malmo"]["use_malmo"] = use_malmo
@@ -260,6 +283,7 @@ def evaluation_worker(
     confidence_thresholds: Optional[List[Optional[float]]],
     env_config_updates: MbagConfigDict,
     algorithm_config_updates: List[dict],
+    agent_config_updates: List[dict],
     seed: int,
     record_video: bool,
     use_malmo: bool,
@@ -277,6 +301,7 @@ def evaluation_worker(
                 confidence_thresholds=confidence_thresholds,
                 env_config_updates=env_config_updates,
                 algorithm_config_updates=algorithm_config_updates,
+                agent_config_updates=agent_config_updates,
                 seed=seed + worker_index,
                 record_video=record_video,
                 use_malmo=use_malmo,
@@ -310,32 +335,21 @@ def main(  # noqa: C901
     experiment_tag: str,
     env_config_updates: MbagConfigDict,
     algorithm_config_updates: List[dict],
+    agent_config_updates: List[dict],
     seed: int,
     record_video: bool,
     use_malmo: bool,
     num_workers: int,
-    out_dir: Optional[str],
     save_episodes: bool,
+    observer: FileStorageObserver,
     _log: Logger,
 ):
     if num_workers > 0:
         mp.set_start_method("spawn")
     mbag.logger.setLevel(_log.getEffectiveLevel())
 
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    if not experiment_tag.endswith("_") and experiment_tag != "":
-        experiment_tag += "_"
-    if out_dir is None:
-        for checkpoint in checkpoints:
-            if checkpoint is not None:
-                out_dir = os.path.join(
-                    checkpoint,
-                    f"evaluate_{experiment_tag}{time_str}",
-                )
-                break
-    if out_dir is None:
-        raise ValueError("out_dir must be set if no checkpoints are provided")
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = observer.dir
+    assert out_dir is not None
 
     processes: List[mp.Process] = []
     queues: List[mp.Queue] = []
@@ -350,6 +364,7 @@ def main(  # noqa: C901
             confidence_thresholds=confidence_thresholds,
             env_config_updates=env_config_updates,
             algorithm_config_updates=algorithm_config_updates,
+            agent_config_updates=agent_config_updates,
             seed=seed,
             record_video=record_video,
             use_malmo=use_malmo,
@@ -377,6 +392,7 @@ def main(  # noqa: C901
                     "confidence_thresholds": confidence_thresholds,
                     "env_config_updates": env_config_updates,
                     "algorithm_config_updates": algorithm_config_updates,
+                    "agent_config_updates": agent_config_updates,
                     "seed": seed,
                     "record_video": record_video,
                     "use_malmo": use_malmo,
@@ -387,7 +403,7 @@ def main(  # noqa: C901
             process.start()
             processes.append(process)
             queues.append(queue)
-            time.sleep(10)
+            time.sleep(1)
         episode_generator = queue_episode_generator(queues)
 
     episodes: List[MbagEpisode] = []

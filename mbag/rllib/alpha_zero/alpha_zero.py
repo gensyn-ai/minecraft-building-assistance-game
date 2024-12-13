@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Tuple, cast
 
 import numpy as np
 from ray.rllib.algorithms.algorithm_config import NotProvided
@@ -8,26 +8,35 @@ from ray.rllib.evaluation import SampleBatch
 from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.execution.rollout_ops import synchronous_parallel_sample
 from ray.rllib.execution.train_ops import multi_gpu_train_one_step, train_one_step
+from ray.rllib.models.modelv2 import restore_original_dimensions
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import MultiAgentBatch, concat_samples
+from ray.rllib.utils.from_config import from_config
 from ray.rllib.utils.metrics import (
     NUM_AGENT_STEPS_SAMPLED,
     NUM_ENV_STEPS_SAMPLED,
     SAMPLE_TIMER,
     SYNCH_WORKER_WEIGHTS_TIMER,
 )
-from ray.rllib.utils.replay_buffers import ReplayBuffer
-from ray.rllib.utils.typing import PolicyID, ResultDict
+from ray.rllib.utils.replay_buffers import ReplayBuffer, StorageUnit
+from ray.rllib.utils.sgd import minibatches
+from ray.rllib.utils.typing import PolicyID, ResultDict, SampleBatchType
 from ray.tune.registry import register_trainable
+
+from mbag.environment.blocks import MinecraftBlocks
+from mbag.environment.types import CURRENT_BLOCKS, GOAL_BLOCKS
 
 from ..kl_regularization import KLRegularizationMixin
 from .alpha_zero_policy import (
     EXPECTED_OWN_REWARDS,
     EXPECTED_REWARDS,
+    FOR_TRAINING_MODEL,
+    GOAL_LOGITS,
     OWN_REWARDS,
     VALUE_ESTIMATES,
     MbagAlphaZeroPolicy,
 )
+from .replay_buffer import PartialReplayBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +45,20 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
     def __init__(self, algo_class=None):
         super().__init__(algo_class)
 
+        self.use_model_replay_buffer = False
+        self.model_replay_buffer_config: dict = {
+            "type": "MultiAgentReplayBuffer",
+            "capacity": 1_000,
+            "storage_unit": StorageUnit.SEQUENCES,
+            "underlying_buffer_config": {
+                "type": PartialReplayBuffer,
+                "storage_probability": 0.1,
+            },
+        }
+        self.model_train_batch_size: int = self.train_batch_size
+        self.mcts_batch_size: Optional[int] = None
         self.sample_batch_size = 1000
+        self.sample_freq = 1
         self.policy_loss_coeff = 1.0
         self.vf_loss_coeff = 1.0
         self.other_agent_action_predictor_loss_coeff = 1.0
@@ -46,8 +68,10 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.entropy_coeff_schedule = 0
         self.use_critic = True
         self.use_goal_predictor = True
+        self.expected_own_reward_scale = 1.0
+        self.expected_reward_shift = 0.0
         self.use_replay_buffer = True
-        self.num_steps_sampled_before_learning_starts = 0
+        self.num_steps_sampled_before_learning_starts: int = 0
         self.anchor_policy_mapping: Mapping[PolicyID, PolicyID] = {}
         self.anchor_policy_kl_coeff = 0.0
         self.pretrain = False
@@ -56,19 +80,27 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
 
         del self.vf_share_layers
 
-    def training(
+    def training(  # noqa: C901
         self,
         *args,
+        use_model_replay_buffer=NotProvided,
+        model_replay_buffer_config=NotProvided,
+        model_train_batch_size=NotProvided,
+        mcts_batch_size=NotProvided,
+        sample_freq=NotProvided,
         sample_batch_size=NotProvided,
         policy_loss_coeff=NotProvided,
         vf_loss_coeff=NotProvided,
         other_agent_action_predictor_loss_coeff=NotProvided,
         goal_loss_coeff=NotProvided,
         prev_goal_kl_coeff=NotProvided,
+        prev_goal_kl_coeff_schedule=NotProvided,
         entropy_coeff=NotProvided,
         entropy_coeff_schedule=NotProvided,
         use_critic=NotProvided,
         use_goal_predictor=NotProvided,
+        expected_own_reward_scale=NotProvided,
+        expected_reward_shift=NotProvided,
         use_replay_buffer=NotProvided,
         num_steps_sampled_before_learning_starts=NotProvided,
         anchor_policy_mapping=NotProvided,
@@ -81,6 +113,18 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         """
         Set training parameters.
         Args:
+            use_model_replay_buffer (bool): Whether to use a separate training buffer
+                to train the model parts of the network (i.e., goal and other agent
+                action prediction).
+            model_replay_buffer_config (dict): Config for the model replay buffer.
+            model_train_batch_size (int): Number of samples to include in each
+                training batch from the model replay buffer.
+            mcts_batch_size (int): Number of environments to run MCTS over in parallel.
+                If there are more environments than this, then they will be split into
+                batches of this size. If None, then this will be set to the number of
+                environments.
+            sample_freq (int): If > 1, then only sample new data every `sample_freq`
+                iterations.
             sample_batch_size (int): Number of samples to include in each
                 training batch.
             policy_loss_coeff (float): Coefficient of the policy loss.
@@ -91,11 +135,17 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             prev_goal_kl_coeff (float): Coefficient between the KL of the previous
                 goal predictions and the current goal predictions during training
                 (encourages stability of goal predictions).
+            prev_goal_kl_coeff_schedule (float): Schedule for the previous goal KL
+                coefficient.
             entropy_coeff (float): Coefficient of the entropy loss.
             entropy_coeff_schedule (float): Schedule for the entropy
                 coefficient.
             use_critic (bool): Whether to use a critic.
             use_goal_predictor (bool): Whether to use a goal predictor.
+            expected_own_reward_scale (float): The expected own reward is scaled by
+                this value before being used for planning.
+            expected_reward_shift (float): The expected reward is shifted by this
+                value before being used for planning.
             use_replay_buffer (bool): Whether to use a replay buffer.
             num_steps_sampled_before_learning_starts (int): Number of steps
                 collected before learning starts.
@@ -114,6 +164,16 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
 
         super().training(*args, **kwargs)
 
+        if use_model_replay_buffer is not NotProvided:
+            self.use_model_replay_buffer = use_model_replay_buffer
+        if model_replay_buffer_config is not NotProvided:
+            self.model_replay_buffer_config.update(model_replay_buffer_config)
+        if model_train_batch_size is not NotProvided:
+            self.model_train_batch_size = model_train_batch_size
+        if mcts_batch_size is not NotProvided:
+            self.mcts_batch_size = mcts_batch_size
+        if sample_freq is not NotProvided:
+            self.sample_freq = sample_freq
         if sample_batch_size is not NotProvided:
             self.sample_batch_size = sample_batch_size
         if policy_loss_coeff is not NotProvided:
@@ -128,6 +188,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             self.goal_loss_coeff = goal_loss_coeff
         if prev_goal_kl_coeff is not NotProvided:
             self.prev_goal_kl_coeff = prev_goal_kl_coeff
+        if prev_goal_kl_coeff_schedule is not NotProvided:
+            self.prev_goal_kl_coeff_schedule = prev_goal_kl_coeff_schedule
         if entropy_coeff is not NotProvided:
             self.entropy_coeff = entropy_coeff
         if entropy_coeff_schedule is not NotProvided:
@@ -136,6 +198,10 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             self.use_critic = use_critic
         if use_goal_predictor is not NotProvided:
             self.use_goal_predictor = use_goal_predictor
+        if expected_own_reward_scale is not NotProvided:
+            self.expected_own_reward_scale = expected_own_reward_scale
+        if expected_reward_shift is not NotProvided:
+            self.expected_reward_shift = expected_reward_shift
         if use_replay_buffer is not NotProvided:
             self.use_replay_buffer = use_replay_buffer
         if num_steps_sampled_before_learning_starts is not NotProvided:
@@ -153,6 +219,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         if _strict_mode is not NotProvided:
             self._strict_mode = _strict_mode
 
+        return self
+
     def update_from_dict(self, config_dict):
         if "mcts_config" in config_dict and isinstance(config_dict, dict):
             self.mcts_config.update(config_dict["mcts_config"])
@@ -163,6 +231,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
 
 class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
     local_replay_buffer: Optional[ReplayBuffer]  # type: ignore[assignment]
+    model_replay_buffer: Optional[ReplayBuffer]
 
     def __init__(self, config: MbagAlphaZeroConfig, *args, **kwargs):
         del config.ranked_rewards
@@ -171,6 +240,15 @@ class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
 
         if not config.use_replay_buffer:
             self.local_replay_buffer = None
+        else:
+            assert self.local_replay_buffer is not None
+
+        if config.use_model_replay_buffer:
+            self.model_replay_buffer = from_config(
+                ReplayBuffer, config["model_replay_buffer_config"]
+            )
+        else:
+            self.model_replay_buffer = None
 
         self._have_set_policies_training = False
 
@@ -244,18 +322,137 @@ class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
 
         return metrics_by_policy
 
-    def training_step(self) -> ResultDict:
-        assert self.workers is not None
-        assert isinstance(self.config, MbagAlphaZeroConfig)
+    def get_goal_prediction_metrics(
+        self, sample_batch: MultiAgentBatch
+    ) -> Dict[PolicyID, dict]:
+        metrics_by_policy: Dict[PolicyID, dict] = {}
 
-        if not self._have_set_policies_training:
-            # Only policies that are set as training will use reward shaping schedules;
-            # others will just use the final point in the schedule.
-            # We only set the policies as training once train() is actually called so
-            # that if policies are loaded for evaluation then the shaped reward
-            # annealing is not used.
-            self._set_policies_training()
-            self._have_set_policies_training = True
+        for policy_id, policy_batch in sample_batch.policy_batches.items():
+            policy = self.get_policy(policy_id)
+            if not isinstance(policy, MbagAlphaZeroPolicy):
+                continue
+            if GOAL_LOGITS not in policy_batch:
+                continue
+
+            total_blocks = 0
+            total_cross_entropy = 0.0
+            total_unplaced_blocks = 0
+            total_unplaced_blocks_cross_entropy = 0.0
+
+            for minibatch in minibatches(
+                policy_batch, self.config["sgd_minibatch_size"]
+            ):
+                minibatch.decompress_if_needed()
+                world_obs, _, _ = restore_original_dimensions(
+                    minibatch[SampleBatch.OBS],
+                    obs_space=policy.observation_space,
+                    tensorlib=np,
+                )
+                goal_blocks: np.ndarray = world_obs[:, GOAL_BLOCKS].astype(np.uint8)
+
+                goal_blocks_flat: np.ndarray = goal_blocks.reshape(-1)
+                goal_logits_flat: np.ndarray = (
+                    minibatch[GOAL_LOGITS]
+                    .transpose(0, 2, 3, 4, 1)
+                    .reshape(
+                        -1,
+                        MinecraftBlocks.NUM_BLOCKS,
+                    )
+                )
+                goal_logprobs_flat = goal_logits_flat - np.log(
+                    np.sum(np.exp(goal_logits_flat), axis=1, keepdims=True)
+                )
+                if self.config["_strict_mode"]:
+                    assert np.allclose(
+                        np.sum(np.exp(goal_logprobs_flat), axis=1),
+                        np.ones(len(goal_blocks_flat)),
+                    )
+
+                goal_ce = -goal_logprobs_flat[
+                    np.arange(len(goal_blocks_flat)), goal_blocks_flat
+                ]
+                unplaced_blocks = (goal_blocks != MinecraftBlocks.AIR) & (
+                    world_obs[:, CURRENT_BLOCKS] == MinecraftBlocks.AIR
+                )
+                unplaced_blocks_flat = unplaced_blocks.reshape(-1)
+
+                total_blocks += len(goal_ce)
+                total_cross_entropy += np.sum(goal_ce)
+                total_unplaced_blocks += np.sum(unplaced_blocks)
+                total_unplaced_blocks_cross_entropy += np.sum(
+                    goal_ce[unplaced_blocks_flat]
+                )
+
+            metrics_by_policy[policy_id] = {
+                "goal_cross_entropy": total_cross_entropy / total_blocks,
+                "unplaced_blocks_goal_cross_entropy": total_unplaced_blocks_cross_entropy
+                / total_unplaced_blocks,
+            }
+
+        return metrics_by_policy
+
+    def _combine_train_batches(
+        self,
+        policy_train_batch: MultiAgentBatch,
+        model_train_batch: MultiAgentBatch,
+    ) -> MultiAgentBatch:
+        combined_policy_batches: Dict[PolicyID, SampleBatch] = {}
+
+        for policy_id in (
+            policy_train_batch.policy_batches.keys()
+            | model_train_batch.policy_batches.keys()
+        ):
+            policy_batch = policy_train_batch.policy_batches[policy_id]
+            model_batch = model_train_batch.policy_batches[policy_id]
+            policy_batch[FOR_TRAINING_MODEL] = np.zeros(
+                len(policy_batch[SampleBatch.REWARDS]), dtype=bool
+            )
+            model_batch[FOR_TRAINING_MODEL] = np.ones(
+                len(model_batch[SampleBatch.REWARDS]), dtype=bool
+            )
+
+            if "seq_lens" in policy_batch and "seq_lens" in model_batch:
+                policy_batch_sequences: List[SampleBatch] = []
+                seq_start = 0
+                assert not policy_batch.zero_padded
+                for seq_len in policy_batch["seq_lens"]:
+                    seq_end = seq_start + seq_len
+                    policy_batch_sequences.append(
+                        policy_batch.slice(seq_start, seq_end)
+                    )
+                    seq_start = seq_end
+                assert seq_start == policy_batch.count
+
+                model_batch_sequences: List[SampleBatch] = []
+                seq_start = 0
+                assert not model_batch.zero_padded
+                for seq_len in model_batch["seq_lens"]:
+                    seq_end = seq_start + seq_len
+                    model_batch_sequences.append(model_batch.slice(seq_start, seq_end))
+                    seq_start = seq_end
+                assert seq_start == model_batch.count
+
+                combined_sequences = policy_batch_sequences + model_batch_sequences
+                np.random.shuffle(combined_sequences)  # type: ignore
+                combined_batch = concat_samples(
+                    cast(List[SampleBatchType], combined_sequences)
+                )
+                assert isinstance(combined_batch, SampleBatch)
+            else:
+                combined_batch = concat_samples([policy_batch, model_batch])
+                assert isinstance(combined_batch, SampleBatch)
+                combined_batch.shuffle()
+            combined_policy_batches[policy_id] = combined_batch
+
+        return MultiAgentBatch(
+            combined_policy_batches,
+            policy_train_batch.env_steps() + model_train_batch.env_steps(),
+        )
+
+    def _sample_and_add_to_replay_buffer(
+        self,
+    ) -> Tuple[MultiAgentBatch, Dict[PolicyID, dict]]:
+        assert self.workers is not None
 
         # Sample n MultiAgentBatches from n workers.
         with self._timers[SAMPLE_TIMER]:
@@ -275,9 +472,20 @@ class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
         )
 
         assert isinstance(new_sample_batch, MultiAgentBatch)
-        prediction_metrics_by_policy = self.get_reward_and_value_prediction_metrics(
+        prediction_metrics_by_policy: Dict[PolicyID, dict] = {}
+        for (
+            policy_id,
+            prediction_metrics,
+        ) in self.get_reward_and_value_prediction_metrics(new_sample_batch).items():
+            prediction_metrics_by_policy.setdefault(policy_id, {}).update(
+                prediction_metrics
+            )
+        for policy_id, prediction_metrics in self.get_goal_prediction_metrics(
             new_sample_batch
-        )
+        ).items():
+            prediction_metrics_by_policy.setdefault(policy_id, {}).update(
+                prediction_metrics
+            )
 
         # Update sampling step counters.
         self._counters[NUM_ENV_STEPS_SAMPLED] += new_sample_batch.env_steps()
@@ -285,17 +493,43 @@ class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
         # Store new samples in the replay buffer.
         if self.local_replay_buffer is not None:
             with self._timers["replay_buffer"]:
-                # First, remove non-trainable policies.
-                policy_ids_to_train = (
-                    self.workers.local_worker().foreach_policy_to_train(
-                        lambda policy, policy_id, **kwargs: policy_id
-                    )
-                )
+                # First, remove non-trainable policies and get rid of info dicts.
                 for policy_id in list(new_sample_batch.policy_batches.keys()):
-                    if policy_id not in policy_ids_to_train:
+                    del new_sample_batch.policy_batches[policy_id][SampleBatch.INFOS]
+                    if not self.workers.local_worker().is_policy_to_train(policy_id):  # type: ignore
                         del new_sample_batch.policy_batches[policy_id]
                 self.local_replay_buffer.add(new_sample_batch)
 
+                if self.model_replay_buffer is not None:
+                    self.model_replay_buffer.add(new_sample_batch)
+
+        return new_sample_batch, prediction_metrics_by_policy
+
+    def training_step(self) -> ResultDict:
+        assert self.workers is not None
+        assert isinstance(self.config, MbagAlphaZeroConfig)
+
+        if not self._have_set_policies_training:
+            # Only policies that are set as training will use reward shaping schedules;
+            # others will just use the final point in the schedule.
+            # We only set the policies as training once train() is actually called so
+            # that if policies are loaded for evaluation then the shaped reward
+            # annealing is not used.
+            self._set_policies_training()
+            self._have_set_policies_training = True
+
+        new_sample_batch: Optional[MultiAgentBatch]
+        prediction_metrics_by_policy: Dict[PolicyID, dict] = {}
+        if self.iteration % self.config["sample_freq"] == 0:
+            new_sample_batch, prediction_metrics_by_policy = (
+                self._sample_and_add_to_replay_buffer()
+            )
+        else:
+            new_sample_batch = None
+
+        if self.local_replay_buffer is not None:
+            del new_sample_batch
+            with self._timers["replay_buffer"]:
                 cur_ts = self._counters[
                     (
                         NUM_AGENT_STEPS_SAMPLED
@@ -305,9 +539,56 @@ class MbagAlphaZero(AlphaZero, KLRegularizationMixin):
                 ]
 
                 if cur_ts > self.config.num_steps_sampled_before_learning_starts:
-                    train_batch = self.local_replay_buffer.sample(
+                    policy_train_batch = self.local_replay_buffer.sample(
                         self.config.train_batch_size
                     )
+                    if self.model_replay_buffer is not None:
+                        model_train_batch = self.model_replay_buffer.sample(
+                            self.config.model_train_batch_size
+                        )
+
+                        from typing import cast
+
+                        from ray.rllib.utils.replay_buffers import (
+                            MultiAgentReplayBuffer,
+                        )
+
+                        print(
+                            cast(MultiAgentReplayBuffer, self.local_replay_buffer)
+                            .replay_buffers["assistant"]
+                            ._est_size_bytes
+                            / (1024**2),
+                            cast(MultiAgentReplayBuffer, self.model_replay_buffer)
+                            .replay_buffers["assistant"]
+                            ._est_size_bytes
+                            / (1024**2),
+                        )
+
+                        print(
+                            len(
+                                cast(MultiAgentReplayBuffer, self.local_replay_buffer)
+                                .replay_buffers["assistant"]
+                                ._storage,
+                            ),
+                            len(
+                                cast(MultiAgentReplayBuffer, self.model_replay_buffer)
+                                .replay_buffers["assistant"]
+                                ._storage,
+                            ),
+                            flush=True,
+                        )
+
+                        assert (
+                            policy_train_batch is not None
+                            and model_train_batch is not None
+                        )
+                        train_batch = self._combine_train_batches(
+                            policy_train_batch.as_multi_agent(),
+                            model_train_batch.as_multi_agent(),
+                        )
+                        del policy_train_batch, model_train_batch
+                    else:
+                        train_batch = policy_train_batch
                 else:
                     train_batch = None
         else:
