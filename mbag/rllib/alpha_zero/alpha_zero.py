@@ -60,6 +60,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         self.sample_batch_size = 1000
         self.sample_freq = 1
         self.policy_loss_coeff = 1.0
+        self.prev_policy_kl_coeff = 0.0
         self.vf_loss_coeff = 1.0
         self.other_agent_action_predictor_loss_coeff = 1.0
         self.goal_loss_coeff = 1.0
@@ -90,6 +91,7 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
         sample_freq=NotProvided,
         sample_batch_size=NotProvided,
         policy_loss_coeff=NotProvided,
+        prev_policy_kl_coeff=NotProvided,
         vf_loss_coeff=NotProvided,
         other_agent_action_predictor_loss_coeff=NotProvided,
         goal_loss_coeff=NotProvided,
@@ -128,6 +130,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             sample_batch_size (int): Number of samples to include in each
                 training batch.
             policy_loss_coeff (float): Coefficient of the policy loss.
+            prev_policy_kl_coeff (float): Coefficient between the KL of the previous
+                and current policy network output during training.
             vf_loss_coeff (float): Coefficient of the value function loss.
             other_agent_action_predictor_loss_coeff (float): Coefficient of the
                 other agent action predictor loss.
@@ -178,6 +182,8 @@ class MbagAlphaZeroConfig(AlphaZeroConfig):
             self.sample_batch_size = sample_batch_size
         if policy_loss_coeff is not NotProvided:
             self.policy_loss_coeff = policy_loss_coeff
+        if prev_policy_kl_coeff is not NotProvided:
+            self.prev_policy_kl_coeff = prev_policy_kl_coeff
         if vf_loss_coeff is not NotProvided:
             self.vf_loss_coeff = vf_loss_coeff
         if other_agent_action_predictor_loss_coeff is not NotProvided:

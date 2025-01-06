@@ -367,6 +367,7 @@ def sacred_config(_log):  # noqa
     sample_from_full_support_policy = False
     explore_noops = True
     policy_loss_coeff = 1
+    prev_policy_kl_coeff = 0
     goal_loss_coeff = 0.5
     prev_goal_kl_coeff = 0
     prev_goal_kl_coeff_schedule = None
@@ -414,7 +415,7 @@ def sacred_config(_log):  # noqa
     use_prev_action = False
     use_prev_other_agent_action = False
     assert not use_prev_other_agent_action
-    use_resnet = False
+    use_resnet = True
     use_groupnorm = False
     dropout = 0.0
     attention_resolutions = ()
@@ -474,6 +475,7 @@ def sacred_config(_log):  # noqa
             "num_layers": num_layers,
             "dim_feedforward": dim_feedforward,
             "num_heads": num_heads,
+            "dropout": dropout,
             "norm_first": norm_first,
             "hidden_size": hidden_size,
             "num_action_layers": num_action_layers,
@@ -803,6 +805,7 @@ def sacred_config(_log):  # noqa
             sgd_minibatch_size=sgd_minibatch_size,
             num_sgd_iter=num_sgd_iter,
             policy_loss_coeff=policy_loss_coeff,
+            prev_policy_kl_coeff=prev_policy_kl_coeff,
             vf_loss_coeff=vf_loss_coeff,
             prev_goal_kl_coeff=prev_goal_kl_coeff,
             prev_goal_kl_coeff_schedule=convert_dogmatics_to_standard(

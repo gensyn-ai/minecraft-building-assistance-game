@@ -1495,6 +1495,7 @@ class MbagTransformerModelConfig(MbagModelConfig, total=False):
     num_layers: int
     dim_feedforward: int
     num_heads: int
+    dropout: float
     norm_first: bool
     use_separated_transformer: bool
     interleave_lstm: bool
@@ -1514,6 +1515,7 @@ TRANSFORMER_DEFAULT_CONFIG: MbagTransformerModelConfig = {
     "num_layers": 3,
     "dim_feedforward": DEFAULT_CONFIG["hidden_size"],
     "num_heads": 2,
+    "dropout": 0.1,
     "norm_first": False,
     "use_separated_transformer": False,
     "interleave_lstm": False,
@@ -1545,6 +1547,7 @@ class MbagTransformerModel(MbagTorchModel):
         self.num_layers = extra_config["num_layers"]
         self.dim_feedforward = extra_config["dim_feedforward"]
         self.num_heads = extra_config["num_heads"]
+        self.dropout = extra_config["dropout"]
         self.norm_first = extra_config["norm_first"]
         self.use_separated_transformer = extra_config["use_separated_transformer"]
         self.interleave_lstm = extra_config["interleave_lstm"]
@@ -1620,6 +1623,7 @@ class MbagTransformerModel(MbagTorchModel):
                     nhead=self.num_heads,
                     dim_feedforward=self.dim_feedforward,
                     batch_first=True,
+                    dropout=self.dropout,
                     norm_first=self.norm_first,
                     n_spatial_dims=3,
                     spatial_dim=layer_index % 3,
@@ -1636,6 +1640,7 @@ class MbagTransformerModel(MbagTorchModel):
                         nhead=self.num_heads,
                         dim_feedforward=self.dim_feedforward,
                         batch_first=True,
+                        dropout=self.dropout,
                         norm_first=self.norm_first,
                     ),
                     View(-1, *self.world_size, self.hidden_size),
@@ -1649,6 +1654,7 @@ class MbagTransformerModel(MbagTorchModel):
             hidden_size=self.hidden_size,
             lstm_size=self.hidden_size,
             norm_first=self.norm_first,
+            use_checkpointing=True,
         )
 
     def _get_embedded_obs(
@@ -1706,7 +1712,7 @@ class MbagTransformerAlphaZeroModel(
 
 
 ModelCatalog.register_custom_model(
-    "mbag_transformer_alpha_zero_model", MbagTransformerAlphaZeroModel
+    "mbag_transformer_alphazero_model", MbagTransformerAlphaZeroModel
 )
 
 
