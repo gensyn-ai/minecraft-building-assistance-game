@@ -1146,7 +1146,7 @@ class MbagConvolutionalAlphaZeroModel(
 
 
 ModelCatalog.register_custom_model(
-    "mbag_convolutional_alphazero_model", MbagConvolutionalAlphaZeroModel
+    "mbag_convolutional_alpha_zero_model", MbagConvolutionalAlphaZeroModel
 )
 
 
@@ -1155,7 +1155,7 @@ class MbagUNetAlphaZeroModel(MbagUNetModel, OtherAgentActionPredictorMixin):
 
 
 ModelCatalog.register_custom_model(
-    "mbag_unet_alphazero_model",
+    "mbag_unet_alpha_zero_model",
     MbagUNetAlphaZeroModel,
 )
 
@@ -1712,7 +1712,7 @@ class MbagTransformerAlphaZeroModel(
 
 
 ModelCatalog.register_custom_model(
-    "mbag_transformer_alphazero_model", MbagTransformerAlphaZeroModel
+    "mbag_transformer_alpha_zero_model", MbagTransformerAlphaZeroModel
 )
 
 
