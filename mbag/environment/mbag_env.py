@@ -346,8 +346,13 @@ class MbagEnv(object):
             optional_infos[player_index] = player_info
 
         infos: List[MbagInfoDict] = []
-        for info in optional_infos:
+        for player_index, info in enumerate(optional_infos):
             assert info is not None
+            info["goal_similarity"] = self._get_goal_similarity(
+                self.current_blocks[:],
+                self.goal_blocks[:],
+            ).sum()
+            info["goal_percentage"] = self._get_goal_percentage(player_index)
             infos.append(info)
 
         if self.config["malmo"]["use_malmo"]:
@@ -990,14 +995,13 @@ class MbagEnv(object):
         action: MbagAction = MbagAction.noop_action(),
         action_correct: bool = False,
     ) -> MbagInfoDict:
+        # goal_similarity and goal_percentage get updated later in the step()
+        # method once all players' actions have been processed.
         info: MbagInfoDict = {
-            "goal_similarity": self._get_goal_similarity(
-                self.current_blocks[:],
-                self.goal_blocks[:],
-            ).sum(),
+            "goal_similarity": np.nan,
+            "goal_percentage": np.nan,
             "goal_dependent_reward": goal_dependent_reward,
             "goal_independent_reward": goal_independent_reward,
-            "goal_percentage": self._get_goal_percentage(player_index),
             "own_reward": own_reward,
             "own_reward_prop": self._get_own_reward_prop(player_index),
             "attempted_action": attempted_action,
