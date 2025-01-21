@@ -76,6 +76,7 @@ def sacred_config():
     num_simulations = None  # noqa: F841
     goal_set = None  # noqa: F841
     house_id = None  # noqa: F841
+    expected_reward_shift = 0  # noqa: F841
 
     # Output directory/logging
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -291,6 +292,7 @@ def human_study_alphazero_assistant():
     }
     assistant_checkpoint = ""
     num_simulations = 20
+    expected_reward_shift = 0
     policy_ids = ["assistant", None]  # noqa: F841
     checkpoints = [assistant_checkpoint, None]  # noqa: F841
     algorithm_config_updates = [  # noqa: F841
@@ -298,6 +300,7 @@ def human_study_alphazero_assistant():
             "num_gpus_per_worker": 0,
             "player_index": 0,
             "mcts_config": {"num_simulations": num_simulations},
+            "expected_reward_shift": expected_reward_shift,
         },
         {},
     ]
