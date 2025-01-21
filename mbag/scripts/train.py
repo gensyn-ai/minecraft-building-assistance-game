@@ -533,6 +533,7 @@ def sacred_config(_log):  # noqa
     overwrite_loaded_policy_type = use_anchor_policy
     overwrite_loaded_policy_model = False
     load_config_from_checkpoint = not overwrite_loaded_policy_type
+    exclude_loaded_policy_modules = []  # noqa: F841
     if isinstance(load_policies_mapping, DogmaticDict):
         # Weird shim for sacred
         for key in load_policies_mapping.revelation():
@@ -941,6 +942,7 @@ def main(
     save_freq,
     checkpoint_path: Optional[str],
     checkpoint_to_load_policies: Optional[str],
+    exclude_loaded_policy_modules: List[str],
     load_policies_mapping: Dict[str, str],
     observer,
     ray_init_options,
@@ -988,6 +990,10 @@ def main(
             checkpoint_to_load_policies,
             trainer,
             lambda policy_id: load_policies_mapping.get(policy_id),
+            lambda param_name: not any(
+                param_name.startswith(module_name)
+                for module_name in exclude_loaded_policy_modules
+            ),
         )
 
     if checkpoint_path is not None:
