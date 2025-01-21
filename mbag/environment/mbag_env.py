@@ -537,6 +537,9 @@ class MbagEnv(object):
             attempted_action=action,
             action=action if not noop else MbagAction.noop_action(),
             action_correct=action_correct and not noop,
+            # goal_similarity and goal_percentage get updated later in the step()
+            # method once all players' actions have been processed.
+            include_goal_similarity_and_goal_percentage=False,
         )
 
         return reward, info
@@ -994,12 +997,22 @@ class MbagEnv(object):
         attempted_action: MbagAction = MbagAction.noop_action(),
         action: MbagAction = MbagAction.noop_action(),
         action_correct: bool = False,
+        include_goal_similarity_and_goal_percentage: bool = True,
     ) -> MbagInfoDict:
-        # goal_similarity and goal_percentage get updated later in the step()
-        # method once all players' actions have been processed.
         info: MbagInfoDict = {
-            "goal_similarity": np.nan,
-            "goal_percentage": np.nan,
+            "goal_similarity": (
+                self._get_goal_similarity(
+                    self.current_blocks[:],
+                    self.goal_blocks[:],
+                ).sum()
+                if include_goal_similarity_and_goal_percentage
+                else np.nan
+            ),
+            "goal_percentage": (
+                self._get_goal_percentage(player_index)
+                if include_goal_similarity_and_goal_percentage
+                else np.nan
+            ),
             "goal_dependent_reward": goal_dependent_reward,
             "goal_independent_reward": goal_independent_reward,
             "own_reward": own_reward,
