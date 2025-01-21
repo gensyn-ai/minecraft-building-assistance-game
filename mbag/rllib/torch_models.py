@@ -784,7 +784,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
             return priors, value, [state.detach() for state in state_out]
 
     def load_state_dict(self, state_dict, strict=True, assign=False):
-        if (
+        if self.use_fc_after_embedding and (
             self.fc_after_embedding.weight.size()
             != state_dict["fc_after_embedding.weight"].size()
         ):
