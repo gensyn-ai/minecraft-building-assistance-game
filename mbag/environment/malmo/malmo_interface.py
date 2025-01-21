@@ -1040,13 +1040,9 @@ class MalmoInterface:
 
             # Don't think we need to lock here because no other threads interact with
             # the spectator AgentHost.
-            with self._malmo_lock:
-                # self._malmo_client.send_command(
-                #     agent_index, f"chat /teleport @p {x} {y - 1.6} {z}"
-                # )
-                self._malmo_client.send_command(agent_index, f"tp {x} {y} {z}")
-                self._malmo_client.send_command(agent_index, f"setPitch {pitch}")
-                self._malmo_client.send_command(agent_index, f"setYaw {yaw}")
+            self._malmo_client.send_command(agent_index, f"tp {x} {y} {z}")
+            self._malmo_client.send_command(agent_index, f"setPitch {pitch}")
+            self._malmo_client.send_command(agent_index, f"setYaw {yaw}")
 
             if rad_per_second == 0:
                 # No point in continuing to loop if we're not rotating the spectator.
