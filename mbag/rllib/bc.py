@@ -308,11 +308,11 @@ class BC(Algorithm):
     ) -> Tuple[MultiAgentBatch, Optional[MultiAgentBatch]]:
         if (
             self.config["validation_participant_ids"]
-            or self.config["validation_prop"] > 0
+            or self.config.get("validation_prop", 0) > 0
         ):
             assert not (
                 self.config["validation_participant_ids"]
-                and self.config["validation_prop"] > 0
+                and self.config.get("validation_prop", 0) > 0
             ), "Cannot set both validation_participant_ids and validation_prop."
             train_policy_batches: Dict[PolicyID, SampleBatch] = {}
             validation_policy_batches: Dict[PolicyID, SampleBatch] = {}
