@@ -811,6 +811,9 @@ class MalmoInterface:
                 # In case we accidentally broke a bedrock or barrier block, make sure
                 # it gets regenerated.
                 self._ensure_env_boundaries(player_index)
+                # Also make sure the player doesn't have it in their inventory because
+                # if they place it the human won't be able to break it.
+                self._ensure_no_bedrock_or_barrier_blocks_in_inventory(player_index)
 
     def running_ai_actions(self) -> bool:
         with self._running_ai_actions_lock:
@@ -902,6 +905,10 @@ class MalmoInterface:
                             f"swapInventoryItems {block_id} {swap_slot}",
                         )
                     time.sleep(0.1)
+
+    def _ensure_no_bedrock_or_barrier_blocks_in_inventory(self, player_index: int):
+        self._malmo_client.send_command(player_index, "chat /clear @p barrier")
+        self._malmo_client.send_command(player_index, "chat /clear @p bedrock")
 
     def _ensure_env_boundaries(self, player_index: int):
         """
