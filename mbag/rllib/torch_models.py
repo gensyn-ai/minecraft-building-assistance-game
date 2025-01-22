@@ -783,7 +783,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
 
             return priors, value, [state.detach() for state in state_out]
 
-    def load_state_dict(self, state_dict, strict=True, assign=False):
+    def load_state_dict(self, state_dict, *args, **kwargs):
         if self.use_fc_after_embedding and (
             self.fc_after_embedding.weight.size()
             != state_dict["fc_after_embedding.weight"].size()
@@ -833,7 +833,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
                 **state_dict,
                 "fc_after_embedding.weight": resized_fc_weight,
             }
-        return super().load_state_dict(state_dict, strict, assign)
+        return super().load_state_dict(state_dict, *args, **kwargs)
 
 
 class ResidualBlock(nn.Module):
