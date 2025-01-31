@@ -1,7 +1,5 @@
 # Minecraft Building Assistance Game
 
-The idea of this project is to train a Minecraft AI that can help a person build a house, even though it initially doesn't know what kind of house the person is trying to build. The idea is to develop a general framework for AI to communicate with people about their goals and then help them achieve those goals. The variety of building materials, styles, and layouts possible in Minecraft reflects the complexity of people's goals in the real world. [Here's a document](https://docs.google.com/document/d/1OFFqyfHH55g8XXDsWV9ZyTasMjVPRFjqCEPsNhp6d9Y/edit?usp=sharing) with some motivation and ideas for the project.
-
 This repository contains the implementation of the Minecraft Building Assistance Game (MBAG) environment. The multiagent environment can run on its own or connect to running instances of Minecraft via [Project Malmo](https://github.com/microsoft/malmo) for visualization or for interaction with human players.
 
 ## Setup
