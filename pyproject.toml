@@ -7,7 +7,7 @@ name = "minecraft-building-assistance-game"
 version = "0.0.1"
 description = 'Minecraft Building Assistance Game'
 authors = [
-    {name = "Anonymous", email = "anonymous@anonymous"},
+    {name = "Anonymous", email = "anonymous@example.com"},
 ]
 dynamic = ["readme"]
 dependencies = [
