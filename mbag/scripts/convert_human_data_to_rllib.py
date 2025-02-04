@@ -4,6 +4,7 @@ import os
 from typing import List, Optional
 
 import numpy as np
+from braceexpand import braceexpand
 from ray.rllib.offline.json_writer import JsonWriter
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
 from sacred import Experiment
@@ -101,7 +102,9 @@ def main(  # noqa: C901
         episode = load_episode(load_mbag_config_from)
         mbag_config = episode.env_config
 
-    episode_fnames = glob.glob(data_glob, recursive=True)
+    episode_fnames: List[str] = []
+    for expanded_glob in braceexpand(data_glob):
+        episode_fnames.extend(glob.glob(expanded_glob, recursive=True))
     if not episode_fnames:
         raise FileNotFoundError(f"No episode files found matching {data_glob}.")
 
