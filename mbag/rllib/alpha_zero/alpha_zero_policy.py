@@ -99,6 +99,9 @@ class MbagAlphaZeroPolicy(
             config["gamma"],
             use_critic=config["use_critic"],
             use_goal_predictor=config["use_goal_predictor"],
+            use_other_agent_action_predictor=config.get(
+                "use_other_agent_action_predictor", True
+            ),
             _strict_mode=config.get("_strict_mode", False),
         )
 

@@ -484,9 +484,12 @@ class MbagMCTSNode:
         all_actions: Tuple[int, ...] = (action,)
         other_agent_actions: Optional[List[int]] = None
         if self.other_agent_action_dist is not None:
-            other_agent_action = np.random.choice(
-                np.arange(self.action_space_size), p=self.other_agent_action_dist
-            )
+            if self.mcts.use_other_agent_action_predictor:
+                other_agent_action = np.random.choice(
+                    np.arange(self.action_space_size), p=self.other_agent_action_dist
+                )
+            else:
+                other_agent_action = 0  # NOOP
             all_actions = action, other_agent_action
             other_agent_actions = [other_agent_action]
 
@@ -642,12 +645,14 @@ class MbagMCTS(MCTS):
         gamma: float,
         use_critic=True,
         use_goal_predictor=True,
+        use_other_agent_action_predictor=True,
         _strict_mode=False,
     ):
         super().__init__(model, mcts_param)
         self.gamma = gamma  # Discount factor.
         self.use_critic = use_critic
         self.use_goal_predictor = use_goal_predictor
+        self.use_other_agent_action_predictor = use_other_agent_action_predictor
         self._strict_mode = _strict_mode
 
         self._temperature_schedule = None
