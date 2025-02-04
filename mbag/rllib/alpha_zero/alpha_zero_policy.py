@@ -786,7 +786,9 @@ class MbagAlphaZeroPolicy(
                 .flatten(start_dim=1)
                 .mean(dim=1)
             )
-            weighted_prev_goal_kl = prev_goal_kl * train_batch[PREV_GOAL_KL_COEFF]
+            weighted_prev_goal_kl = prev_goal_kl * cast(
+                torch.Tensor, train_batch[PREV_GOAL_KL_COEFF]
+            )
             prev_goal_kl = reduce_mean_model(prev_goal_kl)
             weighted_prev_goal_kl = reduce_mean_model(weighted_prev_goal_kl)
 

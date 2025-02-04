@@ -181,7 +181,10 @@ def main(  # noqa: C901
             )
             actions = actions.to(action_dist_inputs.device)
             correct_batches.append(
-                (actions == action_dist.deterministic_sample()).detach().cpu().numpy()
+                (actions == cast(torch.Tensor, action_dist.deterministic_sample()))
+                .detach()
+                .cpu()
+                .numpy()
             )
             logprob_batches.append(
                 cast(torch.Tensor, action_dist.logp(actions)).detach().cpu().numpy()
