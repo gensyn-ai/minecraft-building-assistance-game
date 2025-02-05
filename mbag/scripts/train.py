@@ -335,6 +335,7 @@ def sacred_config(_log):  # noqa
     model_train_batch_size = train_batch_size
     use_critic = True
     use_goal_predictor = True
+    use_other_agent_action_predictor = True
     other_agent_action_predictor_loss_coeff = 1.0
     reward_scale = 1.0
     pretrain = False
@@ -824,6 +825,7 @@ def sacred_config(_log):  # noqa
             mcts_batch_size=mcts_batch_size,
             use_critic=use_critic,
             use_goal_predictor=use_goal_predictor,
+            use_other_agent_action_predictor=use_other_agent_action_predictor,
             expected_own_reward_scale=expected_own_reward_scale,
             expected_reward_shift=expected_reward_shift,
             other_agent_action_predictor_loss_coeff=other_agent_action_predictor_loss_coeff,
