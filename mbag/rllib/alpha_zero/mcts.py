@@ -1,5 +1,4 @@
 import logging
-import numbers
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, cast
 
@@ -88,7 +87,7 @@ class MbagMCTSNode:
         self.mcts = mcts
 
         if isinstance(self.parent, MbagRootParentNode):
-            if isinstance(self.mcts.c_puct, numbers.Real):
+            if isinstance(self.mcts.c_puct, (float, int)):
                 self.c_puct = self.mcts.c_puct
             elif self.mcts.sample_c_puct_every_timestep or np.isnan(c_puct):
                 # Implement DiL-piKL by randomly choosing a c_puct value from the list.
