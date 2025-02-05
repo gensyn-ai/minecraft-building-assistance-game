@@ -289,20 +289,20 @@ def test_experiments(tmp_path):
         ).result
         assert evaluate_result is not None
 
-    # Test alphazero_assistant
-    alphazero_assistant_result = train_ex.run(
-        named_configs=["alphazero_assistant"],
+    # Test assistancezero_assistant
+    assistancezero_assistant_result = train_ex.run(
+        named_configs=["assistancezero_assistant"],
         config_updates={
-            "experiment_dir": str(tmp_path / "alphazero_assistant"),
+            "experiment_dir": str(tmp_path / "assistancezero_assistant"),
             "checkpoint_to_load_policies": pikl_result["final_checkpoint"],
             "checkpoint_name": "pikl",
             **common_config_updates,
         },
     ).result
-    assert alphazero_assistant_result is not None
+    assert assistancezero_assistant_result is not None
     assert_config_matches(
-        glob.glob(str(tmp_path / "alphazero_assistant" / "[1-9]*"))[0],
-        "data/testing/reference_experiments/alphazero_assistant",
+        glob.glob(str(tmp_path / "assistancezero_assistant" / "[1-9]*"))[0],
+        "data/testing/reference_experiments/assistancezero_assistant",
     )
 
     # Test ppo_assistant
@@ -324,7 +324,7 @@ def test_experiments(tmp_path):
     #     "data/testing/reference_experiments/ppo_assistant",
     # )
 
-    # Test non_goal_conditioned_human
+    # Test pretrained_assistant
     rollout_result = rollout_ex.run(
         config_updates={
             "run": "BC",
@@ -348,36 +348,36 @@ def test_experiments(tmp_path):
             "rollouts_1_episode_*",
         )
     )
-    non_goal_conditioned_human_result = train_ex.run(
-        named_configs=["non_goal_conditioned_human"],
+    pretrained_assistant_result = train_ex.run(
+        named_configs=["pretrained_assistant"],
         config_updates={
-            "experiment_dir": str(tmp_path / "non_goal_conditioned_human"),
+            "experiment_dir": str(tmp_path / "pretrained_assistant"),
             "checkpoint_name": "rand_init_combined",
             "input": rollout_dir,
             **common_config_updates,
         },
     ).result
-    assert non_goal_conditioned_human_result is not None
+    assert pretrained_assistant_result is not None
     assert_config_matches(
-        glob.glob(str(tmp_path / "non_goal_conditioned_human" / "[1-9]*"))[0],
-        "data/testing/reference_experiments/non_goal_conditioned_human",
+        glob.glob(str(tmp_path / "pretrained_assistant" / "[1-9]*"))[0],
+        "data/testing/reference_experiments/pretrained_assistant",
         ignore_keys=["input_"],
     )
 
-    # Test bc_assistant
-    bc_assistant_result = train_ex.run(
-        named_configs=["bc_assistant"],
+    # Test sft_assistant
+    sft_assistant_result = train_ex.run(
+        named_configs=["sft_assistant"],
         config_updates={
-            "experiment_dir": str(tmp_path / "bc_assistant"),
-            "checkpoint_to_load_policies": non_goal_conditioned_human_result[
+            "experiment_dir": str(tmp_path / "sft_assistant"),
+            "checkpoint_to_load_policies": pretrained_assistant_result[
                 "final_checkpoint"
             ],
             "checkpoint_name": "pretrained",
             **common_config_updates,
         },
     ).result
-    assert bc_assistant_result is not None
+    assert sft_assistant_result is not None
     assert_config_matches(
-        glob.glob(str(tmp_path / "bc_assistant" / "[1-9]*"))[0],
-        "data/testing/reference_experiments/bc_assistant",
+        glob.glob(str(tmp_path / "sft_assistant" / "[1-9]*"))[0],
+        "data/testing/reference_experiments/sft_assistant",
     )

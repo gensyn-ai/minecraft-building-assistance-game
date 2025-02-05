@@ -50,47 +50,6 @@ def make_named_configs(ex: Experiment):
         experiment_tag = f"ppo_human/infinite_blocks_{str(inf_blocks).lower()}"
 
     @ex.named_config
-    def gail_human():
-        """
-        This should always be used along with the ppo_human named config, like so:
-            python -m mbag.scripts.train with ppo_human gail_human
-        """
-        run = "MbagGAIL"
-        inf_blocks = True
-        num_envs_per_worker = 8
-        train_batch_size = 16000
-        batch_mode = "truncate_episodes"
-        if batch_mode == "complete_episodes":
-            num_envs_per_worker = 1
-        permute_block_types = True
-        model = "transformer_with_discriminator"
-        data_split = "human_alone"
-        demonstration_input = (
-            f"data/human_data_cleaned/{data_split}/"
-            f"infinite_blocks_{str(inf_blocks).lower()}/"
-            "rllib_with_own_noops_flat_actions_flat_observations_place_wrong_reward_-1_repaired_player_0"
-        )
-        train_discriminator_on_separate_batch = False
-        discriminator_num_sgd_iter = 3
-
-        checkpoint_to_load_policies = None
-        checkpoint_name = None
-        if checkpoint_to_load_policies is not None:
-            load_policies_mapping = {"human": "human"}
-            overwrite_loaded_policy_type = True
-            overwrite_loaded_policy_model = True
-            policies_to_train = ["human"]
-        kl_target = 1e-2
-        experiment_tag = (
-            f"gail_human/discriminator_{discriminator_num_sgd_iter}_sgd_iter"
-        )
-        if train_discriminator_on_separate_batch:
-            experiment_tag += "_separate_batch"
-        experiment_tag += f"/{batch_mode}/kl_target_{kl_target}/infinite_blocks_{str(inf_blocks).lower()}/{data_split}/permute_{permute_block_types}"
-        if checkpoint_to_load_policies is not None:
-            experiment_tag += f"/init_{checkpoint_name}"
-
-    @ex.named_config
     def alphazero_human():
         run = "MbagAlphaZero"
         goal_generator = "craftassist"
@@ -385,7 +344,7 @@ def make_named_configs(ex: Experiment):
         )
 
     @ex.named_config
-    def alphazero_assistant():
+    def assistancezero_assistant():
         run = "MbagAlphaZero"
         goal_generator = "craftassist"
         width = 11
@@ -467,7 +426,7 @@ def make_named_configs(ex: Experiment):
         )
 
     @ex.named_config
-    def non_goal_conditioned_human():
+    def pretrained_assistant():
         run = "BC"
         inf_blocks = True
         teleportation = False
@@ -513,7 +472,7 @@ def make_named_configs(ex: Experiment):
             experiment_tag += f"/dropout_{dropout}"
 
     @ex.named_config
-    def bc_assistant():
+    def sft_assistant():
         run = "BC"
 
         inf_blocks = True
