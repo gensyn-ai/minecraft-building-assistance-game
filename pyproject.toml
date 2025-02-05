@@ -31,7 +31,7 @@ classifiers=[
 ]
 
 [project.urls]
-Homepage = "https://github.com/cassidylaidlaw/effective-horizon"
+Homepage = "https://anonymous.4open.science/w/scalably-solving-assistance-games/"
 
 [tool.setuptools.dynamic]
 readme = {file=["README.md"], content-type="text/markdown"}
