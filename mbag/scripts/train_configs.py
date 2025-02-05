@@ -159,21 +159,18 @@ def make_named_configs(ex: Experiment):
             },
         }[inf_blocks][data_split]
         num_workers = 0
-        evaluation_interval = 1
-        save_freq = 1
-        evaluation_num_workers = 8
-        evaluation_duration = 64
         num_envs_per_worker = 8
-        num_gpus_per_worker = 0.0625 if torch.cuda.is_available() else 0
+        evaluation_interval = None
+        evaluation_duration = 64
+        save_freq = 1_000_000
         use_extra_features = True
-        mask_other_players = data_split == "human_alone"
+        num_players = 1 if data_split == "human_alone" else 2
+        mask_other_players = num_players == 1
         goal_generator = "craftassist"
         width = 11
         height = 10
         depth = 10
         policy_ids = ["human"]
-        if data_split != "human_alone":
-            num_players = 2
         evaluation_num_players = 1
         model = "convolutional"
         dropout = 0.7
@@ -185,7 +182,7 @@ def make_named_configs(ex: Experiment):
         use_fc_after_embedding = True
         sgd_minibatch_size = 128
         use_separated_transformer = True
-        interleave_lstm = False
+        interleave_lstm = True
         interleave_lstm_every = 4 if interleave_lstm else -1
         num_layers = 8 if interleave_lstm else 6
         vf_share_layers = True
@@ -197,7 +194,13 @@ def make_named_configs(ex: Experiment):
         compress_observations = True
         horizon = 1500
         mask_action_distribution = True
-        num_training_iters = 40
+        num_training_iters = {
+            True: {
+                "human_alone": 30,
+                "human_with_assistant": 80,
+                "combined": 40,
+            }
+        }[inf_blocks][data_split]
         entropy_coeff_start = 0
         evaluation_explore = True
         checkpoint_name = None
@@ -478,10 +481,11 @@ def make_named_configs(ex: Experiment):
         width = 11
         height = 10
         depth = 10
+        horizon = 1500
         model = "convolutional"
         hidden_channels = 64
         filter_size = 5
-        dropout = 0
+        dropout = 0.5
         interleave_lstm = True
         interleave_lstm_every = 4 if interleave_lstm else -1
         num_layers = 8 if interleave_lstm else 6
@@ -507,3 +511,96 @@ def make_named_configs(ex: Experiment):
         )
         if dropout != 0:
             experiment_tag += f"/dropout_{dropout}"
+
+    @ex.named_config
+    def bc_assistant():
+        run = "BC"
+
+        inf_blocks = True
+        teleportation = False
+        train_batch_size = 9479
+        num_workers = 0
+        save_freq = 1
+        evaluation_num_workers = 0
+        evaluation_interval = None
+        mask_goal = True
+        use_extra_features = False
+        mask_other_players = False
+        goal_generator = "craftassist"
+        width = 11
+        height = 10
+        depth = 10
+        policy_ids = ["assistant"]
+        num_players = 2
+        model = "convolutional"
+        dropout = 0
+        line_of_sight_masking = True
+        hidden_channels = 64
+        filter_size = 5
+        norm_first = False
+        use_prev_action = False
+        use_fc_after_embedding = True
+        sgd_minibatch_size = 128
+        use_separated_transformer = True
+        interleave_lstm = True
+        interleave_lstm_every = 4 if interleave_lstm else -1
+        num_layers = 8 if interleave_lstm else 6
+        vf_share_layers = True
+        num_sgd_iter = 1
+        inf_blocks = True
+        teleportation = False
+        random_start_locations = True
+        policies_to_train = ["assistant"]
+        compress_observations = True
+        horizon = 1500
+        mask_action_distribution = True
+        num_training_iters = 100
+        entropy_coeff_start = 0
+        evaluation_explore = True
+        checkpoint_name = None
+        checkpoint_to_load_policies = None
+        if checkpoint_to_load_policies is not None:
+            load_policies_mapping = {"assistant": "human"}
+            overwrite_loaded_policy_model = True
+        overwrite_loaded_policy_type = True
+        exclude_loaded_policy_modules = ["action_head"]
+        lr_start = 1e-3 if checkpoint_to_load_policies is None else 1e-4
+        lr = lr_start
+        lr_schedule = [
+            [0, lr_start],
+            [train_batch_size * num_training_iters / 2, lr_start / 10],
+        ]
+        vf_loss_coeff = 0
+        gamma = 0.95
+        scale_obs = True
+        permute_block_types = True
+
+        input = (
+            f"data/human_data_cleaned/human_with_assistant/"
+            f"infinite_blocks_{str(inf_blocks).lower()}/"
+            "rllib_with_own_noops_flat_actions_flat_observations_place_wrong_reward_-1_repaired_player_0_inventory_0_1"
+        )
+        if interleave_lstm:
+            input += "_seq_64"
+            max_seq_len = 64
+
+        experiment_tag = (
+            f"bc_assistant/lr_{lr_start}/infinite_blocks_{str(inf_blocks).lower()}"
+        )
+        if permute_block_types:
+            experiment_tag += "/data_augmentation"
+        if not (
+            ((num_layers, hidden_channels) == (6, 64) and not interleave_lstm)
+            or ((num_layers, hidden_channels) == (8, 64) and interleave_lstm)
+        ):
+            experiment_tag += f"/model_{num_layers}x{hidden_channels}"
+        if dropout != 0:
+            experiment_tag += f"/dropout_{dropout}"
+        if not interleave_lstm:
+            experiment_tag += "/no_lstm"
+        if num_training_iters != 100:
+            experiment_tag += f"/{num_training_iters}_iters"
+        if checkpoint_to_load_policies is not None:
+            experiment_tag += f"/init_{checkpoint_name}"
+            if exclude_loaded_policy_modules:
+                experiment_tag += f"_exclude_{' '.join(exclude_loaded_policy_modules)}"

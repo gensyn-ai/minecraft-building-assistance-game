@@ -28,7 +28,7 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 SETTINGS.CONFIG
 
 
-ex = Experiment("evaluate")
+ex = Experiment("evaluate_human_modeling")
 
 
 @ex.config
