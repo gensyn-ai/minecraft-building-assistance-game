@@ -18,7 +18,7 @@ This section describes how to set up your environment for running MBAG.
 
     *Note: the interface with Minecraft via Malmo is currently only supported on macOS and Linux.*
 
-**Installing Java:** to run assistants in Minecraft, you will also need Java 8 installed. On macOS, you specifically need to install the Java JDK 8u152, which is available [here](https://www.oracle.com/java/technologies/javase/javase8-archive-downloads.html). See [https://github.com/microsoft/malmo/issues/907] for details about why the specific version for macOS is necessary.
+**Installing Java:** to run assistants in Minecraft, you will also need Java 8 installed. On macOS, you specifically need to install the Java JDK 8u152, which is available [here](https://www.oracle.com/java/technologies/javase/javase8-archive-downloads.html). See [https://github.com/microsoft/malmo/issues/907](https://github.com/microsoft/malmo/issues/907) for details about why the specific version for macOS is necessary.
 
 **Downloading the house dataset:** to install the house dataset from the [CraftAssist paper](https://arxiv.org/abs/1907.08584) that we use for training and evaluation, run:
 
