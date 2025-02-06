@@ -18,7 +18,7 @@ This section describes how to set up your environment for running MBAG.
 
     *Note: the interface with Minecraft via Malmo is currently only supported on macOS and Linux.*
 
-**Installing Java:** to run assistants in Minecraft, you will also need Java 8 installed. On macOS, you specifically need to install the Java JDK 8u152, which is available [here](https://www.oracle.com/java/technologies/javase/javase8-archive-downloads.html). See https://github.com/microsoft/malmo/issues/907 for details about why the specific version for macOS is necessary.
+**Installing Java:** to run assistants in Minecraft, you will also need Java 8 installed. On macOS, you specifically need to install the Java JDK 8u152, which is available [here](https://www.oracle.com/java/technologies/javase/javase8-archive-downloads.html). See [https://github.com/microsoft/malmo/issues/907] for details about why the specific version for macOS is necessary.
 
 **Downloading the house dataset:** to install the house dataset from the [CraftAssist paper](https://arxiv.org/abs/1907.08584) that we use for training and evaluation, run:
 
@@ -50,11 +50,11 @@ Playing with assistants in Minecraft and/or collecting data of humans playing ta
 
 ### Starting Minecraft
 
-To start Minecraft instances, run the following command, assuming you've installed the Malmo dependencies (see [setup](#setup)):
+To start Minecraft instances, run the following command, assuming you've installed the Malmo dependencies (see setup section):
 
     python -m malmo.minecraft launch --num_instances 2 --goal_visibility True False
 
-Set the number of Minecraft instances to launch with the `--num_instances` option. You need at least two instances to play with an assistant (one for the human and one for the AI assistant); if you want to record video of the game, start an additional instance for a "spectator" player.
+Set the number of Minecraft instances to launch with the `--num_instances` option. You need at least two instances to play with an assistant (one for the human and one for the AI assistant); if you want to record a video of the game, start an additional instance for a "spectator" player.
 
 The `--goal_visibility` argument controls which instances show the goal house as a transparent blueprint within the game. Generally you should set this to True for the first instances and False for additional instances (e.g., `--goal_visibility True False False` for three instances).
 
@@ -80,6 +80,8 @@ The `assistant_checkpoint` argument is still needed in this case to load the env
 Once the episode starts, press <kbd>Return</kbd> (<kbd>Enter</kbd>) to enable movement and <kbd>Delete</kbd> (<kbd>Fn</kbd> + <kbd>Backspace</kbd> on Mac) to enable flying.
 
 The episode will automatically terminate when the house is completed, but if you want to end it sooner, use <kbd>Ctrl</kbd>+<kbd>C</kbd>. At the end of the episode, the episode data will be saved and metrics will be printed out.
+
+You can additional specify `record_video=True` to record a video of the game.
 
 ## Running experiments
 
@@ -151,7 +153,7 @@ There are several steps in the pipeline to train and evaluate human models and a
       * `temperatures`: these can be used to modify the sampling temperature for the human model and assistant. In the paper, we set the assistant's temperature to 0.3 for the pretrained assistant and SFT assistant.
       * `num_episodes` and `num_workers`: see the above instructions on *evaluating performance of human models at building houses* for the meaning of these options.
       * `algorithm_config_updates`: the options in here can be used to modify AssistanceZero's MCTS at test time. The main option of interest is `"num_simulations"`; more simulations take longer but may lead to better performance. We always use 20 simulations for evaluation in the paper.
-      * `env_config_updates`: setting the `"subset"` option under `"goal_generator_config"` will choose whether to use sample goal houses from the train or test dataset.
+      * `env_config_updates`: setting the `"subset"` option under `"goal_generator_config"` will choose whether to use sample goal houses from the `"train"` or `"test"` dataset.
 
  6. **Pretrained and SFT assistants:** to train the pretrained and SFT assistants, run the following commands:
 
