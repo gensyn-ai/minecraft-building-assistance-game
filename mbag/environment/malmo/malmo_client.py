@@ -54,6 +54,7 @@ class MalmoObservationDict(TypedDict, total=False):
     ZPos: float
     events: List[MalmoEvent]
     LineOfSight: MalmoRayObservation
+    CommandsSinceLastObservation: List[str]
 
 
 INVENTORY_SLOT_NAMES: List[str] = [str(slot) for slot in range(INVENTORY_NUM_SLOTS)] + [
@@ -174,6 +175,8 @@ class MalmoClient(object):
                     </ObservationFromGrid>
                     <ObservationFromFullInventory />
                     <ObservationFromFullStats />
+                    <ObservationFromRecentCommands />
+                    <ObservationFromRay />
                     <AbsoluteMovementCommands />
                     <DiscreteMovementCommands>
                         <ModifierList type="deny-list">

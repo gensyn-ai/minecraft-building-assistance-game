@@ -292,23 +292,24 @@ def _update_breaking_placing(
     breaking_this_timestep = previous_state.player_is_breaking[player_index]
     new_is_placing = list(previous_state.player_is_placing)
     new_is_breaking = list(previous_state.player_is_breaking)
-    for event in malmo_observation.get("events", []):
-        if event.get("command") == "use":
-            new_is_placing[player_index] = event["pressed"]
-            placing_this_timestep = placing_this_timestep or event["pressed"]
-        elif event.get("command") == "attack":
-            new_is_breaking[player_index] = event["pressed"]
-            breaking_this_timestep = breaking_this_timestep or event["pressed"]
-
-    # Update last breaking and last placing.
-    new_last_breaking = previous_state.player_last_breaking.copy()
-    new_last_placing = previous_state.player_last_placing.copy()
-    block_looking_at = previous_state.player_blocks_looking_at[player_index]
-    if block_looking_at is not None:
-        if breaking_this_timestep:
-            new_last_breaking[block_looking_at] = player_index
-        if placing_this_timestep:
-            new_last_placing[block_looking_at] = player_index
+    if env_config["players"][player_index]["is_human"]:
+        for event in malmo_observation.get("events", []):
+            if event.get("command") == "use":
+                new_is_placing[player_index] = event["pressed"]
+                placing_this_timestep = placing_this_timestep or event["pressed"]
+            elif event.get("command") == "attack":
+                new_is_breaking[player_index] = event["pressed"]
+                breaking_this_timestep = breaking_this_timestep or event["pressed"]
+    else:
+        new_is_placing[player_index] = False
+        new_is_breaking[player_index] = False
+        for command in malmo_observation.get("CommandsSinceLastObservation", []):
+            if command == "use 1":
+                new_is_placing[player_index] = True
+                placing_this_timestep = True
+            elif command == "attack 1":
+                new_is_breaking[player_index] = True
+                breaking_this_timestep = True
 
     # Update looking at.
     new_blocks_looking_at = list(previous_state.player_blocks_looking_at)
@@ -320,7 +321,7 @@ def _update_breaking_placing(
             looking_x = line_of_sight["x"]
             looking_y = line_of_sight["y"]
             looking_z = line_of_sight["z"]
-            if new_player_x >= looking_x and looking_x.is_integer():
+            if looking_x <= new_player_x and looking_x.is_integer():
                 looking_x -= 1
             if looking_y <= new_player_y + 1.6 and looking_y.is_integer():
                 looking_y -= 1
@@ -339,6 +340,16 @@ def _update_breaking_placing(
                     int(looking_z),
                 )
     new_blocks_looking_at[player_index] = block_looking_at
+
+    # Update last breaking and last placing.
+    new_last_breaking = previous_state.player_last_breaking.copy()
+    new_last_placing = previous_state.player_last_placing.copy()
+    block_looking_at = new_blocks_looking_at[player_index]
+    if block_looking_at is not None:
+        if breaking_this_timestep:
+            new_last_breaking[block_looking_at] = player_index
+        if placing_this_timestep:
+            new_last_placing[block_looking_at] = player_index
 
     return (
         new_is_breaking,

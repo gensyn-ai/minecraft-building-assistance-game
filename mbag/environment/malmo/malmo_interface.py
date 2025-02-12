@@ -73,9 +73,6 @@ def _get_human_actions_from_block_diff(
 
             closest_squared_distance = float("inf")
             for possible_player_index in range(num_players):
-                if not env_config["players"][possible_player_index]["is_human"]:
-                    continue
-
                 player_x, player_y, player_z = new_state.player_locations[
                     possible_player_index
                 ]
