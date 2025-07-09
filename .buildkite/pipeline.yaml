@@ -6,4 +6,4 @@ steps:
       - mkdir dist
       - docker build -v $$PWD/dist:/app/dist .
     artifact_paths:
-      - dist/minecraft-building-assistance-game-*.whl
+      - dist/minecraft_building_assistance_game-*.whl
