@@ -18,7 +18,7 @@ dependencies = [
     "scikit-image>=0.21",
     "tqdm",
 ]
-requires-python = ">= 3.8"
+requires-python = ">=3.8,<4.0"
 classifiers=[
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
