@@ -1,0 +1,9 @@
+steps:
+  - label: ":python:"
+    agents:
+      queue: default
+    commands:
+      - mkdir dist
+      - docker build -v $$PWD/dist:/app/dist .
+    artifact_paths:
+      - dist/mbag-*.whl
