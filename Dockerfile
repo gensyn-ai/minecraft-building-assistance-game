@@ -7,3 +7,4 @@ WORKDIR /app
 COPY . /app
 
 RUN /root/.local/bin/poetry build --format=wheel
+RUN --mount=type=secret,id=pypi_token /root/.local/bin/poetry publish
