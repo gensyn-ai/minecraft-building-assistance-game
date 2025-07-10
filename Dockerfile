@@ -1,4 +1,4 @@
-FROM quay.io/pypa/manylinux2014_x86_64
+FROM python:3
 
 RUN curl -sSL https://install.python-poetry.org | python3.10 -
 
