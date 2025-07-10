@@ -4,7 +4,7 @@ steps:
       queue: default
     commands:
       - mkdir dist
-      - docker build -v $$PWD/dist:/app/dist --secret id=pypi_token,env=POETRY_PYPI_TOKEN_PYPI .
+      - docker build -v $$PWD/dist:/app/dist --secret id=pypi_token,env=PYPI_ACCESS_TOKEN .
     artifact_paths:
       - dist/minecraft_building_assistance_game-*.whl
     plugins:
