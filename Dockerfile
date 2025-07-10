@@ -1,4 +1,4 @@
-FROM docker.io/library/python:3.10
+FROM quay.io/pypa/manylinux2014_x86_64
 
 RUN curl -sSL https://install.python-poetry.org | python3 -
 
