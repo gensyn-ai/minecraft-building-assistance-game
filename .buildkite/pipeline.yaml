@@ -7,3 +7,11 @@ steps:
       - docker build -v $$PWD/dist:/app/dist .
     artifact_paths:
       - dist/minecraft_building_assistance_game-*.whl
+    plugins:
+      - seek-oss/aws-sm#v2.3.2:
+          json-to-env:
+            - secret-id: "arn:aws:secretsmanager:us-west-2:552179855668:secret:common/ci-secrets-HkoqU0"
+              json-key: ".EnvVars"
+
+      - aws-assume-role-with-web-identity#v1.0.0:
+          role-arn: arn:aws:iam::552179855668:role/buildkite-oidc-role-live

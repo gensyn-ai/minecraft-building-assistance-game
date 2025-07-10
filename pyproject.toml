@@ -3,7 +3,7 @@ requires = ["setuptools", "numpy>=1.21,<1.22"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "minecraft-building-assistance-game"
+name = "mbag-gensyn"
 version = "0.0.1"
 description = 'Minecraft Building Assistance Game'
 authors = [
