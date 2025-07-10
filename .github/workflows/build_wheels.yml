@@ -17,6 +17,9 @@ jobs:
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.0.1
+        env:
+          CIBW_ENVIRONMENT: "PIP_ONLY_BINARY=:all:"
+
         # env:
         #   CIBW_SOME_OPTION: value
         #   ...
