@@ -113,3 +113,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "ray.rllib.evaluation.sampler"
 follow_imports = "skip"
+
+[tool.poetry]
+package-mode = false
