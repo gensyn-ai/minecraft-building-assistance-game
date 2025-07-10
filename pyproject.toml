@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "numpy"]
+requires = ["setuptools", "numpy", "cibuildwheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -17,7 +17,6 @@ dependencies = [
     "gymnasium>=0.28",
     "scikit-image>=0.21",
     "tqdm",
-    "cibuildwheel (>=3.0.1,<4.0.0)",
 ]
 requires-python = ">=3.10,<4.0"
 classifiers=[
