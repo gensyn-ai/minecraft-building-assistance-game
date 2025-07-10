@@ -4,7 +4,7 @@ steps:
       queue: default
     commands:
       - mkdir dist
-      - docker build -v $$PWD/dist:/app/dist --secret id=pypi_token,env=PYPI_ACCESS_TOKEN .
+      - docker build -v $$PWD/dist:/app/dist --secret -v /var/run/docker.sock:/var/run/docker.sock id=pypi_token,env=PYPI_ACCESS_TOKEN .
     artifact_paths:
       - dist/minecraft_building_assistance_game-*.whl
     plugins:
