@@ -1,4 +1,4 @@
-FROM python:3
+FROM docker.io/library/python:3.10
 
 RUN curl -sSL https://install.python-poetry.org | python3.10 -
 
