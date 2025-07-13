@@ -7,7 +7,7 @@ name = "minecraft-building-assistance-game"
 version = "0.0.1"
 description = 'Minecraft Building Assistance Game'
 authors = [
-    {name = "Anonymous", email = "anonymous@example.com"},
+    {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@berkeley.edu"},
 ]
 dynamic = ["readme"]
 dependencies = [
@@ -31,7 +31,7 @@ classifiers=[
 ]
 
 [project.urls]
-Homepage = "https://anonymous.4open.science/w/scalably-solving-assistance-games/"
+Homepage = "https://github.com/cassidylaidlaw/effective-horizon"
 
 [tool.setuptools.dynamic]
 readme = {file=["README.md"], content-type="text/markdown"}
