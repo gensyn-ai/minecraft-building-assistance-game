@@ -218,7 +218,7 @@ class MbagCallbacks(AlphaZeroDefaultCallbacks):
             **kwargs,
         )
 
-        info_dict = cast(MbagInfoDict, self._get_last_info(episode, "player_0"))
+        info_dict = self._get_last_info(episode, "player_0")
         episode.custom_metrics["goal_similarity"] = info_dict["goal_similarity"]
         episode.custom_metrics["goal_percentage"] = info_dict["goal_percentage"]
         env = unwrap_mbag_env(base_env.get_sub_environments()[env_index or 0])

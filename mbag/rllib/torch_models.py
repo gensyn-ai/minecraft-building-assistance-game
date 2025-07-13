@@ -380,7 +380,7 @@ class MbagTorchModel(TorchModelV2, nn.Module, ABC):
         """
 
         value_head_layers: List[nn.Module] = [
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.AdaptiveAvgPool3d(1),
             nn.Flatten(),
         ]
         for layer_index in range(self.num_value_layers):
@@ -1818,7 +1818,7 @@ class DiscriminatorMixin(MbagTorchModel, ModelWithDiscriminator):
 
     def _construct_discriminator_head(self) -> nn.Module:
         return nn.Sequential(
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.AdaptiveAvgPool3d(1),
             nn.Flatten(),
             nn.Linear(self.hidden_size, 1),
         )

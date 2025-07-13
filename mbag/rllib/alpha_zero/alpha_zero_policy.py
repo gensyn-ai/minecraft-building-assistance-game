@@ -690,7 +690,7 @@ class MbagAlphaZeroPolicy(
         logits, state = model(train_batch)
         values = model.value_function()
         logits, values = torch.squeeze(logits), torch.squeeze(values)
-        dist = dist_class(logits, model=model)
+        dist = dist_class(cast(Any, logits), model=model)
         assert isinstance(dist, TorchCategorical)
 
         # RNN case: Mask away 0-padded chunks at end of time axis.
@@ -837,7 +837,7 @@ class MbagAlphaZeroPolicy(
 
         # KL regularization.
         if ANCHOR_POLICY_ACTION_DIST_INPUTS in train_batch:
-            action_dist = dist_class(logits, model)
+            action_dist = dist_class(cast(Any, logits), model)
             anchor_policy_action_dist_inputs = train_batch[
                 ANCHOR_POLICY_ACTION_DIST_INPUTS
             ]

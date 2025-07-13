@@ -202,7 +202,7 @@ class MbagPPOTorchPolicy(OptimizerMixinV2, PPOTorchPolicy):
         place_block_logits = logits[
             :, self.action_mapping.to(self.device)[:, 0] == MbagAction.PLACE_BLOCK
         ].reshape((-1, MinecraftBlocks.NUM_BLOCKS) + world_obs.size()[-3:])
-        place_block_logits = place_block_logits.permute((0, 2, 3, 4, 1)).flatten(
+        place_block_logits = place_block_logits.permute([0, 2, 3, 4, 1]).flatten(
             end_dim=3
         )
         place_block_mask &= (
