@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "minecraft-building-assistance-game"
 version = "0.0.1"
-description = 'Minecraft Building Assistance Game'
+description = 'Code for the ICML 2025 paper "AssistanceZero: Scalably Solving Assistance Games".'
 authors = [
-    {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@berkeley.edu"},
+    {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@cs.berkeley.edu"},
 ]
 dynamic = ["readme"]
 dependencies = [
@@ -31,7 +31,7 @@ classifiers=[
 ]
 
 [project.urls]
-Homepage = "https://github.com/cassidylaidlaw/effective-horizon"
+Homepage = "https://cassidylaidlaw.github.io/minecraft-building-assistance-game/"
 
 [tool.setuptools.dynamic]
 readme = {file=["README.md"], content-type="text/markdown"}
@@ -39,13 +39,14 @@ readme = {file=["README.md"], content-type="text/markdown"}
 [tool.setuptools]
 packages = [
     "mbag",
+    "mbag.agents",
     "mbag.environment",
     "mbag.environment.goals",
     "mbag.environment.malmo",
-    "mbag.agents",
     "mbag.evaluation",
     "mbag.rllib",
     "mbag.rllib.alpha_zero",
+    "mbag.rllib.models",
     "mbag.scripts",
 ]
 
