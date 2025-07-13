@@ -1,8 +1,10 @@
 # Minecraft Building Assistance Game
 
-This repository contains code for the paper [AssistanceZero: Scalably Solving Assistance Games](https://arxiv.org/abs/2504.07091). It includes the implementation of the Minecraft Building Assistance Game (MBAG), which we introduce to study more complex assistance games. It also includes code for running all experiments in the paper, including training assistants for MBAG with AssistanceZero.
+This repository contains code for the ICML 2025 paper [AssistanceZero: Scalably Solving Assistance Games](https://arxiv.org/abs/2504.07091). It includes the implementation of the Minecraft Building Assistance Game (MBAG), which we introduce to study more complex assistance games. It also includes code for running all experiments in the paper, including training assistants for MBAG with AssistanceZero.
 
 MBAG is a multiagent environment that can run on its own within Python. It can also connect to running instances of Minecraft via [Project Malmo](https://github.com/microsoft/malmo) for visualization or for interaction with human players.
+
+[See the project website for videos of our Minecraft assistant playing with real people!](https://cassidylaidlaw.github.io/minecraft-building-assistance-game/)
 
 ## Setup
 
