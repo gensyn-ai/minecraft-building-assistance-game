@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "minecraft-building-assistance-game"
-version = "0.0.1"
+version = "0.0.2"
 description = 'Code for the ICML 2025 paper "AssistanceZero: Scalably Solving Assistance Games".'
 authors = [
     {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@cs.berkeley.edu"},
