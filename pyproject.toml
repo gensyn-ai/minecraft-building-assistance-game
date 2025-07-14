@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mbag-gensyn"
-version = "0.0.2"
+version = "0.0.3"
 description = 'Minecraft Building Assistance Game'
 authors = [
     {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@berkeley.edu"},
