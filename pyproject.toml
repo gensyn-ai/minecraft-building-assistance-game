@@ -11,7 +11,7 @@ authors = [
 ]
 dynamic = ["readme"]
 dependencies = [
-    "numpy",
+    "numpy==1.26.4",
     "connected-components-3d==3.12.3",
     "types-PyYAML==5.4.3",
     "gymnasium>=0.28",
