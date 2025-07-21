@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mbag-gensyn"
-version = "0.0.3"
-description = 'Minecraft Building Assistance Game'
+version = "0.0.4"
+description = 'Code for the ICML 2025 paper "AssistanceZero: Scalably Solving Assistance Games".'
 authors = [
-    {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@berkeley.edu"},
+    {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@cs.berkeley.edu"},
 ]
 dynamic = ["readme"]
 dependencies = [
@@ -30,7 +30,7 @@ classifiers=[
 ]
 
 [project.urls]
-Homepage = "https://github.com/cassidylaidlaw/effective-horizon"
+Homepage = "https://cassidylaidlaw.github.io/minecraft-building-assistance-game/"
 
 [tool.setuptools.dynamic]
 readme = {file=["README.md"], content-type="text/markdown"}
@@ -38,13 +38,14 @@ readme = {file=["README.md"], content-type="text/markdown"}
 [tool.setuptools]
 packages = [
     "mbag",
+    "mbag.agents",
     "mbag.environment",
     "mbag.environment.goals",
     "mbag.environment.malmo",
-    "mbag.agents",
     "mbag.evaluation",
     "mbag.rllib",
     "mbag.rllib.alpha_zero",
+    "mbag.rllib.models",
     "mbag.scripts",
 ]
 
@@ -89,7 +90,6 @@ known_first_party = ["mbag"]
 known_third_party = ["ray", "torch"]
 
 [tool.mypy]
-python_version = 3.8
 warn_return_any = true
 warn_redundant_casts = true
 warn_unused_ignores = true

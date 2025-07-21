@@ -1,0 +1,160 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AssistanceZero: Scalably Solving Assistance Games</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <style type="text/css">
+        @font-face {
+            font-family: "San Francisco";
+            font-weight: 400;
+            src: url("https://applesocial.s3.amazonaws.com/assets/styles/fonts/sanfrancisco/sanfranciscodisplay-regular-webfont.woff");
+        }
+        @font-face {
+            font-family: "San Francisco";
+            font-weight: 700;
+            src: url("https://applesocial.s3.amazonaws.com/assets/styles/fonts/sanfrancisco/sanfranciscodisplay-bold-webfont.woff");
+        }
+
+        * { font-family: "San Francisco", Arial, sans-serif; }
+        p { font-size: 18px; }
+        h1, h2, h3, h4, h5, h6 { font-weight: 700; }
+        i em { font-weight: 700; }
+        .icon { filter: invert(1); width: 1.2em; height: 1.2em; margin-top: -2px; margin-right: 0.5em; }
+        .youtube { aspect-ratio: 16/9; width: 100%; }
+    </style>
+</head>
+
+<body>
+    <div class="container-md pb-5 mb-5">
+        <div class="row">
+            <div class="col-md-12">
+                <h1 class="mt-5 mb-3">AssistanceZero: Scalably Solving Assistance Games</h1>
+                <p>
+                    <a href="https://cassidylaidlaw.com">Cassidy Laidlaw</a>,
+                    <a href="https://elibronstein.com">Eli Bronstein</a>,
+                    Timothy Guo, Dylan Feng, Lukas Berglund,
+                    <a href="https://justinsvegliato.com">Justin Svegliato</a>,
+                    <a href="https://people.eecs.berkeley.edu/~russell/">Stuart Russell</a>, and
+                    <a href="https://people.eecs.berkeley.edu/~anca/">Anca Dragan</a>
+                </p>
+                <p><b>ICML 2025</b></p>
+                <a href="https://github.com/cassidylaidlaw/minecraft-building-assistance-game" class="btn btn-primary"><img class="icon" src="website/code.svg">Code</a>
+                <a href="https://arxiv.org/abs/2504.07091" class="btn btn-primary"><img class="icon" src="website/paper.svg">Paper</a>
+                <p class="mt-5">
+                    We develop a scalable approach to solving <em>assistance games</em>, which are an alternative paradigm to RLHF for training helpful and harmless assistants. We demonstrate our approach in a new environment, the <strong>Minecraft Building Assistance Game (MBAG)</strong>, where an assistant helps a user build a house that is unknown to the assistant.
+
+                    Here, we provide <a href="#code">code for MBAG and the experiments in the paper</a>. We also present <a href="#videos">videos from our human study</a>.
+                </p>
+            </div>
+        </div>
+
+        <div class="row mt-5">
+            <div class="col-md-5">
+                <img src="website/assistance-games-vs-rlhf.png" style="width: 100%" class="mb-3" />
+            </div>
+            <div class="col-md-7">
+                <p><i>Assistance games are an alternative paradigm to RLHF for developing helpful and harmless AI assistants. In RLHF (top), an assistant policy is trained to take in the environment state (e.g., human chat messages) and produce an action (e.g., a response message). The assistant policy is trained to maximize a reward function which is learned from human feedback. In contrast, in assistance games (bottom), the human is assumed to be another agent acting in the same environment as the assistant, rather than an exogenous source of feedback. The human and assistant share a reward function, but it depends on <em>reward parameters</em> that are initially known only to the human.</i></p>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+
+                <h2 class="mt-5 mb-3" id="code">Code</h2>
+                <p>
+                    The code for MBAG and the experiments in the paper is available at <a href="https://github.com/cassidylaidlaw/minecraft-building-assistance-game">https://github.com/cassidylaidlaw/minecraft-building-assistance-game</a>. The README at that link contains instructions for running our assistants in MBAG.
+                </p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <h2 class="mt-5 mb-3" id="videos">Videos</h2>
+                <p>All videos are shown at 2x real time.</p>
+                <h3 class="mt-5 mb-3" id="videos">Emergent behaviors from AssistanceZero</h3>
+                <p>Our assistant trained for MBAG using assistance games learns to exhibit a variety of behaviors that are helpful to users. Here, we show three examples of emergent behaviors from AssistanceZero, our algorithm for solving assistance games. These are the same three examples shown in Figure 1 of the paper.</p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                <iframe class="youtube" src="https://www.youtube.com/embed/i0aIlvdBw7s?si=GnS_mIfxvs0691KY" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+            </div>
+            <div class="col-md-4 mb-5">
+                <p><i><strong>Digging a foundation:</strong> the assistant watches the human outline the house's foundation. Then, the assistant breaks blocks within the outline and they finish the foundation together.</i></p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                <iframe class="youtube" src="https://www.youtube.com/embed/03ewwcixvBU?si=73Me3Yzj5cmakQDu" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+            </div>
+            <div class="col-md-4 mb-5">
+                <p><i><strong>Building a roof:</strong> the assistant watches the human start building the roof of the house. Then, the human is able to work on other parts of the house while the assistant continues working on the roof.</i></p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                <iframe class="youtube" src="https://www.youtube.com/embed/8e07pQ8YXYI?si=b6ZxY7RyHFH_-8lF" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+            </div>
+            <div class="col-md-4 mb-5">
+                <p><i><strong>Learning from corrections:</strong> the assistant has built the stone walls of the house one block too tall. The human breaks one of the incorrect blocks. The assistant learns from its mistake and helps the human break the remaining incorrect blocks.</i></p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <h3 class="mt-5 mb-3" id="videos">Full videos from our human study</h3>
+                <p>In our human study, sixteen participants built houses under four conditions: building alone, building with our AssistanceZero assistant, building with an expert human assistant, and building with a supervised fine-tuning (SFT) assistant. Each participant was assigned a different house but built the same house under all four conditions. The assistants could not directly see the goal structure during the study; only the participants were able to see their goal as a transparent blueprint while they played. None of the assistants, including the human assistant, had previously seen the houses. Here, we show two participants from the study under all four conditions.</p>
+                <h4>Participant ID 25</h4>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/VzcpuX1TuNU?si=TfZz88Ul7Jc2Vprg" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>No assistant</i></p>
+            </div>
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/f8s1VnFpkRM?si=XCKPKXbawUDE2axo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>AssistanceZero assistant</i></p>
+            </div>
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/hXXbmZiiO0I?si=m-zc65Gped5ETBe4" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>Expert human assistant</i></p>
+            </div>
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/uwISATc9wlE?si=xTqBC-pB5krxMtXg" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>SFT assistant</i></p>
+            </div>
+        </div>
+
+        <div class="row mt-5">
+            <div class="col-md-12">
+                <h4>Participant ID 31</h4>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/QcutANiJ3jU?si=gkynMcfpA9FaFdIP" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>No assistant</i></p>
+            </div>
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/iGlIsJRkFe8?si=T2sz2Xwd19ZB3J3S" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>AssistanceZero assistant</i></p>
+            </div>
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/b6OhQDHrgUM?si=dH5w88kxlN9TKvAS" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>Expert human assistant</i></p>
+            </div>
+            <div class="col-md-6">
+                <iframe class="youtube" src="https://www.youtube.com/embed/QKGuxPotHCE?si=RAmcp_ZjXK37V_kG" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                <p><i>SFT assistant</i></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  </body>
+</body>
+
+</html>
