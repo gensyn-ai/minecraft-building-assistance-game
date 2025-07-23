@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mbag-gensyn"
-version = "0.0.4"
+version = "0.0.5"
 description = 'Code for the ICML 2025 paper "AssistanceZero: Scalably Solving Assistance Games".'
 authors = [
     {name = "Cassidy Laidlaw", email = "cassidy_laidlaw@cs.berkeley.edu"},
