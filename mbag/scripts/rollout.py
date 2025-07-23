@@ -28,7 +28,7 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 faulthandler.register(signal.SIGUSR1)
 
 
-ex = Experiment("rollout")
+ex = Experiment("rollout", save_git_info=False)
 
 
 @ex.config

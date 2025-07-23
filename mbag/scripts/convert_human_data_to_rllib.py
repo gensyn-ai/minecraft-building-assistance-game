@@ -19,7 +19,7 @@ from mbag.rllib.human_data import (
     repair_missing_player_locations,
 )
 
-ex = Experiment()
+ex = Experiment(save_git_info=False)
 
 
 @ex.config

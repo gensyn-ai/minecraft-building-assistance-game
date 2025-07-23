@@ -18,7 +18,7 @@ from mbag.evaluation.evaluator import MbagEvaluator
 
 logger = logging.getLogger(__name__)
 
-ex = Experiment()
+ex = Experiment(save_git_info=False)
 
 
 @ex.config

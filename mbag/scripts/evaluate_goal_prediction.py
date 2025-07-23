@@ -34,7 +34,7 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 SETTINGS.CONFIG
 
 
-ex = Experiment("evaluate_goal_prediction")
+ex = Experiment("evaluate_goal_prediction", save_git_info=False)
 
 
 @ex.config

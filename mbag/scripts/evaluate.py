@@ -40,7 +40,7 @@ from mbag.rllib.training_utils import load_policy, load_trainer_config
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
 
-ex = Experiment("evaluate")
+ex = Experiment("evaluate", save_git_info=False)
 
 # Useful for debugging when debugging freezes.
 faulthandler.register(signal.SIGUSR1)

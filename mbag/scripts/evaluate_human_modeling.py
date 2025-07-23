@@ -28,7 +28,7 @@ SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 SETTINGS.CONFIG
 
 
-ex = Experiment("evaluate_human_modeling")
+ex = Experiment("evaluate_human_modeling", save_git_info=False)
 
 
 @ex.config

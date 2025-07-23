@@ -16,7 +16,7 @@ from mbag.evaluation.metrics import (
     calculate_metrics,
 )
 
-ex = Experiment()
+ex = Experiment(save_git_info=False)
 
 
 @ex.config

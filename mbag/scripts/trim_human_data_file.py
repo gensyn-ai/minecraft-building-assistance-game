@@ -10,7 +10,7 @@ from mbag.environment.types import MbagAction, MbagInfoDict, MbagObs
 
 logger = logging.getLogger(__name__)
 
-ex = Experiment()
+ex = Experiment(save_git_info=False)
 
 
 @ex.config

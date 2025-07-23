@@ -25,7 +25,7 @@ from mbag.rllib.training_utils import build_logger_creator, load_trainer_config
 SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
 
-ex = Experiment("create_mixture_model")
+ex = Experiment("create_mixture_model", save_git_info=False)
 
 
 def find_shared_ancestor(paths):

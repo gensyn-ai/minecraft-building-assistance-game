@@ -76,7 +76,7 @@ else:
         from typing import Sequence as List
 
 
-ex = Experiment("train_mbag")
+ex = Experiment("train_mbag", save_git_info=False)
 SACRED_SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 
 torch.backends.cuda.matmul.allow_tf32 = True
