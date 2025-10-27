@@ -70,7 +70,7 @@ rllib = [
     "braceexpand>=0.1.7",
 ]
 malmo = [
-    "mbag-malmo>=0.38.0",
+    "mbag-malmo-gensyn>=0.38.3.0",
 ]
 
 [tool.black]
